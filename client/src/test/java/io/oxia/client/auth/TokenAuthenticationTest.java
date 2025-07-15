@@ -15,14 +15,12 @@
  */
 package io.oxia.client.auth;
 
-import static io.grpc.Metadata.ASCII_STRING_MARSHALLER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import io.grpc.Metadata;
 import io.oxia.client.api.Authentication;
 import java.io.File;
 import java.lang.reflect.Constructor;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 public class TokenAuthenticationTest {
@@ -30,18 +28,18 @@ public class TokenAuthenticationTest {
     @Test
     void testTokenAuthentication() {
         TokenAuthentication tokenAuthentication = new TokenAuthentication("1234");
-        Metadata metadata = tokenAuthentication.generateCredentials();
+        Map<String, String> metadata = tokenAuthentication.generateCredentials();
         assertThat(metadata).isNotNull();
-        String token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
     }
 
     @Test
     void testTokenAuthenticationSupplier() {
         TokenAuthentication tokenAuthentication = new TokenAuthentication(() -> "1234");
-        Metadata metadata = tokenAuthentication.generateCredentials();
+        Map<String, String> metadata = tokenAuthentication.generateCredentials();
         assertThat(metadata).isNotNull();
-        String token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
     }
 
@@ -52,9 +50,9 @@ public class TokenAuthenticationTest {
         declaredConstructor.setAccessible(true);
         Authentication auth = (Authentication) declaredConstructor.newInstance();
         ((TokenAuthentication) auth).configure("token:1234");
-        Metadata metadata = auth.generateCredentials();
+        Map<String, String> metadata = auth.generateCredentials();
         assertThat(metadata).isNotNull();
-        String token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
 
         ((TokenAuthentication) auth).configure("file:/path/to/file");
@@ -66,7 +64,7 @@ public class TokenAuthenticationTest {
         ((TokenAuthentication) auth).configure("file://" + file.getAbsolutePath());
         metadata = auth.generateCredentials();
         assertThat(metadata).isNotNull();
-        token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 4567");
 
         assertThatThrownBy(() -> ((TokenAuthentication) auth).configure("invalid:1234"))
