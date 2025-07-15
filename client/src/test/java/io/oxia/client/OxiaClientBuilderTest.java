@@ -19,6 +19,7 @@ import static java.time.Duration.ZERO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;

@@ -17,6 +17,7 @@ package io.oxia.client.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import io.oxia.client.api.Authentication;
 import java.io.File;
 import java.lang.reflect.Constructor;

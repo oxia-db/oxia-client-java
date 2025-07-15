@@ -15,9 +15,6 @@
  */
 package io.oxia.client.auth;
 
-import static io.grpc.Metadata.ASCII_STRING_MARSHALLER;
-
-import io.grpc.Metadata;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.EncodedAuthenticationParameterSupport;
 import java.io.IOException;
@@ -48,7 +45,8 @@ public class TokenAuthentication implements Authentication, EncodedAuthenticatio
 
     @Override
     public Map<String, String> generateCredentials() {
-        return Collections.singletonMap(AUTHORIZATION_KEY, String.format("%s %s", BEARER_TYPE, tokenSupplier.get()));
+        return Collections.singletonMap(
+                AUTHORIZATION_KEY, String.format("%s %s", BEARER_TYPE, tokenSupplier.get()));
     }
 
     @Override
