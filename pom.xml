@@ -99,6 +99,7 @@
         <spotless.plugin.version>2.39.0</spotless.plugin.version>
         <byte-buddy.version>1.15.10</byte-buddy.version>
         <commons-compress.version>1.26.0</commons-compress.version>
+        <commons-lang3.version>3.18.0</commons-lang3.version>
     </properties>
 
     <dependencyManagement>
@@ -162,6 +163,11 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-compress</artifactId>
                 <version>${commons-compress.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.assertj</groupId>
