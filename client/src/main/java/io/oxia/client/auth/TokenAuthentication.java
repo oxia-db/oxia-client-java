@@ -15,21 +15,19 @@
  */
 package io.oxia.client.auth;
 
-import static io.grpc.Metadata.ASCII_STRING_MARSHALLER;
-
-import io.grpc.Metadata;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.EncodedAuthenticationParameterSupport;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class TokenAuthentication implements Authentication, EncodedAuthenticationParameterSupport {
 
-    private static final Metadata.Key<String> AUTHORIZATION_METADATA_KEY =
-            Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER);
+    private static final String AUTHORIZATION_KEY = "Authorization";
     private static final String BEARER_TYPE = "Bearer";
 
     private Supplier<String> tokenSupplier;
@@ -46,11 +44,9 @@ public class TokenAuthentication implements Authentication, EncodedAuthenticatio
     }
 
     @Override
-    public Metadata generateCredentials() {
-        Metadata credentials = new Metadata();
-        credentials.put(
-                AUTHORIZATION_METADATA_KEY, String.format("%s %s", BEARER_TYPE, tokenSupplier.get()));
-        return credentials;
+    public Map<String, String> generateCredentials() {
+        return Collections.singletonMap(
+                AUTHORIZATION_KEY, String.format("%s %s", BEARER_TYPE, tokenSupplier.get()));
     }
 
     @Override

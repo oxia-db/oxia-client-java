@@ -15,9 +15,9 @@
  */
 package io.oxia.client.api;
 
-import io.grpc.Metadata;
+import java.util.Map;
 
 public interface Authentication {
 
-    Metadata generateCredentials();
+    Map<String, String> generateCredentials();
 }

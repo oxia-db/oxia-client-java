@@ -15,16 +15,15 @@
  */
 package io.oxia.client;
 
-import static io.grpc.Metadata.ASCII_STRING_MARSHALLER;
 import static java.time.Duration.ZERO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.grpc.Metadata;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -106,9 +105,9 @@ class OxiaClientBuilderTest {
         assertThat(impl.authParams).isEqualTo("token:1234");
         assertThat(impl.authentication).isNotNull();
         assertThat(impl.authentication).isInstanceOf(TokenAuthentication.class);
-        Metadata metadata = impl.authentication.generateCredentials();
+        Map<String, String> metadata = impl.authentication.generateCredentials();
         assertThat(metadata).isNotNull();
-        String token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
     }
 
@@ -128,9 +127,9 @@ class OxiaClientBuilderTest {
         assertThat(impl.authParams).isEqualTo("token:1234");
         assertThat(impl.authentication).isNotNull();
         assertThat(impl.authentication).isInstanceOf(TokenAuthentication.class);
-        Metadata metadata = impl.authentication.generateCredentials();
+        Map<String, String> metadata = impl.authentication.generateCredentials();
         assertThat(metadata).isNotNull();
-        String token = metadata.get(Metadata.Key.of("Authorization", ASCII_STRING_MARSHALLER));
+        String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
     }
 

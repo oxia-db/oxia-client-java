@@ -23,6 +23,7 @@ import io.grpc.ChannelCredentials;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.TlsChannelCredentials;
 import io.grpc.internal.BackoffPolicy;
 import io.oxia.client.ClientConfig;
@@ -93,8 +94,16 @@ public class OxiaStub implements AutoCloseable {
 
                                         @Override
                                         public void applyRequestMetadata(
-                                                RequestInfo requestInfo, Executor appExecutor, MetadataApplier applier) {
-                                            applier.apply(authentication.generateCredentials());
+                                                RequestInfo requestInfo, Executor appExecutor,
+                                                MetadataApplier applier) {
+                                            Metadata credentials = new Metadata();
+                                            authentication.generateCredentials()
+                                                    .forEach((key, value) ->
+                                                            credentials.put(
+                                                                    Metadata.Key.of(key,
+                                                                            Metadata.ASCII_STRING_MARSHALLER),
+                                                                    value));
+                                            applier.apply(credentials);
                                         }
 
                                         @Override
