@@ -188,12 +188,6 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                         new StreamObserver<>() {
                             @Override
                             public void onNext(CloseSessionResponse value) {
-                                log.info(
-                                        "Session closed shard={} sessionId={} clientIdentity={}",
-                                        shardId,
-                                        sessionId,
-                                        clientIdentifier);
-
                             }
 
                             @Override
@@ -210,6 +204,12 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             }
                         });
 
-        return result;
+        return result.whenComplete((__, exception) -> {
+            log.info(
+                    "Session closed shard={} sessionId={} clientIdentity={}",
+                    shardId,
+                    sessionId,
+                    clientIdentifier);
+        });
     }
 }
