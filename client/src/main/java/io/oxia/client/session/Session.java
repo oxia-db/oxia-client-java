@@ -193,8 +193,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                                         shardId,
                                         sessionId,
                                         clientIdentifier);
-                                listener.onSessionClosed(Session.this);
-                                result.complete(null);
+
                             }
 
                             @Override
@@ -205,7 +204,10 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             }
 
                             @Override
-                            public void onCompleted() {}
+                            public void onCompleted() {
+                                listener.onSessionClosed(Session.this);
+                                result.complete(null);
+                            }
                         });
 
         return result;
