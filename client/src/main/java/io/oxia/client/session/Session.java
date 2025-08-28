@@ -204,7 +204,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             }
                         });
 
-        return result.whenComplete((__, exception) -> {
+        return result.whenComplete((__, ignore) -> {
             log.info(
                     "Session closed shard={} sessionId={} clientIdentity={}",
                     shardId,
