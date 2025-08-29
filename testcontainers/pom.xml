@@ -22,7 +22,7 @@
     <parent>
         <groupId>io.github.oxia-db</groupId>
         <artifactId>oxia-java</artifactId>
-        <version>0.6.0</version>
+        <version>0.6.1</version>
     </parent>
 
     <artifactId>oxia-testcontainers</artifactId>
