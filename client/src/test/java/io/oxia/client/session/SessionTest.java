@@ -168,6 +168,7 @@ class SessionTest {
             }
 
             responseObserver.onNext(KeepAliveResponse.getDefaultInstance());
+            responseObserver.onCompleted();
         }
 
         @Override
@@ -175,6 +176,7 @@ class SessionTest {
                 CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
             closed.compareAndSet(false, true);
             responseObserver.onNext(CloseSessionResponse.getDefaultInstance());
+            responseObserver.onCompleted();
         }
     }
 }

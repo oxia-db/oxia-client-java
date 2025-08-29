@@ -19,6 +19,7 @@ import static lombok.AccessLevel.PACKAGE;
 import static lombok.AccessLevel.PUBLIC;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
@@ -120,7 +121,14 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         this.lastSuccessfullResponse = Instant.now();
         this.heartbeatFuture =
                 executor.scheduleAtFixedRate(
-                        this::sendKeepAlive,
+                        () -> {
+                            // we should catch exception to avoid the schedule future complete
+                            try {
+                                sendKeepAlive();
+                            } catch (Throwable ex) {
+                                log.warn("receive error when send keep-alive request", Throwables.getRootCause(ex));
+                            }
+                        },
                         heartbeatInterval.toMillis(),
                         heartbeatInterval.toMillis(),
                         TimeUnit.MILLISECONDS);
@@ -187,15 +195,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                         request,
                         new StreamObserver<>() {
                             @Override
-                            public void onNext(CloseSessionResponse value) {
-                                log.info(
-                                        "Session closed shard={} sessionId={} clientIdentity={}",
-                                        shardId,
-                                        sessionId,
-                                        clientIdentifier);
-                                listener.onSessionClosed(Session.this);
-                                result.complete(null);
-                            }
+                            public void onNext(CloseSessionResponse value) {}
 
                             @Override
                             public void onError(Throwable t) {
@@ -205,9 +205,19 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             }
 
                             @Override
-                            public void onCompleted() {}
+                            public void onCompleted() {
+                                listener.onSessionClosed(Session.this);
+                                result.complete(null);
+                            }
                         });
 
-        return result;
+        return result.whenComplete(
+                (__, ignore) -> {
+                    log.info(
+                            "Session closed shard={} sessionId={} clientIdentity={}",
+                            shardId,
+                            sessionId,
+                            clientIdentifier);
+                });
     }
 }
