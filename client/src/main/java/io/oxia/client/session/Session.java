@@ -195,8 +195,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                         request,
                         new StreamObserver<>() {
                             @Override
-                            public void onNext(CloseSessionResponse value) {
-                            }
+                            public void onNext(CloseSessionResponse value) {}
 
                             @Override
                             public void onError(Throwable t) {
@@ -212,12 +211,13 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             }
                         });
 
-        return result.whenComplete((__, ignore) -> {
-            log.info(
-                    "Session closed shard={} sessionId={} clientIdentity={}",
-                    shardId,
-                    sessionId,
-                    clientIdentifier);
-        });
+        return result.whenComplete(
+                (__, ignore) -> {
+                    log.info(
+                            "Session closed shard={} sessionId={} clientIdentity={}",
+                            shardId,
+                            sessionId,
+                            clientIdentifier);
+                });
     }
 }
