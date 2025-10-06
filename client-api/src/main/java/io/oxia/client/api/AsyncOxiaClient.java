@@ -215,7 +215,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *
      * @param key
      * @param listener
-     * @param optionss
+     * @param options
      * @return
      */
     Closeable getSequenceUpdates(

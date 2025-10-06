@@ -19,7 +19,7 @@ import io.oxia.client.api.OxiaClientBuilder;
 import java.lang.reflect.Constructor;
 
 /**
- * This class loads the implementation for {@link OxiaClientBuilderImpl} and allows you to decouple
+ * This class loads the implementation for {@link OxiaClientBuilder} and allows you to decouple
  * the API from the actual implementation. <b>This class is internal to the Oxia API implementation,
  * and it is not part of the public API it is not meant to be used by client applications.</b>
  */

@@ -78,16 +78,16 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
             return;
         }
 
-        long shardId = shardManager.getShardForKey(partitionKey);
-        var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader).async();
+            long shardId = shardManager.getShardForKey(partitionKey);
+            var leader = shardManager.leader(shardId);
+            var stub = stubManager.getStub(leader).async();
 
-        var request = GetSequenceUpdatesRequest.newBuilder().setShard(shardId).setKey(key).build();
+            var request = GetSequenceUpdatesRequest.newBuilder().setShard(shardId).setKey(key).build();
 
-        this.call =
-                stub.getChannel()
-                        .newCall(OxiaClientGrpc.getGetSequenceUpdatesMethod(), stub.getCallOptions());
-        io.grpc.stub.ClientCalls.asyncServerStreamingCall(call, request, this);
+            this.call =
+                    stub.getChannel()
+                            .newCall(OxiaClientGrpc.getGetSequenceUpdatesMethod(), stub.getCallOptions());
+            io.grpc.stub.ClientCalls.asyncServerStreamingCall(call, request, this);
     }
 
     @Override
