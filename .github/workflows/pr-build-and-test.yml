@@ -32,8 +32,8 @@ jobs:
       - name: Build and Verify
         run: mvn --no-transfer-progress --batch-mode verify
 
-#      - name: Validate Javadoc creation
-#        run: mvn --no-transfer-progress --batch-mode javadoc:jar
+      - name: Validate Javadoc creation
+        run: mvn --no-transfer-progress --batch-mode javadoc:jar -pl client-api
 
       - name: Package surefire test results
         if: failure()

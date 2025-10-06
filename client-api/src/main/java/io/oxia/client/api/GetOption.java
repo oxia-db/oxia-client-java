@@ -25,26 +25,26 @@ public sealed interface GetOption
 
     /**
      * ComparisonFloor option will make the get operation to search for the record whose key is the
-     * highest key <= to the supplied key.
+     * highest key &le; to the supplied key.
      */
     GetOption ComparisonFloor = new OptionComparisonType(OptionComparisonType.ComparisonType.Floor);
 
     /**
      * ComparisonCeiling option will make the get operation to search for the record whose key is the
-     * lowest key >= to the supplied key.
+     * lowest key &ge; to the supplied key.
      */
     GetOption ComparisonCeiling =
             new OptionComparisonType(OptionComparisonType.ComparisonType.Ceiling);
 
     /**
      * ComparisonLower option will make the get operation to search for the record whose key is
-     * strictly < to the supplied key.
+     * strictly &lt; to the supplied key.
      */
     GetOption ComparisonLower = new OptionComparisonType(OptionComparisonType.ComparisonType.Lower);
 
     /**
      * ComparisonHigher option will make the get operation to search for the record whose key is
-     * strictly > to the supplied key.
+     * strictly &gt; to the supplied key.
      */
     GetOption ComparisonHigher = new OptionComparisonType(OptionComparisonType.ComparisonType.Higher);
 
