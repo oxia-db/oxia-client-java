@@ -69,7 +69,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <grpc.version>1.56.1</grpc.version>
+        <grpc.version>1.75.0</grpc.version>
         <!-- The protoc version should match the used protobuf-java version.
              See https://protobuf.dev/support/cross-version-runtime-guarantee/.
              Find out the compatible protobuf-java version for the respective grpc-protobuf version by looking up
