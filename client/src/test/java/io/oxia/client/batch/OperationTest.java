@@ -15,7 +15,10 @@
  */
 package io.oxia.client.batch;
 
-import static io.oxia.client.api.Version.KeyNotExists;
+
+
+
+import static io.oxia.client.api.options.defs.OptionVersionId.KEY_NOT_EXISTS;
 import static io.oxia.proto.Status.KEY_NOT_FOUND;
 import static io.oxia.proto.Status.OK;
 import static io.oxia.proto.Status.SESSION_DOES_NOT_EXIST;
@@ -178,7 +181,7 @@ class OperationTest {
                                             Optional.empty(),
                                             Optional.empty(),
                                             payload,
-                                            OptionalLong.of(KeyNotExists),
+                                            OptionalLong.of(KEY_NOT_EXISTS),
                                             OptionalLong.empty(),
                                             Optional.empty(),
                                             Collections.emptyList()));
@@ -294,7 +297,7 @@ class OperationTest {
                             Optional.empty(),
                             Optional.empty(),
                             payload,
-                            OptionalLong.of(KeyNotExists),
+                            OptionalLong.of(KEY_NOT_EXISTS),
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList());
@@ -304,7 +307,7 @@ class OperationTest {
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
                                 assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
-                                assertThat(r.getExpectedVersionId()).isEqualTo(KeyNotExists);
+                                assertThat(r.getExpectedVersionId()).isEqualTo(KEY_NOT_EXISTS);
                                 assertThat(r.hasSessionId()).isFalse();
                                 assertThat(r.hasClientIdentity()).isFalse();
                             });
@@ -359,7 +362,7 @@ class OperationTest {
                             Optional.empty(),
                             Optional.empty(),
                             payload,
-                            OptionalLong.of(KeyNotExists),
+                            OptionalLong.of(KEY_NOT_EXISTS),
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList());
@@ -476,7 +479,7 @@ class OperationTest {
         void constructInvalidExpectedVersionId() {
             assertThatNoException()
                     .isThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(0L)));
-            assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(KeyNotExists)))
+            assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(-2L)))
                     .isInstanceOf(IllegalArgumentException.class);

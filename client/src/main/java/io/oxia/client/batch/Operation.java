@@ -15,7 +15,7 @@
  */
 package io.oxia.client.batch;
 
-import static io.oxia.client.api.Version.KeyNotExists;
+import static io.oxia.client.api.options.defs.OptionVersionId.KEY_NOT_EXISTS;
 import static io.oxia.client.batch.Operation.ReadOperation;
 import static io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import static io.oxia.client.batch.Operation.WriteOperation;
@@ -100,9 +100,9 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 implements WriteOperation<PutResult> {
 
             public PutOperation {
-                if (expectedVersionId.isPresent() && expectedVersionId.getAsLong() < KeyNotExists) {
+                if (expectedVersionId.isPresent() && expectedVersionId.getAsLong() < KEY_NOT_EXISTS) {
                     throw new IllegalArgumentException(
-                            "expectedVersionId must be >= -1 (KeyNotExists), was: "
+                            "expectedVersionId must be >= -1 (KEY_NOT_EXISTS), was: "
                                     + expectedVersionId.getAsLong());
                 }
 
@@ -143,7 +143,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 switch (response.getStatus()) {
                     case SESSION_DOES_NOT_EXIST -> fail(new SessionDoesNotExistException());
                     case UNEXPECTED_VERSION_ID -> {
-                        if (expectedVersionId.getAsLong() == KeyNotExists) {
+                        if (expectedVersionId.getAsLong() == KEY_NOT_EXISTS) {
                             fail(new KeyAlreadyExistsException(key));
                         } else {
                             fail(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));

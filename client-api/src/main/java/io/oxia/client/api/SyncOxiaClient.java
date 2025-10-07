@@ -46,7 +46,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * specified, at the instant when the put is applied. The put will not be applied if the server's
      * versionId of the record does not match the expectation set in the call. If you wish the put to
      * succeed only if the key does not already exist on the server, then pass the {@link
-     * Version#KeyNotExists} value.
+     * {@link PutOption#IfRecordDoesNotExist} value.
      *
      * @param key The key with which the value should be associated.
      * @param value The value to associate with the key.

@@ -33,11 +33,7 @@ public sealed interface Notification
      * @param key The key of the record created.
      * @param version The versionId of the new record.
      */
-    record KeyCreated(String key, long version) implements Notification {
-        public KeyCreated {
-            Version.requireValidVersionId(version);
-        }
-    }
+    record KeyCreated(String key, long version) implements Notification {}
 
     /**
      * The record associated with the key has been modified (updated).
@@ -45,11 +41,7 @@ public sealed interface Notification
      * @param key The key of the record modified.
      * @param version The versionId of the record after the modification.
      */
-    record KeyModified(String key, long version) implements Notification {
-        public KeyModified {
-            Version.requireValidVersionId(version);
-        }
-    }
+    record KeyModified(String key, long version) implements Notification {}
 
     /**
      * The record associated with the key has been deleted.

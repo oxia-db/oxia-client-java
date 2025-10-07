@@ -44,7 +44,12 @@ public sealed interface OptionVersionId extends PutOption, DeleteOption
     record OptionRecordDoesNotExist() implements OptionVersionId {
         @Override
         public long versionId() {
-            return Version.KeyNotExists;
+            return KEY_NOT_EXISTS;
         }
     }
+
+    /**
+     * Constant value indicating that the specified key does not exist.
+     */
+    long KEY_NOT_EXISTS = -1;
 }
