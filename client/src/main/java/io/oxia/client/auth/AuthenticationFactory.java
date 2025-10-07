@@ -17,7 +17,6 @@ package io.oxia.client.auth;
 
 import com.google.common.base.Strings;
 import io.oxia.client.api.Authentication;
-import io.oxia.client.api.EncodedAuthenticationParameterSupport;
 import io.oxia.client.api.exceptions.UnsupportedAuthenticationException;
 import java.lang.reflect.Constructor;
 
@@ -31,9 +30,7 @@ public class AuthenticationFactory {
                 Constructor<?> declaredConstructor = authClass.getDeclaredConstructor();
                 declaredConstructor.setAccessible(true);
                 Authentication auth = (Authentication) declaredConstructor.newInstance();
-                if (auth instanceof EncodedAuthenticationParameterSupport) {
-                    ((EncodedAuthenticationParameterSupport) auth).configure(authParamsString);
-                }
+                auth.configure(authParamsString);
                 return auth;
             }
         } catch (Throwable t) {

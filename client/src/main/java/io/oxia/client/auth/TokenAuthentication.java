@@ -16,7 +16,6 @@
 package io.oxia.client.auth;
 
 import io.oxia.client.api.Authentication;
-import io.oxia.client.api.EncodedAuthenticationParameterSupport;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -25,7 +24,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.function.Supplier;
 
-public class TokenAuthentication implements Authentication, EncodedAuthenticationParameterSupport {
+public class TokenAuthentication implements Authentication {
 
     private static final String AUTHORIZATION_KEY = "Authorization";
     private static final String BEARER_TYPE = "Bearer";
