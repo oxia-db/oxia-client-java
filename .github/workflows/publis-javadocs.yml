@@ -31,7 +31,7 @@ jobs:
         run: mvn --no-transfer-progress --batch-mode -DskipTests install
 
       - name: Validate Javadoc creation
-        run: mvn --no-transfer-progress --batch-mode javadoc:javadoc -pl client-api
+        run: mvn --no-transfer-progress --batch-mode -Prelease javadoc:javadoc -pl client-api
 
       - name: Update latest symlink
         uses: peaceiris/actions-gh-pages@v4
