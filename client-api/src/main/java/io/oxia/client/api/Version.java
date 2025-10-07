@@ -33,5 +33,4 @@ public record Version(
         long modifiedTimestamp,
         long modificationsCount,
         Optional<Long> sessionId,
-        Optional<String> clientIdentifier) {
-}
+        Optional<String> clientIdentifier) {}

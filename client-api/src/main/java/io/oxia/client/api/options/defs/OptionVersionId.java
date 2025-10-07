@@ -15,7 +15,6 @@
  */
 package io.oxia.client.api.options.defs;
 
-import io.oxia.client.api.Version;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.PutOption;
 
@@ -48,8 +47,6 @@ public sealed interface OptionVersionId extends PutOption, DeleteOption
         }
     }
 
-    /**
-     * Constant value indicating that the specified key does not exist.
-     */
+    /** Constant value indicating that the specified key does not exist. */
     long KEY_NOT_EXISTS = -1;
 }

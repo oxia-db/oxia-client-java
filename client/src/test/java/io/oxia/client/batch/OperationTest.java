@@ -15,9 +15,6 @@
  */
 package io.oxia.client.batch;
 
-
-
-
 import static io.oxia.client.api.options.defs.OptionVersionId.KEY_NOT_EXISTS;
 import static io.oxia.proto.Status.KEY_NOT_FOUND;
 import static io.oxia.proto.Status.OK;
@@ -479,7 +476,8 @@ class OperationTest {
         void constructInvalidExpectedVersionId() {
             assertThatNoException()
                     .isThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(0L)));
-            assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
+            assertThatThrownBy(
+                            () -> new DeleteOperation(callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(-2L)))
                     .isInstanceOf(IllegalArgumentException.class);
