@@ -17,8 +17,7 @@ package io.oxia.client.api;
 
 import java.util.List;
 
-public record OptionSequenceKeysDeltas(List<Long> sequenceKeysDeltas)
-        implements PutOption {
+public record OptionSequenceKeysDeltas(List<Long> sequenceKeysDeltas) implements PutOption {
     public OptionSequenceKeysDeltas {
         if (sequenceKeysDeltas.isEmpty()) {
             throw new IllegalArgumentException("Sequence keys deltas cannot be empty");

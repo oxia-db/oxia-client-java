@@ -168,10 +168,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param consumer A {@link RangeScanConsumer} that will be invoked with the records or errors.
      */
-    void rangeScan(
-            String startKeyInclusive,
-            String endKeyExclusive,
-            RangeScanConsumer consumer);
+    void rangeScan(String startKeyInclusive, String endKeyExclusive, RangeScanConsumer consumer);
 
     /**
      * Scan any existing records within the specified range of keys.
@@ -208,7 +205,5 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return
      */
     Closeable getSequenceUpdates(
-            String key,
-            Consumer<String> listener,
-            Set<GetSequenceUpdatesOption> options);
+            String key, Consumer<String> listener, Set<GetSequenceUpdatesOption> options);
 }

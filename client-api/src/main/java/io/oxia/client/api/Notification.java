@@ -64,8 +64,7 @@ public sealed interface Notification
      * @param startKeyInclusive The range deletion start key. (inclusive)
      * @param endKeyExclusive The range deletion end key. (exclusive)
      */
-    record KeyRangeDelete(String startKeyInclusive, String endKeyExclusive)
-            implements Notification {
+    record KeyRangeDelete(String startKeyInclusive, String endKeyExclusive) implements Notification {
         @Override
         public String key() {
             return startKeyInclusive;
