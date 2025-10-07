@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+/** Options for deleting a range of records. */
 public sealed interface DeleteRangeOption permits OptionPartitionKey {
 
     /**
@@ -25,6 +26,7 @@ public sealed interface DeleteRangeOption permits OptionPartitionKey {
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the delete range option.
      */
     static DeleteRangeOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);

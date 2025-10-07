@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+/** Options for getting a record. */
 public sealed interface GetOption
         permits OptionComparisonType, OptionIncludeValue, OptionPartitionKey, OptionSecondaryIndexName {
 
@@ -60,6 +61,7 @@ public sealed interface GetOption
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the GetOption.
      */
     static GetOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
@@ -83,6 +85,7 @@ public sealed interface GetOption
      * <p>Note: if the secondary index is not unique, which primary record is returned is undefined.
      *
      * @param secondaryIndexName the name of the secondary index to use for the list operation
+     * @return the GetOption.
      */
     static GetOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);

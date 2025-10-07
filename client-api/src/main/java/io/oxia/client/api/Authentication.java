@@ -17,7 +17,18 @@ package io.oxia.client.api;
 
 import java.util.Map;
 
+/**
+ * Represents an interface for implementing authentication mechanisms. The implementations of this
+ * interface are expected to provide a way to generate credentials in the form of key-value pairs.
+ */
 public interface Authentication {
 
+    /**
+     * Generates a set of credentials represented as key-value pairs.
+     *
+     * @return a map containing the generated credentials, where the keys represent the credential
+     *     type (e.g., username, password) and the values represent the corresponding credential
+     *     values.
+     */
     Map<String, String> generateCredentials();
 }

@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+/** Options for listing records. */
 public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIndexName {
 
     /**
@@ -25,6 +26,7 @@ public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIn
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the ListOption.
      */
     static ListOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
@@ -36,6 +38,7 @@ public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIn
      * <p>Note: The returned list will contain they primary keys of the records
      *
      * @param secondaryIndexName the name of the secondary index to use for the list operation
+     * @return the ListOption.
      */
     static ListOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);

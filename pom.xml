@@ -496,6 +496,7 @@
                             <sourceFileExcludes>
                                 <sourceFileExclude>**/generated-sources/*.java</sourceFileExclude>
                             </sourceFileExcludes>
+                            <excludePackageNames>io.oxia.client.internal</excludePackageNames>
                         </configuration>
                         <executions>
                             <execution>

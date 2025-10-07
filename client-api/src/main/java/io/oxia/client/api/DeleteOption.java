@@ -15,8 +15,15 @@
  */
 package io.oxia.client.api;
 
+/** Options for deleting a record. */
 public sealed interface DeleteOption permits OptionPartitionKey, OptionVersionId {
 
+    /**
+     * Conditional delete will only succeed if the record's version matches the supplied versionId.
+     *
+     * @param versionId the versionId to compare with the record's version.
+     * @return the delete option.
+     */
     static DeleteOption IfVersionIdEquals(long versionId) {
         return new OptionVersionId.OptionVersionIdEqual(versionId);
     }
@@ -29,6 +36,7 @@ public sealed interface DeleteOption permits OptionPartitionKey, OptionVersionId
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the delete option.
      */
     static DeleteOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);

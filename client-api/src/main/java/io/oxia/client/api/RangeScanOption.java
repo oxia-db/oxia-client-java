@@ -15,6 +15,11 @@
  */
 package io.oxia.client.api;
 
+/**
+ * RangeScanOption is a sealed interface that represents options for controlling range scan
+ * operations. It allows specifying additional preferences such as the partition key or secondary
+ * index name.
+ */
 public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecondaryIndexName {
 
     /**
@@ -25,6 +30,7 @@ public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecond
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the RangeScanOption.
      */
     static RangeScanOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
@@ -34,7 +40,7 @@ public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecond
      * UseIndex let the users specify a different index to follow for the range scan operation
      *
      * @param secondaryIndexName the name of the secondary index to use
-     * @return
+     * @return the RangeScanOption.
      */
     static RangeScanOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);
