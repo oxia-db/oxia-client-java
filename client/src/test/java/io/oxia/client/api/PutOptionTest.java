@@ -61,7 +61,7 @@ class PutOptionTest {
                                 assertThat(o).isInstanceOf(OptionVersionId.OptionRecordDoesNotExist.class);
 
                                 if (o instanceof OptionVersionId e) {
-                                    assertThat(e.versionId()).isEqualTo(Version.KeyNotExists);
+                                    assertThat(e.versionId()).isEqualTo(OptionVersionId.KEY_NOT_EXISTS);
                                 }
                             });
         }
@@ -93,7 +93,7 @@ class PutOptionTest {
         assertThat(OptionsUtils.getVersionId(Set.of(PutOption.AsEphemeralRecord))).isEmpty();
         assertThat(OptionsUtils.getVersionId(Collections.emptySet())).isEmpty();
         assertThat(OptionsUtils.getVersionId(Set.of(PutOption.IfRecordDoesNotExist)))
-                .hasValue(Version.KeyNotExists);
+                .hasValue(OptionVersionId.KEY_NOT_EXISTS);
         assertThat(OptionsUtils.getVersionId(Set.of(PutOption.IfVersionIdEquals(1L)))).hasValue(1L);
         assertThat(
                         OptionsUtils.getVersionId(

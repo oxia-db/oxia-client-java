@@ -33,46 +33,4 @@ public record Version(
         long modifiedTimestamp,
         long modificationsCount,
         Optional<Long> sessionId,
-        Optional<String> clientIdentifier) {
-    public static final long KeyNotExists = -1;
-
-    /** Represents the state where a versionId of a record (and thus the record) does not exist. */
-    public Version {
-        requireValidTimestamp(createdTimestamp);
-        requireValidTimestamp(modifiedTimestamp);
-        requireValidModificationsCount(modificationsCount);
-    }
-
-    /**
-     * Checks that the versionId value is non-negative.
-     *
-     * @param versionId The versionId to validate.
-     */
-    public static void requireValidVersionId(long versionId) {
-        if (versionId < 0) {
-            throw new IllegalArgumentException("Invalid versionId: " + versionId);
-        }
-    }
-
-    /**
-     * Checks that the timestamp is valid (positive).
-     *
-     * @param timestamp The timestamp to validate.
-     */
-    public static void requireValidTimestamp(long timestamp) {
-        if (timestamp < 0) {
-            throw new IllegalArgumentException("Invalid timestamp: " + timestamp);
-        }
-    }
-
-    /**
-     * Checks that the modificationsCount value is non-negative.
-     *
-     * @param modificationsCount The modificationsCount to validate.
-     */
-    public static void requireValidModificationsCount(long modificationsCount) {
-        if (modificationsCount < 0) {
-            throw new IllegalArgumentException("Invalid modificationsCount: " + modificationsCount);
-        }
-    }
-}
+        Optional<String> clientIdentifier) {}
