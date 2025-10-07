@@ -186,10 +186,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      * will report the current latest sequence for a given key. Multiple updates can be collapsed into
      * one single event with the highest sequence.
      *
-     * @param key
-     * @param listener
-     * @param options
-     * @return
+     * @param key The key to subscribe to.
+     * @param listener The listener to receive the updates.
+     * @param options The options to use for the subscription.
+     * @return A handle to close the subscription.
      */
     Closeable getSequenceUpdates(
             String key, Consumer<String> listener, Set<GetSequenceUpdatesOption> options);

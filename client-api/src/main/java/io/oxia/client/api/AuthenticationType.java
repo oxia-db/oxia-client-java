@@ -15,6 +15,19 @@
  */
 package io.oxia.client.api;
 
+/**
+ * Enum representing the type of authentication used for accessing resources.
+ *
+ * <p>This enum defines the supported authentication methods that can be used to authorize and
+ * authenticate a client or request against a service.
+ */
 public enum AuthenticationType {
+    /**
+     * Represents the Bearer authentication method.
+     *
+     * <p>Bearer is an authentication mechanism that uses a token-based approach where the client
+     * includes an access token in each request to provide proof of authorization. This method is
+     * commonly used in OAuth 2.0 authentication frameworks.
+     */
     Bearer;
 }

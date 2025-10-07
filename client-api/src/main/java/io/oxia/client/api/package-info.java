@@ -13,9 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
 
 /**
- * @hidden
+ * The public API for interacting with Oxia.
+ *
+ * <p>
+ *
+ * <pre>
+ *     SyncOxiaClient client = OxiaClientBuilder.create("localhost:6648")
+ *         .namespace("my-namespace")
+ *         .syncClient();
+ *
+ *     PutResult res = client.put("my-key", "my-value".getBytes());
+ *
+ *     GetResult res = client.get("my-key");
+ * </pre>
+ *
+ * @see io.oxia.client.api.OxiaClientBuilder
  */
-public record OptionEphemeral() implements PutOption {}
+package io.oxia.client.api;

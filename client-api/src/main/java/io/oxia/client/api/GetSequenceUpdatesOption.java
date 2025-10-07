@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+/** Options for getting sequence updates. */
 public sealed interface GetSequenceUpdatesOption permits OptionPartitionKey {
 
     /**
@@ -25,6 +26,7 @@ public sealed interface GetSequenceUpdatesOption permits OptionPartitionKey {
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
+     * @return the GetSequenceUpdatesOption.
      */
     static GetSequenceUpdatesOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);

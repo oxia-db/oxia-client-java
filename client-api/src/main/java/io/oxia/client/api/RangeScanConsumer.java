@@ -15,11 +15,26 @@
  */
 package io.oxia.client.api;
 
+/**
+ * Interface defining a consumer for Range Scan operations, allowing handling of chunked results,
+ * errors, or completion signals for a range scan process.
+ */
 public interface RangeScanConsumer {
 
+    /**
+     * Invoked for each record returned by the range scan operation.
+     *
+     * @param result The GetResult for the record.
+     */
     void onNext(GetResult result);
 
+    /**
+     * Invoked when an error occurs during the range scan operation.
+     *
+     * @param throwable the exception that occurred.
+     */
     void onError(Throwable throwable);
 
+    /** Invoked when the range scan operation completes. */
     void onCompleted();
 }
