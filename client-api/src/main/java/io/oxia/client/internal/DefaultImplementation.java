@@ -43,6 +43,7 @@ public class DefaultImplementation {
     /**
      * Access the actual implementation of the Oxia Client API.
      *
+     * @param serviceAddress the address of the Oxia server.
      * @return the loaded implementation.
      */
     public static OxiaClientBuilder getDefaultImplementation(String serviceAddress) {

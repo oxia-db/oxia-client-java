@@ -101,6 +101,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
+     * @param options Set {@link DeleteRangeOption options} for the delete range.
      */
     void deleteRange(
             String startKeyInclusive, String endKeyExclusive, Set<DeleteRangeOption> options);
@@ -149,6 +150,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
+     * @param options Set {@link ListOption options} for the list operation.
      * @return The list of keys that exist within the specified range, or an empty list if there were
      *     none.
      */

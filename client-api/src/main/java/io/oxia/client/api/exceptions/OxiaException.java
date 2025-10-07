@@ -17,10 +17,21 @@ package io.oxia.client.api.exceptions;
 
 /** A super-class of exceptions describing errors that occurred on an Oxia server. */
 public abstract class OxiaException extends Exception {
+    /**
+     * Creates an instance of the exception.
+     *
+     * @param message the exception message
+     */
     OxiaException(String message) {
         super(message);
     }
 
+    /**
+     * Creates an instance of the exception.
+     *
+     * @param message the exception message
+     * @param cause the cause of the exception
+     */
     OxiaException(String message, Throwable cause) {
         super(message, cause);
     }

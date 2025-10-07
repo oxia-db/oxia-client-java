@@ -19,7 +19,10 @@ import lombok.Getter;
 
 /** The versionId at the server did not that match supplied in the call. */
 public class UnexpectedVersionIdException extends OxiaException {
+    /** The record versionId present at the server. */
     @Getter private final long version;
+
+    /** The key to which the call was scoped. */
     @Getter private final String key;
 
     /**

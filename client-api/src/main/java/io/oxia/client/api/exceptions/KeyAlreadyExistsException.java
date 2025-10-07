@@ -19,6 +19,7 @@ import lombok.Getter;
 
 /** The key already exists at the server. */
 public class KeyAlreadyExistsException extends OxiaException {
+    /** The key that already exists at the server. */
     @Getter private final String key;
 
     /**
