@@ -22,7 +22,7 @@
 
     <groupId>io.github.oxia-db</groupId>
     <artifactId>oxia-java</artifactId>
-    <version>0.6.2</version>
+    <version>0.7.0</version>
     <packaging>pom</packaging>
     <name>Oxia Client SDK for Java</name>
     <description>Oxia Client SDK for Java</description>
