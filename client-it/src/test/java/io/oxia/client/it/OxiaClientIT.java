@@ -34,6 +34,7 @@ import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.opentelemetry.semconv.ResourceAttributes;
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
@@ -54,7 +55,9 @@ import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.testcontainers.OxiaContainer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -594,6 +597,37 @@ public class OxiaClientIT {
         List<String> list2 =
                 StreamSupport.stream(iterable.spliterator(), false).map(GetResult::key).sorted().toList();
         assertThat(list2).isEqualTo(list);
+    }
+
+    @Test
+    void testRangeScanWithCancel() throws Exception {
+        @Cleanup
+        SyncOxiaClient client = OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
+
+        client.put("range-scan-a", "0".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-b", "1".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-c", "2".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-d", "3".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-e", "4".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-f", "5".getBytes(), Set.of(PutOption.PartitionKey("x")));
+        client.put("range-scan-g", "6".getBytes(), Set.of(PutOption.PartitionKey("x")));
+
+        CloseableIterable<GetResult> iterable = client.rangeScan("range-scan-a", "range-scan-g");
+        Iterator<GetResult> iterator = iterable.iterator();
+
+        Thread.sleep(1000);
+
+        iterable.close();
+
+        GetResult gr1 = iterator.next();
+        assertThat(gr1.key()).isEqualTo("range-scan-a");
+
+        Thread.sleep(1000);
+
+        GetResult gr2 = iterator.next();
+        assertThat(gr2.key()).isEqualTo("range-scan-b");
+
+        assertThatThrownBy(iterator::next).isInstanceOf(NoSuchElementException.class);
     }
 
     @Test

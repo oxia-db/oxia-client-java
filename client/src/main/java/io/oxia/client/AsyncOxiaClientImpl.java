@@ -15,6 +15,7 @@
  */
 package io.oxia.client;
 
+import io.grpc.ClientCall;
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.AttributeKey;
@@ -51,6 +52,7 @@ import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
+import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.RangeScanRequest;
 import io.oxia.proto.RangeScanResponse;
 import java.io.Closeable;
@@ -686,15 +688,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
-    public void rangeScan(
+    public Closeable rangeScan(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             @NonNull RangeScanConsumer consumer) {
-        rangeScan(startKeyInclusive, endKeyExclusive, consumer, Collections.emptySet());
+        return rangeScan(startKeyInclusive, endKeyExclusive, consumer, Collections.emptySet());
     }
 
     @Override
-    public void rangeScan(
+    public Closeable rangeScan(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             @NonNull RangeScanConsumer consumer,
@@ -737,25 +739,26 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
-                internalShardRangeScan(
+                return internalShardRangeScan(
                         shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
             } else {
-                internalRangeScanMultiShards(
+                return internalRangeScanMultiShards(
                         startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
             }
         } catch (Exception e) {
             consumer.onError(e);
+            return () -> {};
         }
     }
 
-    private void internalShardRangeScan(
+    private Closeable internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
             RangeScanConsumer consumer) {
         var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader);
+        var stub = stubManager.getStub(leader).async();
         var requestBuilder =
                 RangeScanRequest.newBuilder()
                         .setShard(shardId)
@@ -765,30 +768,37 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         secondaryIndexName.ifPresent(requestBuilder::setSecondaryIndexName);
         var request = requestBuilder.build();
 
-        stub.async()
-                .rangeScan(
-                        request,
-                        new StreamObserver<>() {
-                            @Override
-                            public void onNext(RangeScanResponse response) {
-                                for (int i = 0; i < response.getRecordsCount(); i++) {
-                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecords(i)));
-                                }
-                            }
+        ClientCall<RangeScanRequest, RangeScanResponse> call =
+                stub.getChannel().newCall(OxiaClientGrpc.getRangeScanMethod(), stub.getCallOptions());
+        io.grpc.stub.ClientCalls.asyncServerStreamingCall(
+                call,
+                request,
+                new StreamObserver<>() {
+                    @Override
+                    public void onNext(RangeScanResponse response) {
+                        for (int i = 0; i < response.getRecordsCount(); i++) {
+                            consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecords(i)));
+                        }
+                    }
 
-                            @Override
-                            public void onError(Throwable t) {
-                                consumer.onError(t);
-                            }
+                    @Override
+                    public void onError(Throwable t) {
+                        consumer.onError(t);
+                    }
 
-                            @Override
-                            public void onCompleted() {
-                                consumer.onCompleted();
-                            }
-                        });
+                    @Override
+                    public void onCompleted() {
+                        consumer.onCompleted();
+                    }
+                });
+
+        return () -> {
+            consumer.onCompleted();
+            call.cancel("Canceled", null);
+        };
     }
 
-    private void internalRangeScanMultiShards(
+    private Closeable internalRangeScanMultiShards(
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
@@ -796,10 +806,18 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         final Set<Long> shardIds = shardManager.allShardIds();
         final RangeScanConsumer multiShardConsumer =
                 new SharedRangeScanConsumer(shardIds.size(), consumer);
+        List<Closeable> closeables = new ArrayList<>(shardIds.size());
         for (long shardId : shardIds) {
-            internalShardRangeScan(
-                    shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer);
+            closeables.add(
+                    internalShardRangeScan(
+                            shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
         }
+
+        return () -> {
+            for (Closeable closeable : closeables) {
+                closeable.close();
+            }
+        };
     }
 
     static class SharedRangeScanConsumer implements RangeScanConsumer {
@@ -815,35 +833,47 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
 
         @Override
-        public synchronized void onNext(GetResult result) {
-            if (completed) {
-                return;
+        public void onNext(GetResult result) {
+            synchronized (this) {
+                if (completed) {
+                    return;
+                }
             }
             delegate.onNext(result);
         }
 
         @Override
-        public synchronized void onError(Throwable throwable) {
-            if (completedException == null) {
-                completedException = throwable;
-            } else {
-                completedException.addSuppressed(throwable);
+        public void onError(Throwable throwable) {
+            synchronized (this) {
+                if (completedException == null) {
+                    completedException = throwable;
+                } else {
+                    completedException.addSuppressed(throwable);
+                }
+                if (completed) {
+                    return;
+                }
+                completed = true;
             }
-            if (completed) {
-                return;
-            }
-            completed = true;
             delegate.onError(throwable);
         }
 
         @Override
-        public synchronized void onCompleted() {
-            if (completed) {
-                return;
+        public void onCompleted() {
+            boolean wasCompleted = false;
+
+            synchronized (this) {
+                if (completed) {
+                    return;
+                }
+                pendingCompletedRequests -= 1;
+                if (pendingCompletedRequests == 0) {
+                    completed = true;
+                    wasCompleted = true;
+                }
             }
-            pendingCompletedRequests -= 1;
-            if (pendingCompletedRequests == 0) {
-                completed = true;
+
+            if (wasCompleted) {
                 delegate.onCompleted();
             }
         }

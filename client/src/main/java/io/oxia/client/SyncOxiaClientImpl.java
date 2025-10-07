@@ -16,6 +16,7 @@
 package io.oxia.client;
 
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
@@ -160,21 +161,17 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
         return rangeScan(startKeyInclusive, endKeyExclusive, Collections.emptySet());
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             Set<RangeScanOption> options) {
-        return () -> {
-            GetResultIterator gri = new GetResultIterator();
-            asyncClient.rangeScan(startKeyInclusive, endKeyExclusive, gri, options);
-            return gri;
-        };
+        return new GetResultIterable(asyncClient, startKeyInclusive, endKeyExclusive, options);
     }
 
     @Override

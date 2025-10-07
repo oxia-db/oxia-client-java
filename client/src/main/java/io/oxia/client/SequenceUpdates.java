@@ -34,7 +34,7 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpdatesResponse> {
+class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpdatesResponse> {
 
     private final String key;
     private final String partitionKey;

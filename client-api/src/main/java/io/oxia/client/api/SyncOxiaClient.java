@@ -163,9 +163,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
-     * @return An iterable object that will provide all the records and their version objects.
+     * @return An iterable object that will provide all the records and their version objects. Closing
+     *     the iterable stops the scan.
      */
-    Iterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
+    CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
 
     /**
      * Scan any existing records within the specified range of keys.
@@ -175,9 +176,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
      * @param options the range scan options
-     * @return An iterable object that will provide all the records and their version objects.
+     * @return An iterable object that will provide all the records and their version objects. Closing
+     *     the iterable stops the scan.
      */
-    Iterable<GetResult> rangeScan(
+    CloseableIterable<GetResult> rangeScan(
             String startKeyInclusive, String endKeyExclusive, Set<RangeScanOption> options);
 
     /**

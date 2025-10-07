@@ -17,15 +17,17 @@ package io.oxia.client;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.RangeScanConsumer;
+import java.io.Closeable;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import lombok.SneakyThrows;
 
-public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer {
+public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer, AutoCloseable {
 
     private GetResult pendingResult;
     private Throwable error = null;
     private boolean completed = false;
+    protected Closeable closer;
 
     @Override
     @SneakyThrows
@@ -83,5 +85,12 @@ public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer
         }
 
         throw new NoSuchElementException();
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (closer != null) {
+            closer.close();
+        }
     }
 }
