@@ -14,7 +14,5 @@
  * limitations under the License.
  */
 
-/**
- * The definitions for options that can be passed to the Oxia client operations.
- */
+/** The definitions for options that can be passed to the Oxia client operations. */
 package io.oxia.client.api.options;

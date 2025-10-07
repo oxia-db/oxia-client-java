@@ -28,9 +28,9 @@ import io.oxia.client.api.options.RangeScanOption;
  */
 public record OptionPartitionKey(String partitionKey)
         implements DeleteRangeOption,
-        GetOption,
-        ListOption,
-        PutOption,
-        DeleteOption,
-        RangeScanOption,
-        GetSequenceUpdatesOption {}
+                GetOption,
+                ListOption,
+                PutOption,
+                DeleteOption,
+                RangeScanOption,
+                GetSequenceUpdatesOption {}
