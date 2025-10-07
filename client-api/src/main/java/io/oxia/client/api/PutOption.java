@@ -17,7 +17,6 @@ package io.oxia.client.api;
 
 import java.util.List;
 import java.util.Set;
-import lombok.NonNull;
 
 public sealed interface PutOption
         permits OptionEphemeral,
@@ -42,7 +41,7 @@ public sealed interface PutOption
      *
      * @param partitionKey the partition key to use
      */
-    static PutOption PartitionKey(@NonNull String partitionKey) {
+    static PutOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 
@@ -57,7 +56,7 @@ public sealed interface PutOption
      * @param sequenceKeysDeltas
      * @return
      */
-    static PutOption SequenceKeysDeltas(@NonNull List<Long> sequenceKeysDeltas) {
+    static PutOption SequenceKeysDeltas(List<Long> sequenceKeysDeltas) {
         return new OptionSequenceKeysDeltas(sequenceKeysDeltas);
     }
 
@@ -75,7 +74,7 @@ public sealed interface PutOption
      * @param secondaryKey the secondary key for this record
      * @return
      */
-    static PutOption SecondaryIndex(@NonNull String indexName, String secondaryKey) {
+    static PutOption SecondaryIndex(String indexName, String secondaryKey) {
         return new OptionSecondaryIndex(indexName, secondaryKey);
     }
 }

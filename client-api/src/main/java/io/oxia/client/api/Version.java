@@ -16,7 +16,6 @@
 package io.oxia.client.api;
 
 import java.util.Optional;
-import lombok.NonNull;
 
 /**
  * Oxia record metadata.
@@ -33,8 +32,8 @@ public record Version(
         long createdTimestamp,
         long modifiedTimestamp,
         long modificationsCount,
-        @NonNull Optional<Long> sessionId,
-        @NonNull Optional<String> clientIdentifier) {
+        Optional<Long> sessionId,
+        Optional<String> clientIdentifier) {
     public static final long KeyNotExists = -1;
 
     /** Represents the state where a versionId of a record (and thus the record) does not exist. */

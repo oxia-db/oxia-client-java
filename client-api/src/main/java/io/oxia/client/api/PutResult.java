@@ -15,12 +15,10 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 /**
  * The result of a client get request.
  *
  * @param key the effective key stored in Oxia
  * @param version Metadata for the record associated with the key specified in the call.
  */
-public record PutResult(@NonNull String key, @NonNull Version version) {}
+public record PutResult(String key, Version version) {}

@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIndexName {
 
     /**
@@ -28,7 +26,7 @@ public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIn
      *
      * @param partitionKey the partition key to use
      */
-    static ListOption PartitionKey(@NonNull String partitionKey) {
+    static ListOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 
@@ -39,7 +37,7 @@ public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIn
      *
      * @param secondaryIndexName the name of the secondary index to use for the list operation
      */
-    static ListOption UseIndex(@NonNull String secondaryIndexName) {
+    static ListOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);
     }
 }

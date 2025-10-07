@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecondaryIndexName {
 
     /**
@@ -28,7 +26,7 @@ public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecond
      *
      * @param partitionKey the partition key to use
      */
-    static RangeScanOption PartitionKey(@NonNull String partitionKey) {
+    static RangeScanOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 
@@ -38,7 +36,7 @@ public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecond
      * @param secondaryIndexName the name of the secondary index to use
      * @return
      */
-    static RangeScanOption UseIndex(@NonNull String secondaryIndexName) {
+    static RangeScanOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);
     }
 }

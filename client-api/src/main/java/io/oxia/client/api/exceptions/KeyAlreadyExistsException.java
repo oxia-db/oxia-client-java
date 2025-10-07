@@ -16,7 +16,6 @@
 package io.oxia.client.api.exceptions;
 
 import lombok.Getter;
-import lombok.NonNull;
 
 /** The key already exists at the server. */
 public class KeyAlreadyExistsException extends OxiaException {
@@ -27,7 +26,7 @@ public class KeyAlreadyExistsException extends OxiaException {
      *
      * @param key The key to which the call was scoped.
      */
-    public KeyAlreadyExistsException(@NonNull String key) {
+    public KeyAlreadyExistsException(String key) {
         super("key already exists: " + key);
         this.key = key;
     }

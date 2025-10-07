@@ -20,7 +20,6 @@ import java.io.Closeable;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
-import lombok.NonNull;
 
 /** Synchronous client for the Oxia service. */
 public interface SyncOxiaClient extends AutoCloseable {
@@ -33,7 +32,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param value The value to associate with the key.
      * @return The result of the put at the specified key.
      */
-    PutResult put(@NonNull String key, byte @NonNull [] value);
+    PutResult put(String key, byte[] value);
 
     /**
      * Conditionally associates a value with a key if the server's versionId of the record is as
@@ -49,7 +48,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @throws UnexpectedVersionIdException The versionId at the server did not that match supplied in
      *     the call.
      */
-    PutResult put(@NonNull String key, byte @NonNull [] value, Set<PutOption> options)
+    PutResult put(String key, byte[] value, Set<PutOption> options)
             throws UnexpectedVersionIdException;
 
     /**
@@ -58,7 +57,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param key Deletes the record with the specified key.
      * @return True if the key was actually present on the server, false otherwise.
      */
-    boolean delete(@NonNull String key);
+    boolean delete(String key);
 
     /**
      * Conditionally deletes the record associated with the key if the record exists, and the server's
@@ -72,8 +71,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @throws UnexpectedVersionIdException The versionId at the server did not that match supplied in
      *     the call.
      */
-    boolean delete(@NonNull String key, @NonNull Set<DeleteOption> options)
-            throws UnexpectedVersionIdException;
+    boolean delete(String key, Set<DeleteOption> options) throws UnexpectedVersionIdException;
 
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
@@ -86,7 +84,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
      */
-    void deleteRange(@NonNull String startKeyInclusive, @NonNull String endKeyExclusive);
+    void deleteRange(String startKeyInclusive, String endKeyExclusive);
 
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
@@ -100,9 +98,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      */
     void deleteRange(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull Set<DeleteRangeOption> options);
+            String startKeyInclusive, String endKeyExclusive, Set<DeleteRangeOption> options);
 
     /**
      * Returns the record associated with the specified key. The returned value includes the value,
@@ -111,7 +107,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param key The key associated with the record to be fetched.
      * @return The value associated with the supplied key, or {@code null} if the key did not exist.
      */
-    GetResult get(@NonNull String key);
+    GetResult get(String key);
 
     /**
      * Returns the record associated with the specified key. The returned value includes the value,
@@ -121,7 +117,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param options Set {@link GetOption options} for the get operation.
      * @return The value associated with the supplied key, or {@code null} if the key did not exist.
      */
-    GetResult get(@NonNull String key, @NonNull Set<GetOption> options);
+    GetResult get(String key, Set<GetOption> options);
 
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
@@ -136,8 +132,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return The list of keys that exist within the specified range, or an empty list if there were
      *     none.
      */
-    @NonNull
-    List<String> list(@NonNull String startKeyInclusive, @NonNull String endKeyExclusive);
+    List<String> list(String startKeyInclusive, String endKeyExclusive);
 
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
@@ -152,9 +147,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return The list of keys that exist within the specified range, or an empty list if there were
      *     none.
      */
-    @NonNull
-    List<String> list(
-            @NonNull String startKeyInclusive, @NonNull String endKeyExclusive, Set<ListOption> options);
+    List<String> list(String startKeyInclusive, String endKeyExclusive, Set<ListOption> options);
 
     /**
      * Scan any existing records within the specified range of keys.
@@ -165,7 +158,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return An iterable object that will provide all the records and their version objects.
      */
-    Iterable<GetResult> rangeScan(@NonNull String startKeyInclusive, @NonNull String endKeyExclusive);
+    Iterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
 
     /**
      * Scan any existing records within the specified range of keys.
@@ -178,9 +171,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return An iterable object that will provide all the records and their version objects.
      */
     Iterable<GetResult> rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            Set<RangeScanOption> options);
+            String startKeyInclusive, String endKeyExclusive, Set<RangeScanOption> options);
 
     /**
      * Registers a callback to receive Oxia {@link Notification record change notifications}. Multiple
@@ -188,7 +179,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      *
      * @param notificationCallback A callback to receive notifications.
      */
-    void notifications(@NonNull Consumer<Notification> notificationCallback);
+    void notifications(Consumer<Notification> notificationCallback);
 
     /**
      * GetSequenceUpdates allows to subscribe to the updates happening on a sequential key The channel
@@ -201,7 +192,5 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return
      */
     Closeable getSequenceUpdates(
-            @NonNull String key,
-            @NonNull Consumer<String> listener,
-            @NonNull Set<GetSequenceUpdatesOption> options);
+            String key, Consumer<String> listener, Set<GetSequenceUpdatesOption> options);
 }

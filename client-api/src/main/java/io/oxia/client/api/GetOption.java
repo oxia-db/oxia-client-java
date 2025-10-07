@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 public sealed interface GetOption
         permits OptionComparisonType, OptionIncludeValue, OptionPartitionKey, OptionSecondaryIndexName {
 
@@ -63,7 +61,7 @@ public sealed interface GetOption
      *
      * @param partitionKey the partition key to use
      */
-    static GetOption PartitionKey(@NonNull String partitionKey) {
+    static GetOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 
@@ -86,7 +84,7 @@ public sealed interface GetOption
      *
      * @param secondaryIndexName the name of the secondary index to use for the list operation
      */
-    static GetOption UseIndex(@NonNull String secondaryIndexName) {
+    static GetOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);
     }
 }
