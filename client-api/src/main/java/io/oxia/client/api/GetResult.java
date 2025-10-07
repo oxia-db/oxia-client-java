@@ -15,18 +15,11 @@
  */
 package io.oxia.client.api;
 
-import lombok.Value;
-
-/** The result of a client get request. */
-@Value
-public class GetResult {
-
-    /** The key associated with the record. */
-    String key;
-
-    /** The value associated with the key specified in the call. */
-    byte[] value;
-
-    /** Metadata for the record associated with the key specified in the call. */
-    Version version;
-}
+/**
+ * The result of a client get request.
+ *
+ * @param key The key associated with the record.
+ * @param value The value associated with the key specified in the call.
+ * @param version Metadata for the record associated with the key specified in the call.
+ */
+public record GetResult(String key, byte[] value, Version version) {}

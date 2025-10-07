@@ -62,7 +62,7 @@ public class ClientReconnectIT {
 
             try {
                 final GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
-                Assertions.assertArrayEquals(getResult.getValue(), value);
+                Assertions.assertArrayEquals(getResult.value(), value);
             } catch (Throwable ex) {
                 Assertions.fail("unexpected behaviour", ex);
             }
@@ -90,7 +90,7 @@ public class ClientReconnectIT {
 
                                     try {
                                         final GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
-                                        Assertions.assertArrayEquals(getResult.getValue(), value);
+                                        Assertions.assertArrayEquals(getResult.value(), value);
                                     } catch (Throwable ex) {
                                         Assertions.fail("unexpected behaviour", ex);
                                     }

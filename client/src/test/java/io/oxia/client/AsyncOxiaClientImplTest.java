@@ -627,7 +627,7 @@ class AsyncOxiaClientImplTest {
             tasks.add(task);
         }
         tasks.forEach(ForkJoinTask::join);
-        var keys = results.stream().map(GetResult::getKey).toList();
+        var keys = results.stream().map(GetResult::key).toList();
         for (int i = 0; i < shards; i++) {
             Assertions.assertTrue(keys.contains("shard-" + i + "-0"));
             Assertions.assertTrue(keys.contains("shard-" + i + "-1"));
