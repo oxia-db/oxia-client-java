@@ -17,7 +17,7 @@
 
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.oxia-db</groupId>
@@ -80,7 +80,7 @@
 
         <assertj.version>3.24.1</assertj.version>
         <awaitility.version>4.2.2</awaitility.version>
-        <lombok.version>1.18.38</lombok.version>
+        <lombok.version>1.18.42</lombok.version>
         <slf4j.version>1.7.32</slf4j.version>
         <junit.jupiter.version>5.11.3</junit.jupiter.version>
         <mockito.junit.jupiter.version>5.14.2</mockito.junit.jupiter.version>
@@ -95,8 +95,8 @@
         <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
         <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
         <maven.shade.plugin.version>3.6.0</maven.shade.plugin.version>
-        <spotbugs.plugin.version>4.9.3.0</spotbugs.plugin.version>
-        <spotless.plugin.version>2.39.0</spotless.plugin.version>
+        <spotbugs.plugin.version>4.9.6.0</spotbugs.plugin.version>
+        <spotless.plugin.version>3.0.0</spotless.plugin.version>
         <byte-buddy.version>1.15.10</byte-buddy.version>
         <commons-compress.version>1.26.0</commons-compress.version>
         <commons-lang3.version>3.18.0</commons-lang3.version>

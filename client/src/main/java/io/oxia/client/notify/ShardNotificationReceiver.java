@@ -100,8 +100,8 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                                         case KEY_CREATED -> new KeyCreated(key, notification.getVersionId());
                                         case KEY_MODIFIED -> new KeyModified(key, notification.getVersionId());
                                         case KEY_DELETED -> new KeyDeleted(key);
-                                        case KEY_RANGE_DELETED -> new Notification.KeyRangeDelete(
-                                                key, notification.getKeyRangeLast());
+                                        case KEY_RANGE_DELETED ->
+                                                new Notification.KeyRangeDelete(key, notification.getKeyRangeLast());
                                         case UNRECOGNIZED -> null;
                                     };
 

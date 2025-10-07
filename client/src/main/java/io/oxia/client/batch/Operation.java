@@ -197,8 +197,8 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
             void complete(@NonNull DeleteResponse response) {
                 switch (response.getStatus()) {
-                    case UNEXPECTED_VERSION_ID -> fail(
-                            new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
+                    case UNEXPECTED_VERSION_ID ->
+                            fail(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
                     case KEY_NOT_FOUND -> callback.complete(false);
                     case OK -> callback.complete(true);
                     default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
