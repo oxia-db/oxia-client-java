@@ -15,6 +15,9 @@
  */
 package io.oxia.client.api;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * The result of a client get request.
  *
@@ -22,4 +25,15 @@ package io.oxia.client.api;
  * @param value The value associated with the key specified in the call.
  * @param version Metadata for the record associated with the key specified in the call.
  */
-public record GetResult(String key, byte[] value, Version version) {}
+public record GetResult(String key, byte[] value, Version version) {
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof GetResult other) {
+            return Objects.equals(key, other.key)
+                    && Arrays.equals(value, other.value)
+                    && Objects.equals(version, other.version);
+        }
+        return false;
+    }
+}
