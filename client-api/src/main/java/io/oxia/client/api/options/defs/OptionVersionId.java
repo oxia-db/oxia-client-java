@@ -13,13 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
+import io.oxia.client.api.Version;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.PutOption;
+
+/**
+ * @hidden
+ */
 public sealed interface OptionVersionId extends PutOption, DeleteOption
         permits OptionVersionId.OptionRecordDoesNotExist, OptionVersionId.OptionVersionIdEqual {
 
     long versionId();
 
+    /**
+     * @hidden
+     */
     record OptionVersionIdEqual(long versionId) implements OptionVersionId {
         public OptionVersionIdEqual {
             if (versionId < 0) {
@@ -28,6 +38,9 @@ public sealed interface OptionVersionId extends PutOption, DeleteOption
         }
     }
 
+    /**
+     * @hidden
+     */
     record OptionRecordDoesNotExist() implements OptionVersionId {
         @Override
         public long versionId() {

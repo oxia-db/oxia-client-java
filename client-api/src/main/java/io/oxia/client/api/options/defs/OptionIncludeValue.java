@@ -13,6 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
-public record OptionSecondaryIndex(String indexName, String secondaryKey) implements PutOption {}
+import io.oxia.client.api.options.GetOption;
+
+/**
+ * @hidden
+ */
+public record OptionIncludeValue(boolean includeValue) implements GetOption {}

@@ -16,6 +16,13 @@
 package io.oxia.client.api;
 
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.DeleteRangeOption;
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.GetSequenceUpdatesOption;
+import io.oxia.client.api.options.ListOption;
+import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.RangeScanOption;
 import java.io.Closeable;
 import java.util.List;
 import java.util.Set;

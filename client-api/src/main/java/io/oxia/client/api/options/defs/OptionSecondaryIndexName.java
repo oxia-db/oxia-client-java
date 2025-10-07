@@ -13,6 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
-public record OptionIncludeValue(boolean includeValue) implements GetOption {}
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.ListOption;
+import io.oxia.client.api.options.RangeScanOption;
+
+/**
+ * @hidden
+ */
+public record OptionSecondaryIndexName(String secondaryIndexName)
+        implements ListOption, RangeScanOption, GetOption {}

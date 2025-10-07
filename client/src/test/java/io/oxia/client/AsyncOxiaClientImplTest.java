@@ -15,7 +15,7 @@
  */
 package io.oxia.client;
 
-import static io.oxia.client.api.PutOption.IfVersionIdEquals;
+import static io.oxia.client.api.options.PutOption.IfVersionIdEquals;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Optional.empty;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,11 +29,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.grpc.stub.StreamObserver;
-import io.oxia.client.api.DeleteOption;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
+import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Batcher;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;

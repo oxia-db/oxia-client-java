@@ -13,14 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options;
 
-/**
- * RangeScanOption is a sealed interface that represents options for controlling range scan
- * operations. It allows specifying additional preferences such as the partition key or secondary
- * index name.
- */
-public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecondaryIndexName {
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionVersionId;
+
+/** Options for deleting a record. */
+public interface DeleteOption {
+
+    /**
+     * Conditional delete will only succeed if the record's version matches the supplied versionId.
+     *
+     * @param versionId the versionId to compare with the record's version.
+     * @return the delete option.
+     */
+    static DeleteOption IfVersionIdEquals(long versionId) {
+        return new OptionVersionId.OptionVersionIdEqual(versionId);
+    }
 
     /**
      * PartitionKey overrides the partition routing with the specified `partitionKey` instead of the
@@ -30,19 +39,9 @@ public sealed interface RangeScanOption permits OptionPartitionKey, OptionSecond
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
-     * @return the RangeScanOption.
+     * @return the delete option.
      */
-    static RangeScanOption PartitionKey(String partitionKey) {
+    static DeleteOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
-    }
-
-    /**
-     * UseIndex let the users specify a different index to follow for the range scan operation
-     *
-     * @param secondaryIndexName the name of the secondary index to use
-     * @return the RangeScanOption.
-     */
-    static RangeScanOption UseIndex(String secondaryIndexName) {
-        return new OptionSecondaryIndexName(secondaryIndexName);
     }
 }

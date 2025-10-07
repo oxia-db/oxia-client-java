@@ -13,8 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options;
 
+import io.oxia.client.api.SyncOxiaClient;
+import io.oxia.client.api.options.defs.OptionEphemeral;
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionSecondaryIndex;
+import io.oxia.client.api.options.defs.OptionSequenceKeysDeltas;
+import io.oxia.client.api.options.defs.OptionVersionId;
 import java.util.List;
 import java.util.Set;
 
@@ -23,12 +29,7 @@ import java.util.Set;
  * operation in a data store. These options allow fine-grained control over conditions,
  * partitioning, indexing, and key management associated with the operation.
  */
-public sealed interface PutOption
-        permits OptionEphemeral,
-                OptionPartitionKey,
-                OptionSecondaryIndex,
-                OptionSequenceKeysDeltas,
-                OptionVersionId {
+public interface PutOption {
 
     /**
      * Specifies that the operation should only proceed if the record does not already exist. This

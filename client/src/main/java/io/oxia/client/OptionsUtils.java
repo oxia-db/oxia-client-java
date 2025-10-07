@@ -15,14 +15,14 @@
  */
 package io.oxia.client;
 
-import io.oxia.client.api.GetOption;
-import io.oxia.client.api.OptionComparisonType;
-import io.oxia.client.api.OptionEphemeral;
-import io.oxia.client.api.OptionPartitionKey;
-import io.oxia.client.api.OptionSecondaryIndex;
-import io.oxia.client.api.OptionSecondaryIndexName;
-import io.oxia.client.api.OptionSequenceKeysDeltas;
-import io.oxia.client.api.OptionVersionId;
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.defs.OptionComparisonType;
+import io.oxia.client.api.options.defs.OptionEphemeral;
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionSecondaryIndex;
+import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
+import io.oxia.client.api.options.defs.OptionSequenceKeysDeltas;
+import io.oxia.client.api.options.defs.OptionVersionId;
 import io.oxia.proto.KeyComparisonType;
 import java.util.ArrayList;
 import java.util.Collections;

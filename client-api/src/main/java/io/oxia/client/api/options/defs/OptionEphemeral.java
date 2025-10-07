@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
+
+import io.oxia.client.api.options.PutOption;
 
 /**
  * @hidden

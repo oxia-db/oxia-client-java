@@ -16,18 +16,18 @@
 package io.oxia.client;
 
 import io.oxia.client.api.AsyncOxiaClient;
-import io.oxia.client.api.DeleteOption;
-import io.oxia.client.api.DeleteRangeOption;
-import io.oxia.client.api.GetOption;
 import io.oxia.client.api.GetResult;
-import io.oxia.client.api.GetSequenceUpdatesOption;
-import io.oxia.client.api.ListOption;
 import io.oxia.client.api.Notification;
-import io.oxia.client.api.PutOption;
 import io.oxia.client.api.PutResult;
-import io.oxia.client.api.RangeScanOption;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.DeleteRangeOption;
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.GetSequenceUpdatesOption;
+import io.oxia.client.api.options.ListOption;
+import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.RangeScanOption;
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;

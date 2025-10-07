@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
 
-public record OptionSecondaryIndexName(String secondaryIndexName)
-        implements ListOption, RangeScanOption, GetOption {}
+/** The definitions for options that can be passed to the Oxia client operations. */
+package io.oxia.client.api.options;
