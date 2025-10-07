@@ -87,7 +87,6 @@
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-inprocess</artifactId>
-            <version>1.59.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
