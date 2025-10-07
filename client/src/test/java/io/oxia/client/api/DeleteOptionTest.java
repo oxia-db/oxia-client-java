@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.OptionsUtils;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.defs.OptionVersionId;
 import java.util.Collections;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;

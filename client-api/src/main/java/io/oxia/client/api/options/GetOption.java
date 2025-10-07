@@ -13,11 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options;
+
+import io.oxia.client.api.options.defs.OptionComparisonType;
+import io.oxia.client.api.options.defs.OptionIncludeValue;
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 
 /** Options for getting a record. */
-public sealed interface GetOption
-        permits OptionComparisonType, OptionIncludeValue, OptionPartitionKey, OptionSecondaryIndexName {
+public interface GetOption {
 
     /** ComparisonEqual sets the Get() operation to compare the stored key for equality. */
     GetOption ComparisonEqual = new OptionComparisonType(OptionComparisonType.ComparisonType.Equal);

@@ -15,8 +15,8 @@
  */
 package io.oxia.client.it;
 
-import static io.oxia.client.api.PutOption.IfRecordDoesNotExist;
-import static io.oxia.client.api.PutOption.IfVersionIdEquals;
+import static io.oxia.client.api.options.PutOption.IfRecordDoesNotExist;
+import static io.oxia.client.api.options.PutOption.IfVersionIdEquals;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.function.Function.identity;
@@ -34,20 +34,20 @@ import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.opentelemetry.semconv.ResourceAttributes;
 import io.oxia.client.api.AsyncOxiaClient;
-import io.oxia.client.api.DeleteOption;
-import io.oxia.client.api.DeleteRangeOption;
-import io.oxia.client.api.GetOption;
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.DeleteRangeOption;
+import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.GetResult;
-import io.oxia.client.api.GetSequenceUpdatesOption;
-import io.oxia.client.api.ListOption;
+import io.oxia.client.api.options.GetSequenceUpdatesOption;
+import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
 import io.oxia.client.api.OxiaClientBuilder;
-import io.oxia.client.api.PutOption;
+import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.PutResult;
-import io.oxia.client.api.RangeScanOption;
+import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;

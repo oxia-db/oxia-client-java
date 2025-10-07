@@ -15,11 +15,11 @@
  */
 package io.oxia.client.options;
 
-import io.oxia.client.api.GetOption;
-import io.oxia.client.api.OptionComparisonType;
-import io.oxia.client.api.OptionIncludeValue;
-import io.oxia.client.api.OptionPartitionKey;
-import io.oxia.client.api.OptionSecondaryIndexName;
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.defs.OptionComparisonType;
+import io.oxia.client.api.options.defs.OptionIncludeValue;
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 import io.oxia.proto.KeyComparisonType;
 import java.util.Set;
 

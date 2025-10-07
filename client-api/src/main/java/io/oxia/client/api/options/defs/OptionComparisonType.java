@@ -13,7 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
-public record OptionSecondaryIndexName(String secondaryIndexName)
-        implements ListOption, RangeScanOption, GetOption {}
+import io.oxia.client.api.options.GetOption;
+
+/**
+ * @hidden
+ */
+public record OptionComparisonType(ComparisonType comparisonType) implements GetOption {
+
+    /**
+     * @hidden
+     */
+    public enum ComparisonType {
+        Equal,
+        Floor,
+        Ceiling,
+        Lower,
+        Higher,
+    }
+}

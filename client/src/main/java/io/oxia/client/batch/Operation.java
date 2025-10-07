@@ -26,7 +26,7 @@ import static io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import com.google.protobuf.ByteString;
 import io.oxia.client.ProtoUtil;
 import io.oxia.client.api.GetResult;
-import io.oxia.client.api.OptionSecondaryIndex;
+import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;

@@ -13,15 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
-public record OptionComparisonType(ComparisonType comparisonType) implements GetOption {
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.ListOption;
+import io.oxia.client.api.options.RangeScanOption;
 
-    public enum ComparisonType {
-        Equal,
-        Floor,
-        Ceiling,
-        Lower,
-        Higher,
-    }
-}
+/**
+ * @hidden
+ */
+public record OptionSecondaryIndexName(String secondaryIndexName)
+        implements ListOption, RangeScanOption, GetOption {}

@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options;
 
-/** Options for deleting a range of records. */
-public sealed interface DeleteRangeOption permits OptionPartitionKey {
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+
+/** Options for getting sequence updates. */
+public interface GetSequenceUpdatesOption {
 
     /**
      * PartitionKey overrides the partition routing with the specified `partitionKey` instead of the
@@ -26,9 +28,9 @@ public sealed interface DeleteRangeOption permits OptionPartitionKey {
      * Oxia shard.
      *
      * @param partitionKey the partition key to use
-     * @return the delete range option.
+     * @return the GetSequenceUpdatesOption.
      */
-    static DeleteRangeOption PartitionKey(String partitionKey) {
+    static GetSequenceUpdatesOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 }

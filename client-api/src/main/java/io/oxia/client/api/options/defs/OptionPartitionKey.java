@@ -13,13 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options.defs;
 
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.DeleteRangeOption;
+import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.GetSequenceUpdatesOption;
+import io.oxia.client.api.options.ListOption;
+import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.RangeScanOption;
+
+/**
+ * @hidden
+ */
 public record OptionPartitionKey(String partitionKey)
         implements DeleteRangeOption,
-                GetOption,
-                ListOption,
-                PutOption,
-                DeleteOption,
-                RangeScanOption,
-                GetSequenceUpdatesOption {}
+        GetOption,
+        ListOption,
+        PutOption,
+        DeleteOption,
+        RangeScanOption,
+        GetSequenceUpdatesOption {}

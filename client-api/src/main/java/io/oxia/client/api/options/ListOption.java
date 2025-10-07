@@ -13,10 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.api;
+package io.oxia.client.api.options;
+
+import io.oxia.client.api.options.defs.OptionPartitionKey;
+import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 
 /** Options for listing records. */
-public sealed interface ListOption permits OptionPartitionKey, OptionSecondaryIndexName {
+public interface ListOption {
 
     /**
      * PartitionKey overrides the partition routing with the specified `partitionKey` instead of the
