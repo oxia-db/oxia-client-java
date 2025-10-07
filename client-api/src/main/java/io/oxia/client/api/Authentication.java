@@ -24,6 +24,14 @@ import java.util.Map;
 public interface Authentication {
 
     /**
+     * Plugins which use ":" and/or "," in a configuration parameter value need to implement this
+     * interface.
+     *
+     * @param encodedAuthParamString the encoded configuration parameter value
+     */
+    void configure(String encodedAuthParamString);
+
+    /**
      * Generates a set of credentials represented as key-value pairs.
      *
      * @return a map containing the generated credentials, where the keys represent the credential
