@@ -22,7 +22,7 @@ public interface EncodedAuthenticationParameterSupport {
      * Plugins which use ":" and/or "," in a configuration parameter value need to implement this
      * interface.
      *
-     * @param encodedAuthParamString
+     * @param encodedAuthParamString the encoded configuration parameter value
      */
     void configure(String encodedAuthParamString);
 }

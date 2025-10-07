@@ -109,6 +109,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
+     * @param options Set {@link DeleteRangeOption options} for the delete range.
      * @return A future that completes when the delete call has returned.
      */
     CompletableFuture<Void> deleteRange(
@@ -160,6 +161,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
+     * @param options Set {@link ListOption options} for the list operation.
      * @return The list of keys that exist within the specified range or an empty list if there were
      *     none. Supplied via a future.
      */

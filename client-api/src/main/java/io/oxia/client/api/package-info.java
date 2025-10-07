@@ -17,8 +17,6 @@
 /**
  * The public API for interacting with Oxia.
  *
- * <p>
- *
  * <pre>
  *     SyncOxiaClient client = OxiaClientBuilder.create("localhost:6648")
  *         .namespace("my-namespace")
