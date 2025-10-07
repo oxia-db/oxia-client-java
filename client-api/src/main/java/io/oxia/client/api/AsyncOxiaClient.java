@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import lombok.NonNull;
 
 /** Asynchronous client for the Oxia service. */
 public interface AsyncOxiaClient extends AutoCloseable {
@@ -41,7 +40,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     UnexpectedVersionIdException} if the versionId at the server did not that match supplied in
      *     the call.
      */
-    @NonNull
     CompletableFuture<PutResult> put(String key, byte[] value, Set<PutOption> options);
 
     /**
@@ -54,7 +52,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The result of the put at the specified key. Supplied via a future that returns the
      *     {@link PutResult}.
      */
-    @NonNull
     CompletableFuture<PutResult> put(String key, byte[] value);
 
     /**
@@ -70,7 +67,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     future will complete exceptionally with an {@link UnexpectedVersionIdException} the
      *     versionId at the server did not that match supplied in the call.
      */
-    @NonNull
     CompletableFuture<Boolean> delete(String key, Set<DeleteOption> options);
 
     /**
@@ -80,7 +76,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return A future that completes when the delete call has returned. The future can return a flag
      *     that will be true if the key was actually present on the server, false otherwise.
      */
-    @NonNull
     CompletableFuture<Boolean> delete(String key);
 
     /**
@@ -95,7 +90,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return A future that completes when the delete call has returned.
      */
-    @NonNull
     CompletableFuture<Void> deleteRange(String startKeyInclusive, String endKeyExclusive);
 
     /**
@@ -110,7 +104,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return A future that completes when the delete call has returned.
      */
-    @NonNull
     CompletableFuture<Void> deleteRange(
             String startKeyInclusive, String endKeyExclusive, Set<DeleteRangeOption> options);
 
@@ -122,7 +115,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The value associated with the supplied key, or {@code null} if the key did not exist.
      *     Supplied via a future returning a {@link GetResult}.
      */
-    @NonNull
     CompletableFuture<GetResult> get(String key);
 
     /**
@@ -134,7 +126,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The value associated with the supplied key, or {@code null} if the key did not exist.
      *     Supplied via a future returning a {@link GetResult}.
      */
-    @NonNull
     CompletableFuture<GetResult> get(String key, Set<GetOption> options);
 
     /**
@@ -150,7 +141,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The list of keys that exist within the specified range or an empty list if there were
      *     none. Supplied via a future.
      */
-    @NonNull
     CompletableFuture<List<String>> list(String startKeyInclusive, String endKeyExclusive);
 
     /**
@@ -166,7 +156,6 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The list of keys that exist within the specified range or an empty list if there were
      *     none. Supplied via a future.
      */
-    @NonNull
     CompletableFuture<List<String>> list(
             String startKeyInclusive, String endKeyExclusive, Set<ListOption> options);
 
@@ -180,9 +169,9 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @param consumer A {@link RangeScanConsumer} that will be invoked with the records or errors.
      */
     void rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull RangeScanConsumer consumer);
+            String startKeyInclusive,
+            String endKeyExclusive,
+            RangeScanConsumer consumer);
 
     /**
      * Scan any existing records within the specified range of keys.
@@ -195,10 +184,10 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @param options the range scan options
      */
     void rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull RangeScanConsumer consumer,
-            @NonNull Set<RangeScanOption> options);
+            String startKeyInclusive,
+            String endKeyExclusive,
+            RangeScanConsumer consumer,
+            Set<RangeScanOption> options);
 
     /**
      * Registers a callback to receive Oxia {@link Notification record change notifications}. Multiple
@@ -206,7 +195,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *
      * @param notificationCallback A callback to receive notifications.
      */
-    void notifications(@NonNull Consumer<Notification> notificationCallback);
+    void notifications(Consumer<Notification> notificationCallback);
 
     /**
      * GetSequenceUpdates allows to subscribe to the updates happening on a sequential key The channel
@@ -219,7 +208,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return
      */
     Closeable getSequenceUpdates(
-            @NonNull String key,
-            @NonNull Consumer<String> listener,
-            @NonNull Set<GetSequenceUpdatesOption> options);
+            String key,
+            Consumer<String> listener,
+            Set<GetSequenceUpdatesOption> options);
 }

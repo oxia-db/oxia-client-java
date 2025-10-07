@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 public sealed interface DeleteOption permits OptionPartitionKey, OptionVersionId {
 
     static DeleteOption IfVersionIdEquals(long versionId) {
@@ -32,7 +30,7 @@ public sealed interface DeleteOption permits OptionPartitionKey, OptionVersionId
      *
      * @param partitionKey the partition key to use
      */
-    static DeleteOption PartitionKey(@NonNull String partitionKey) {
+    static DeleteOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 }

@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 /** A notification from an Oxia server indicating a change to a record associated with a key. */
 public sealed interface Notification
         permits Notification.KeyCreated,
@@ -35,7 +33,7 @@ public sealed interface Notification
      * @param key The key of the record created.
      * @param version The versionId of the new record.
      */
-    record KeyCreated(@NonNull String key, long version) implements Notification {
+    record KeyCreated(String key, long version) implements Notification {
         public KeyCreated {
             Version.requireValidVersionId(version);
         }
@@ -47,7 +45,7 @@ public sealed interface Notification
      * @param key The key of the record modified.
      * @param version The versionId of the record after the modification.
      */
-    record KeyModified(@NonNull String key, long version) implements Notification {
+    record KeyModified(String key, long version) implements Notification {
         public KeyModified {
             Version.requireValidVersionId(version);
         }
@@ -58,7 +56,7 @@ public sealed interface Notification
      *
      * @param key The key of the deleted record.
      */
-    record KeyDeleted(@NonNull String key) implements Notification {}
+    record KeyDeleted(String key) implements Notification {}
 
     /**
      * The record associated with the key range has been deleted.
@@ -66,7 +64,7 @@ public sealed interface Notification
      * @param startKeyInclusive The range deletion start key. (inclusive)
      * @param endKeyExclusive The range deletion end key. (exclusive)
      */
-    record KeyRangeDelete(@NonNull String startKeyInclusive, @NonNull String endKeyExclusive)
+    record KeyRangeDelete(String startKeyInclusive, String endKeyExclusive)
             implements Notification {
         @Override
         public String key() {

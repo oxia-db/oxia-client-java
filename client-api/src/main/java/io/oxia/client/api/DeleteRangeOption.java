@@ -15,8 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
-
 public sealed interface DeleteRangeOption permits OptionPartitionKey {
 
     /**
@@ -28,7 +26,7 @@ public sealed interface DeleteRangeOption permits OptionPartitionKey {
      *
      * @param partitionKey the partition key to use
      */
-    static DeleteRangeOption PartitionKey(@NonNull String partitionKey) {
+    static DeleteRangeOption PartitionKey(String partitionKey) {
         return new OptionPartitionKey(partitionKey);
     }
 }

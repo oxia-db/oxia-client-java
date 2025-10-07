@@ -15,7 +15,6 @@
  */
 package io.oxia.client.api;
 
-import lombok.NonNull;
 import lombok.Value;
 
 /** The result of a client get request. */
@@ -23,11 +22,11 @@ import lombok.Value;
 public class GetResult {
 
     /** The key associated with the record. */
-    @NonNull String key;
+    String key;
 
     /** The value associated with the key specified in the call. */
-    @NonNull byte[] value;
+    byte[] value;
 
     /** Metadata for the record associated with the key specified in the call. */
-    @NonNull Version version;
+    Version version;
 }
