@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright © 2022-2025 StreamNative Inc.
+    Copyright © 2022-2025 The Oxia Authors
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -26,12 +26,12 @@
     <packaging>pom</packaging>
     <name>Oxia Client SDK for Java</name>
     <description>Oxia Client SDK for Java</description>
-    <url>https://oxia-db.github.com</url>
+    <url>https://oxia-db.github.io</url>
     <inceptionYear>2022</inceptionYear>
 
     <organization>
-        <name>StreamNative Inc.</name>
-        <url>https://streamnative.io/</url>
+        <name>The Oxia Authors</name>
+        <url>https://oxia-db.github.io/</url>
     </organization>
 
     <licenses>
@@ -43,8 +43,8 @@
 
     <developers>
         <developer>
-            <organization>StreamNative Inc.</organization>
-            <organizationUrl>https://streamnative.io/</organizationUrl>
+            <organization>The Oxia Authors</organization>
+            <organizationUrl>https://oxia-db.github.io/</organizationUrl>
         </developer>
     </developers>
 
@@ -57,9 +57,9 @@
     </modules>
 
     <scm>
-        <connection>scm:git:git://github.com/streamnative/oxia-java.git</connection>
-        <developerConnection>scm:git:ssh://github.com:streamnative/oxia-java.git</developerConnection>
-        <url>https://github.com/streamnative/oxia-java</url>
+        <connection>scm:git:git://github.com/oxia-db/oxia-client-java.git</connection>
+        <developerConnection>scm:git:ssh://github.com:oxia-db/oxia-client-java.git</developerConnection>
+        <url>https://github.com/oxia-db/oxia-client-java</url>
     </scm>
 
     <properties>
