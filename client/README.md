@@ -225,10 +225,10 @@ There are various categories of metrics captured:
 |--------|---------------------|----------------------------------|
 | `type` | The assignment type | `added`, `removed`, `reassigned` |
 
-[oxia]: https://github.com/streamnative/oxia
-[it]: ../client-it/src/test/java/io/streamnative/oxia/client/it/OxiaClientIT.java
-[sort]: https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md
+[oxia]: https://github.com/oxia-db/oxia
+[it]: ../client-it/src/test/java/io/oxia/client/it/OxiaClientIT.java
+[sort]: https://github.com/oxia-db/oxia/blob/main/docs/oxia-key-sorting.md
 [caffeine]: https://github.com/ben-manes/caffeine/blob/master/caffeine/src/main/java/com/github/benmanes/caffeine/cache/RemovalCause.java
-[metrics-api]: client-metrics-api/src/main/java/io/streamnative/oxia/client/metrics/api/Metrics.java
-[otel-metrics]: client-metrics-opentelemetry/src/main/java/io/streamnative/oxia/client/metrics/opentelemetry/OpenTelemetryMetrics.java
+[metrics-api]: client-metrics-api/src/main/java/io/oxia/client/metrics/api/Metrics.java
+[otel-metrics]: client-metrics-opentelemetry/src/main/java/io/oxia/client/metrics/opentelemetry/OpenTelemetryMetrics.java
 

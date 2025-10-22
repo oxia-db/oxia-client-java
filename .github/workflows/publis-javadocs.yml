@@ -1,0 +1,44 @@
+name: Publish Javadocs
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build
+        run: mvn --no-transfer-progress --batch-mode -DskipTests install
+
+      - name: Validate Javadoc creation
+        run: mvn --no-transfer-progress --batch-mode -Prelease javadoc:javadoc -pl client-api
+
+      - name: Update latest symlink
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
+          external_repository: oxia-db/oxia-db.github.io
+          publish_branch: main
+          publish_dir: ./client-api/target/reports/apidocs
+          destination_dir: public/oxia-client-java/apidocs/latest
+          keep_files: false  # Replace latest with new version

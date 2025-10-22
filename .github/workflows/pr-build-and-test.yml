@@ -29,16 +29,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and Verify
         run: mvn --no-transfer-progress --batch-mode verify
 
-#      - name: Validate Javadoc creation
-#        run: mvn --no-transfer-progress --batch-mode javadoc:jar
+      - name: Validate Javadoc creation
+        run: mvn --no-transfer-progress --batch-mode javadoc:jar -pl client-api
 
       - name: Package surefire test results
         if: failure()
@@ -48,7 +43,7 @@ jobs:
           find . -type d -name "*surefire*" -exec cp --parents -R {} test-results/ \;
           zip -r test-results.zip test-results
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: test-results

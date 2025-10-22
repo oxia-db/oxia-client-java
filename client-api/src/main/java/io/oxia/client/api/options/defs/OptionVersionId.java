@@ -1,0 +1,52 @@
+/*
+ * Copyright © 2022-2025 The Oxia Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.oxia.client.api.options.defs;
+
+import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.PutOption;
+
+/**
+ * @hidden
+ */
+public sealed interface OptionVersionId extends PutOption, DeleteOption
+        permits OptionVersionId.OptionRecordDoesNotExist, OptionVersionId.OptionVersionIdEqual {
+
+    long versionId();
+
+    /**
+     * @hidden
+     */
+    record OptionVersionIdEqual(long versionId) implements OptionVersionId {
+        public OptionVersionIdEqual {
+            if (versionId < 0) {
+                throw new IllegalArgumentException("versionId cannot be less than 0 - was: " + versionId);
+            }
+        }
+    }
+
+    /**
+     * @hidden
+     */
+    record OptionRecordDoesNotExist() implements OptionVersionId {
+        @Override
+        public long versionId() {
+            return KEY_NOT_EXISTS;
+        }
+    }
+
+    /** Constant value indicating that the specified key does not exist. */
+    long KEY_NOT_EXISTS = -1;
+}
