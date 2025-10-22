@@ -44,11 +44,6 @@ public class OxiaStubTest {
             new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
                     .withLogConsumer(new Slf4jLogConsumer(log));
 
-    public enum BackoffType {
-        GRPC,
-        Oxia,
-    }
-
     @Test
     @SneakyThrows
     public void testMaxConnectionPerNode() {
