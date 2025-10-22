@@ -54,9 +54,9 @@ public class OxiaStubTest {
     public void testOxiaReconnectBackoff(BackoffType type) throws Exception {
         final OxiaStubManager stubManager;
         if (type == BackoffType.Oxia) {
-            stubManager = new OxiaStubManager(getDefaultClientConfig(), OxiaBackoffProvider.DEFAULT);
+            stubManager = new OxiaStubManager(getDefaultClientConfig());
         } else {
-            stubManager = new OxiaStubManager(getDefaultClientConfig(), null);
+            stubManager = new OxiaStubManager(getDefaultClientConfig());
         }
 
         final OxiaStub stub = stubManager.getStub(oxia.getServiceAddress());
@@ -138,7 +138,7 @@ public class OxiaStubTest {
                         builder -> {
                             builder.maxConnectionPerNode(maxConnectionPerNode);
                         });
-        @Cleanup var stubManager = new OxiaStubManager(clientConfig, OxiaBackoffProvider.DEFAULT);
+        @Cleanup var stubManager = new OxiaStubManager(clientConfig);
         for (int i = 0; i < 1000; i++) {
             stubManager.getStub(oxia.getServiceAddress());
         }
