@@ -45,7 +45,6 @@ import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -55,7 +54,6 @@ import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.testcontainers.OxiaContainer;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +66,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-
 import lombok.Cleanup;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -135,7 +132,7 @@ public class OxiaClientIT {
         allOf(a, b, c, d).join();
 
         assertThatThrownBy(
-                () -> client.put("a", "a".getBytes(UTF_8), Set.of(IfRecordDoesNotExist)).join())
+                        () -> client.put("a", "a".getBytes(UTF_8), Set.of(IfRecordDoesNotExist)).join())
                 .hasCauseInstanceOf(KeyAlreadyExistsException.class);
         // verify 'a' is present
         var getResult = client.get("a").join();
@@ -163,16 +160,16 @@ public class OxiaClientIT {
         // put with unexpected version
         var bVersion = client.get("b").join().version().versionId();
         assertThatThrownBy(
-                () ->
-                        client
-                                .put("b", "b2".getBytes(UTF_8), Set.of(IfVersionIdEquals(bVersion + 1L)))
-                                .join())
+                        () ->
+                                client
+                                        .put("b", "b2".getBytes(UTF_8), Set.of(IfVersionIdEquals(bVersion + 1L)))
+                                        .join())
                 .hasCauseInstanceOf(UnexpectedVersionIdException.class);
 
         // delete with unexpected version
         var cVersion = client.get("c").join().version().versionId();
         assertThatThrownBy(
-                () -> client.delete("c", Set.of(DeleteOption.IfVersionIdEquals(cVersion + 1L))).join())
+                        () -> client.delete("c", Set.of(DeleteOption.IfVersionIdEquals(cVersion + 1L))).join())
                 .hasCauseInstanceOf(UnexpectedVersionIdException.class);
 
         // list all keys
@@ -204,10 +201,10 @@ public class OxiaClientIT {
 
         var identity = getClass().getSimpleName();
         try (var otherClient =
-                     OxiaClientBuilder.create(oxia.getServiceAddress())
-                             .clientIdentifier(identity)
-                             .asyncClient()
-                             .join()) {
+                OxiaClientBuilder.create(oxia.getServiceAddress())
+                        .clientIdentifier(identity)
+                        .asyncClient()
+                        .join()) {
             otherClient.put("f", "f".getBytes(), Set.of(PutOption.AsEphemeralRecord)).join();
             getResult = client.get("f").join();
             var sessionId = getResult.version().sessionId().get();
@@ -237,9 +234,9 @@ public class OxiaClientIT {
         metricsByName.forEach((key, value) -> System.out.println(key + ": " + value));
 
         assertThat(
-                metricsByName.get("oxia.client.ops").getHistogramData().getPoints().stream()
-                        .map(HistogramPointData::getCount)
-                        .reduce(0L, Long::sum))
+                        metricsByName.get("oxia.client.ops").getHistogramData().getPoints().stream()
+                                .map(HistogramPointData::getCount)
+                                .reduce(0L, Long::sum))
                 .isEqualTo(124);
     }
 
@@ -484,38 +481,38 @@ public class OxiaClientIT {
         SyncOxiaClient client = OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
 
         assertThatThrownBy(
-                () ->
-                        client.put(
-                                "sk_a", "0".getBytes(), Set.of(PutOption.SequenceKeysDeltas(List.of(1L)))))
+                        () ->
+                                client.put(
+                                        "sk_a", "0".getBytes(), Set.of(PutOption.SequenceKeysDeltas(List.of(1L)))))
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(
-                () ->
-                        client.put(
-                                "sk_a",
-                                "0".getBytes(),
-                                Set.of(PutOption.SequenceKeysDeltas(List.of(0L)), PutOption.PartitionKey("x"))))
+                        () ->
+                                client.put(
+                                        "sk_a",
+                                        "0".getBytes(),
+                                        Set.of(PutOption.SequenceKeysDeltas(List.of(0L)), PutOption.PartitionKey("x"))))
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(
-                () ->
-                        client.put(
-                                "sk_a",
-                                "0".getBytes(),
-                                Set.of(
-                                        PutOption.SequenceKeysDeltas(List.of(1L, -1L)),
-                                        PutOption.PartitionKey("x"))))
+                        () ->
+                                client.put(
+                                        "sk_a",
+                                        "0".getBytes(),
+                                        Set.of(
+                                                PutOption.SequenceKeysDeltas(List.of(1L, -1L)),
+                                                PutOption.PartitionKey("x"))))
                 .isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(
-                () ->
-                        client.put(
-                                "sk_a",
-                                "0".getBytes(),
-                                Set.of(
-                                        PutOption.SequenceKeysDeltas(List.of(1L)),
-                                        PutOption.PartitionKey("x"),
-                                        PutOption.IfVersionIdEquals(1L))))
+                        () ->
+                                client.put(
+                                        "sk_a",
+                                        "0".getBytes(),
+                                        Set.of(
+                                                PutOption.SequenceKeysDeltas(List.of(1L)),
+                                                PutOption.PartitionKey("x"),
+                                                PutOption.IfVersionIdEquals(1L))))
                 .isInstanceOf(IllegalArgumentException.class);
 
         // Positive case scenarios
@@ -663,7 +660,8 @@ public class OxiaClientIT {
     @Test
     @SneakyThrows
     void testGetIncludeValue() {
-        @Cleanup final SyncOxiaClient client = OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
+        @Cleanup
+        final SyncOxiaClient client = OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
 
         final String key = "stream";
 
@@ -822,8 +820,7 @@ public class OxiaClientIT {
 
         String key = "su-" + UUID.randomUUID();
 
-        assertThatThrownBy(() -> client.getSequenceUpdates(key, s -> {
-        }, Set.of()))
+        assertThatThrownBy(() -> client.getSequenceUpdates(key, s -> {}, Set.of()))
                 .isInstanceOf(IllegalArgumentException.class);
 
         var updates1 = new ArrayBlockingQueue<>(100);
