@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import com.google.common.base.Throwables;
@@ -89,6 +90,8 @@ public class OxiaStub implements AutoCloseable {
         if (authentication != null) {
             this.asyncStub =
                     OxiaClientGrpc.newStub(channel)
+                            .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
+                            .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE)
                             .withCallCredentials(
                                     new CallCredentials() {
 
@@ -112,7 +115,9 @@ public class OxiaStub implements AutoCloseable {
                                         }
                                     });
         } else {
-            this.asyncStub = OxiaClientGrpc.newStub(channel);
+            this.asyncStub = OxiaClientGrpc.newStub(channel)
+                    .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
+                    .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
         }
     }
 
