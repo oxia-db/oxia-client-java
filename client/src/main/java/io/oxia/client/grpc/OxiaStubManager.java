@@ -16,7 +16,6 @@
 package io.oxia.client.grpc;
 
 import com.google.common.annotations.VisibleForTesting;
-import io.grpc.internal.BackoffPolicy;
 import io.oxia.client.ClientConfig;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,12 +24,10 @@ import java.util.concurrent.ThreadLocalRandom;
 public class OxiaStubManager implements AutoCloseable {
     @VisibleForTesting final Map<Key, OxiaStub> stubs = new ConcurrentHashMap<>();
 
-    private final BackoffPolicy.Provider backoffProvider;
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
 
-    public OxiaStubManager(ClientConfig clientConfig, BackoffPolicy.Provider backoffProvider) {
-        this.backoffProvider = backoffProvider;
+    public OxiaStubManager(ClientConfig clientConfig) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
     }
@@ -42,7 +39,7 @@ public class OxiaStubManager implements AutoCloseable {
             modKey += maxConnectionPerNode;
         }
         return stubs.computeIfAbsent(
-                new Key(address, modKey), key -> new OxiaStub(key.address, clientConfig, backoffProvider));
+                new Key(address, modKey), key -> new OxiaStub(key.address, clientConfig));
     }
 
     @Override
