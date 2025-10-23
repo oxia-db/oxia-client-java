@@ -17,6 +17,7 @@ package io.oxia.client.it;
 
 import static io.oxia.client.api.options.PutOption.IfRecordDoesNotExist;
 import static io.oxia.client.api.options.PutOption.IfVersionIdEquals;
+import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.CompletableFuture.allOf;
 import static java.util.function.Function.identity;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import io.grpc.StatusRuntimeException;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
@@ -868,5 +870,23 @@ public class OxiaClientIT {
         assertThat(updates2.poll(1, TimeUnit.SECONDS)).isEqualTo(pr3.key());
         assertThat(updates2.poll(1, TimeUnit.SECONDS)).isEqualTo(pr4.key());
         assertThat(updates2.poll(1, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
+    @SneakyThrows
+    void testMaximumSize() {
+        @Cleanup
+        SyncOxiaClient client = OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
+        String key = "key-" + UUID.randomUUID();
+        byte[] payload = new byte[50 * 1024 * 1024];
+        client.put(key, payload);
+        client.get(key);
+
+        key = "key-" + UUID.randomUUID();
+        payload = new byte[MAXIMUM_FRAME_SIZE];
+        final String finalKey = key;
+        final byte[] finalPayload = payload;
+        assertThatThrownBy(() -> client.put(finalKey, finalPayload))
+                .isInstanceOf(StatusRuntimeException.class);
     }
 }
