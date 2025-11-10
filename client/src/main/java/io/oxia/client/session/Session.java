@@ -192,7 +192,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                     stub.closeSession(
                             CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build());
         } catch (Throwable ex) {
-            future = CompletableFuture.failedFuture(ex);
+            future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }
         return future.whenComplete(
                 (__, ignore) -> {
