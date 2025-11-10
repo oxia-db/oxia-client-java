@@ -18,7 +18,6 @@ package io.oxia.client.grpc;
 import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-import com.google.common.base.Throwables;
 import io.grpc.CallCredentials;
 import io.grpc.ChannelCredentials;
 import io.grpc.Grpc;
@@ -26,15 +25,11 @@ import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.TlsChannelCredentials;
-import io.grpc.internal.BackoffPolicy;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.api.Authentication;
 import io.oxia.proto.OxiaClientGrpc;
-
-import java.lang.reflect.Field;
 import java.util.concurrent.Executor;
 import javax.annotation.Nullable;
-
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
@@ -57,35 +52,24 @@ public class OxiaStub implements AutoCloseable {
                 : InsecureChannelCredentials.create();
     }
 
-    public OxiaStub(
-            String address,
-            ClientConfig clientConfig,
-            @Nullable BackoffPolicy.Provider backoffProvider) {
-
-        this(Grpc.newChannelBuilder(getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
+    public OxiaStub(String address, ClientConfig clientConfig) {
+        this(
+                Grpc.newChannelBuilder(
+                                getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
                         .keepAliveTime(clientConfig.connectionKeepAliveTime().toMillis(), MILLISECONDS)
                         .keepAliveTimeout(clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
                         .keepAliveWithoutCalls(true)
                         .disableRetry()
                         .directExecutor()
-                        .build(), clientConfig.authentication(), backoffProvider);
+                        .build(),
+                clientConfig.authentication());
     }
 
     public OxiaStub(ManagedChannel channel) {
-        this(channel, null, OxiaBackoffProvider.DEFAULT);
+        this(channel, null);
     }
 
-    public OxiaStub(ManagedChannel channel, @Nullable final Authentication authentication,
-                    @Nullable BackoffPolicy.Provider oxiaBackoffPolicyProvider) {
-        /*
-            The GRPC default backoff is from 2s to 120s, which is very long for time sensitive usage.
-
-            Using reflection to replace the existing backoff here due to that is not configurable.
-            FYI: https://github.com/grpc/grpc-java/issues/10932#issuecomment-1954913671
-         */
-        if (oxiaBackoffPolicyProvider != null) {
-            configureBackoffPolicyIfPossible(channel, oxiaBackoffPolicyProvider);
-        }
+    public OxiaStub(ManagedChannel channel, @Nullable final Authentication authentication) {
         this.channel = channel;
         if (authentication != null) {
             this.asyncStub =
@@ -94,46 +78,24 @@ public class OxiaStub implements AutoCloseable {
                             .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE)
                             .withCallCredentials(
                                     new CallCredentials() {
-
                                         @Override
                                         public void applyRequestMetadata(
-                                                RequestInfo requestInfo, Executor appExecutor,
-                                                MetadataApplier applier) {
+                                                RequestInfo requestInfo, Executor appExecutor, MetadataApplier applier) {
                                             Metadata credentials = new Metadata();
-                                            authentication.generateCredentials()
-                                                    .forEach((key, value) ->
-                                                            credentials.put(
-                                                                    Metadata.Key.of(key,
-                                                                            Metadata.ASCII_STRING_MARSHALLER),
-                                                                    value));
+                                            authentication
+                                                    .generateCredentials()
+                                                    .forEach(
+                                                            (key, value) ->
+                                                                    credentials.put(
+                                                                            Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER),
+                                                                            value));
                                             applier.apply(credentials);
-                                        }
-
-                                        @Override
-                                        public void thisUsesUnstableApi() {
-                                            // Nothing to do.
                                         }
                                     });
         } else {
             this.asyncStub = OxiaClientGrpc.newStub(channel)
                     .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
                     .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
-        }
-    }
-
-    private void configureBackoffPolicyIfPossible(ManagedChannel channel, BackoffPolicy.Provider oxiaBackoffPolicyProvider) {
-        try {
-            final Class<?> mcl = Class.forName("io.grpc.internal.ForwardingManagedChannel");
-            final Field delegate = mcl.getDeclaredField("delegate");
-            delegate.setAccessible(true);
-            final Object mclInstance = delegate.get(channel);
-            final Class<?> mclInstanceKlass = Class.forName("io.grpc.internal.ManagedChannelImpl");
-            final Field backOffField = mclInstanceKlass.getDeclaredField("backoffPolicyProvider");
-            backOffField.setAccessible(true);
-            backOffField.set(mclInstance, oxiaBackoffPolicyProvider);
-        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException ex) {
-            log.warn("Auto replace GRPC default backoff policy failed. fallback to the GRPC default implementation.",
-                    Throwables.getRootCause(ex));
         }
     }
 

@@ -45,8 +45,6 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
-import io.oxia.client.grpc.*;
-import io.oxia.client.grpc.OxiaBackoffProvider;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.grpc.WriteStreamWrapper;
@@ -175,9 +173,7 @@ class BatchTest {
         server = serverBuilder.build().start();
         stub =
                 new OxiaStub(
-                        InProcessChannelBuilder.forName(serverName).directExecutor().build(),
-                        authentication,
-                        OxiaBackoffProvider.DEFAULT);
+                        InProcessChannelBuilder.forName(serverName).directExecutor().build(), authentication);
         final WriteStreamWrapper writeStreamWrapper = new WriteStreamWrapper(stub.async());
         clientByShardId = mock(OxiaStubProvider.class);
         lenient().when(clientByShardId.getStubForShard(anyLong())).thenReturn(stub);
