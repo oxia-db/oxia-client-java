@@ -23,6 +23,7 @@ import com.google.common.base.Throwables;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -185,7 +186,12 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     public CompletableFuture<CloseSessionResponse> close() {
         sessionsClosed.increment();
         heartbeatFuture.cancel(true);
-        var stub = stubProvider.getStubForShard(shardId);
+        final OxiaStub stub;
+        try {
+            stub = stubProvider.getStubForShard(shardId);
+        } catch (Throwable ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
         return stub.closeSession(
                         CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build())
                 .whenComplete(
