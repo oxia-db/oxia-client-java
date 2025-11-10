@@ -32,12 +32,14 @@ import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.SessionHeartbeat;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -186,25 +188,25 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     public CompletableFuture<CloseSessionResponse> close() {
         sessionsClosed.increment();
         heartbeatFuture.cancel(true);
-        final OxiaStub stub;
+        CompletableFuture<CloseSessionResponse> future;
         try {
-            stub = stubProvider.getStubForShard(shardId);
+            final var stub = stubProvider.getStubForShard(shardId);
+            future = stub.closeSession(
+                    CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build());
         } catch (Throwable ex) {
-            return CompletableFuture.failedFuture(ex);
+            future = CompletableFuture.failedFuture(ex);
         }
-        return stub.closeSession(
-                        CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build())
-                .whenComplete(
-                        (__, ignore) -> {
-                            // Ignore errors in closing the session, since it might have already expired
-                            listener.onSessionClosed(Session.this);
-                            final var ignoredException = ignore == null ? "" : ignore.getMessage();
-                            log.info(
-                                    "Session closed shard={} sessionId={} clientIdentity={}. ignoredException={}",
-                                    shardId,
-                                    sessionId,
-                                    clientIdentifier,
-                                    ignoredException);
-                        });
+        return future.whenComplete(
+                (__, ignore) -> {
+                    // Ignore errors in closing the session, since it might have already expired
+                    listener.onSessionClosed(Session.this);
+                    final var ignoredException = ignore == null ? "" : ignore.getMessage();
+                    log.info(
+                            "Session closed shard={} sessionId={} clientIdentity={}. ignoredException={}",
+                            shardId,
+                            sessionId,
+                            clientIdentifier,
+                            ignoredException);
+                });
     }
 }
