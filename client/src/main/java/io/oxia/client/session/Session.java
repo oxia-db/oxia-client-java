@@ -23,7 +23,6 @@ import com.google.common.base.Throwables;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -32,14 +31,12 @@ import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.SessionHeartbeat;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -191,8 +188,9 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         CompletableFuture<CloseSessionResponse> future;
         try {
             final var stub = stubProvider.getStubForShard(shardId);
-            future = stub.closeSession(
-                    CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build());
+            future =
+                    stub.closeSession(
+                            CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build());
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(ex);
         }
