@@ -28,7 +28,6 @@ import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
@@ -190,7 +189,10 @@ public class Session implements StreamObserver<KeepAliveResponse> {
             final var stub = stubProvider.getStubForShard(shardId);
             future =
                     stub.closeSession(
-                            CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build())
+                                    CloseSessionRequest.newBuilder()
+                                            .setShard(shardId)
+                                            .setSessionId(sessionId)
+                                            .build())
                             .thenApply(__ -> null); // we are not using the response so far
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
