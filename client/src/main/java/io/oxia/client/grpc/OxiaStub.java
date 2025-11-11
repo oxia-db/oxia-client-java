@@ -25,9 +25,13 @@ import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.TlsChannelCredentials;
+import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.api.Authentication;
+import io.oxia.proto.CloseSessionRequest;
+import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.OxiaClientGrpc;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import javax.annotation.Nullable;
 import lombok.NonNull;
@@ -93,14 +97,44 @@ public class OxiaStub implements AutoCloseable {
                                         }
                                     });
         } else {
-            this.asyncStub = OxiaClientGrpc.newStub(channel)
-                    .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
-                    .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
+            this.asyncStub =
+                    OxiaClientGrpc.newStub(channel)
+                            .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
+                            .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
         }
     }
 
     public OxiaClientGrpc.OxiaClientStub async() {
         return asyncStub;
+    }
+
+    public CompletableFuture<CloseSessionResponse> closeSession(CloseSessionRequest request) {
+        final CompletableFuture<CloseSessionResponse> f = new CompletableFuture<>();
+        final var defer =
+                new StreamObserver<CloseSessionResponse>() {
+                    private CloseSessionResponse response;
+
+                    @Override
+                    public void onNext(CloseSessionResponse response) {
+                        this.response = response;
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        f.completeExceptionally(t);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        f.complete(response);
+                    }
+                };
+        try {
+            asyncStub.closeSession(request, defer);
+        } catch (Throwable ex) {
+            f.completeExceptionally(ex);
+        }
+        return f;
     }
 
     @Override

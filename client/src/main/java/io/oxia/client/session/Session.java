@@ -28,7 +28,6 @@ import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
@@ -183,36 +182,24 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     }
 
     public CompletableFuture<Void> close() {
-        sessionsClosed.increment();
-        heartbeatFuture.cancel(true);
-        var stub = stubProvider.getStubForShard(shardId);
-        var request =
-                CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build();
-
-        CompletableFuture<Void> result = new CompletableFuture<>();
-        stub.async()
-                .closeSession(
-                        request,
-                        new StreamObserver<>() {
-                            @Override
-                            public void onNext(CloseSessionResponse value) {}
-
-                            @Override
-                            public void onError(Throwable t) {
-                                // Ignore errors in closing the session, since it might have already expired
-                                listener.onSessionClosed(Session.this);
-                                result.complete(null);
-                            }
-
-                            @Override
-                            public void onCompleted() {
-                                listener.onSessionClosed(Session.this);
-                                result.complete(null);
-                            }
-                        });
-
-        return result.whenComplete(
+        CompletableFuture<Void> future;
+        try {
+            sessionsClosed.increment();
+            heartbeatFuture.cancel(true);
+            final var stub = stubProvider.getStubForShard(shardId);
+            future =
+                    stub.closeSession(
+                                    CloseSessionRequest.newBuilder()
+                                            .setShard(shardId)
+                                            .setSessionId(sessionId)
+                                            .build())
+                            .thenApply(__ -> null); // we are not using the response so far
+        } catch (Throwable ex) {
+            future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
+        }
+        return future.whenComplete(
                 (__, ignore) -> {
+                    listener.onSessionClosed(Session.this);
                     log.info(
                             "Session closed shard={} sessionId={} clientIdentity={}",
                             shardId,

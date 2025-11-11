@@ -17,10 +17,10 @@ package io.oxia.client.session;
 
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.*;
 
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
@@ -37,12 +37,10 @@ import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.SessionHeartbeat;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -123,6 +121,24 @@ class SessionTest {
                         mock(SessionNotificationListener.class));
         assertThat(session.getShardId()).isEqualTo(shardId);
         assertThat(session.getSessionId()).isEqualTo(sessionId);
+    }
+
+    @Test
+    public void nonCallbackListener() {
+        final OxiaStubProvider mockProvider = mock(OxiaStubProvider.class);
+        final SessionNotificationListener listener = spy(SessionNotificationListener.class);
+        when(mockProvider.getStubForShard(anyLong()))
+                .thenThrow(new IllegalStateException("wrong states"));
+        var session =
+                new Session(
+                        executor, mockProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
+        try {
+            Assertions.assertDoesNotThrow(session::close).join();
+            fail("unexpected behaviour");
+        } catch (CompletionException ex) {
+            Assertions.assertInstanceOf(IllegalStateException.class, ex.getCause());
+        }
+        verify(listener, times(1)).onSessionClosed(any());
     }
 
     @Test
