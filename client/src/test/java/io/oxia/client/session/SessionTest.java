@@ -37,11 +37,7 @@ import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.SessionHeartbeat;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -137,7 +133,7 @@ class SessionTest {
                 new Session(
                         executor, mockProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
         try {
-            session.close().join();
+            Assertions.assertDoesNotThrow(session::close).join();
             fail("unexpected behaviour");
         } catch (CompletionException ex) {
             Assertions.assertInstanceOf(IllegalStateException.class, ex.getCause());
