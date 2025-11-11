@@ -29,18 +29,14 @@ import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.metrics.InstrumentProvider;
-import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
-import io.oxia.proto.KeepAliveResponse;
-import io.oxia.proto.OxiaClientGrpc;
-import io.oxia.proto.SessionHeartbeat;
-
+import io.oxia.proto.*;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import net.bytebuddy.implementation.bytecode.Throw;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -128,17 +124,11 @@ class SessionTest {
     public void nonCallbackListener() {
         final OxiaStubProvider mockProvider = mock(OxiaStubProvider.class);
         final SessionNotificationListener listener = spy(SessionNotificationListener.class);
-        when(mockProvider.getStubForShard(anyLong())).thenThrow(new IllegalStateException("wrong states"));
+        when(mockProvider.getStubForShard(anyLong()))
+                .thenThrow(new IllegalStateException("wrong states"));
         var session =
                 new Session(
-                        executor,
-                        mockProvider,
-                        config,
-                        shardId,
-                        sessionId,
-                        InstrumentProvider.NOOP,
-                        listener
-                );
+                        executor, mockProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
         try {
             session.close();
         } catch (Throwable ignore) {
