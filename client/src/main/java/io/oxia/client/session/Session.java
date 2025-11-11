@@ -196,15 +196,12 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         }
         return future.whenComplete(
                 (__, ignore) -> {
-                    // Ignore errors in closing the session, since it might have already expired
                     listener.onSessionClosed(Session.this);
-                    final var ignoredException = ignore == null ? "" : ignore.getMessage();
                     log.info(
-                            "Session closed shard={} sessionId={} clientIdentity={}. ignoredException={}",
+                            "Session closed shard={} sessionId={} clientIdentity={}",
                             shardId,
                             sessionId,
-                            clientIdentifier,
-                            ignoredException);
+                            clientIdentifier);
                 });
     }
 }
