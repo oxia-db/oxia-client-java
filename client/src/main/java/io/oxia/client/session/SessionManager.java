@@ -103,6 +103,8 @@ public class SessionManager
 
     @VisibleForTesting
     CompletableFuture<Void> closeQuietly(CompletableFuture<Session> sessionFuture) {
-        return sessionFuture.thenCompose(Session::close).exceptionally(ex -> null);
+        final CompletableFuture<Void> future = sessionFuture.thenCompose(Session::close)
+                .thenApply(__ -> null);
+        return future.exceptionally(ex -> null);
     }
 }

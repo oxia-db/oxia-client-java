@@ -183,10 +183,10 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     }
 
     public CompletableFuture<CloseSessionResponse> close() {
-        sessionsClosed.increment();
-        heartbeatFuture.cancel(true);
         CompletableFuture<CloseSessionResponse> future;
         try {
+            sessionsClosed.increment();
+            heartbeatFuture.cancel(true);
             final var stub = stubProvider.getStubForShard(shardId);
             future =
                     stub.closeSession(
