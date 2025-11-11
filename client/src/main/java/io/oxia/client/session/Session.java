@@ -182,15 +182,16 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         close();
     }
 
-    public CompletableFuture<CloseSessionResponse> close() {
-        CompletableFuture<CloseSessionResponse> future;
+    public CompletableFuture<Void> close() {
+        CompletableFuture<Void> future;
         try {
             sessionsClosed.increment();
             heartbeatFuture.cancel(true);
             final var stub = stubProvider.getStubForShard(shardId);
             future =
                     stub.closeSession(
-                            CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build());
+                            CloseSessionRequest.newBuilder().setShard(shardId).setSessionId(sessionId).build())
+                            .thenApply(__ -> null); // we are not using the response so far
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }
