@@ -19,92 +19,111 @@ import com.google.common.annotations.VisibleForTesting;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.metrics.InstrumentProvider;
+import io.oxia.client.shard.Shard;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
+
+import io.oxia.proto.CreateSessionRequest;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class SessionManager
-        implements AutoCloseable, Consumer<ShardAssignmentChanges>, SessionNotificationListener {
+        implements AutoCloseable, Consumer<ShardAssignmentChanges> {
 
-    private final ConcurrentMap<Long, CompletableFuture<Session>> sessionsByShardId =
-            new ConcurrentHashMap<>();
-    private final SessionFactory factory;
-    private volatile boolean closed = false;
+    private final ScheduledExecutorService borrowedScheduler;
+    private final OxiaStubProvider provider;
+    private final ClientConfig clientConfig;
+    private final InstrumentProvider instrumentProvider;
+    private final Map<Long, CompletableFuture<Session>> sessions;
 
     public SessionManager(
-            @NonNull ScheduledExecutorService executor,
+            @NonNull ScheduledExecutorService scheduler,
             @NonNull ClientConfig config,
             @NonNull OxiaStubProvider stubProvider,
             @NonNull InstrumentProvider instrumentProvider) {
-        this.factory = new SessionFactory(executor, config, this, stubProvider, instrumentProvider);
+        this.sessions = new ConcurrentHashMap<>();
+        this.borrowedScheduler = scheduler;
+        this.clientConfig = config;
+        this.provider = stubProvider;
+        this.instrumentProvider = instrumentProvider;
     }
 
-    SessionManager(SessionFactory factory) {
-        this.factory = factory;
+    @NonNull
+    private CompletableFuture<Session> createSession(long shardId) {
+        try {
+            final var stub = provider.getStubForShard(shardId);
+            return stub.createSession(CreateSessionRequest.newBuilder()
+                            .setSessionTimeoutMs((int) clientConfig.sessionTimeout().toMillis())
+                            .setShard(shardId)
+                            .setClientIdentity(clientConfig.clientIdentifier())
+                            .build())
+                    .thenApply(response -> new Session(
+                            borrowedScheduler,
+                            provider,
+                            clientConfig,
+                            shardId,
+                            response.getSessionId(),
+                            instrumentProvider));
+        } catch (Throwable ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     @NonNull
     public CompletableFuture<Session> getSession(long shardId) {
-        if (closed) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("session manager has been closed"));
-        }
-
-        return sessionsByShardId.compute(
+        return sessions.compute(
                 shardId,
                 (key, existing) -> {
-                    if (existing != null && !existing.isCompletedExceptionally()) {
-                        return existing;
+                    if (existing != null) {
+                        if (!existing.isDone()) {
+                            return existing;
+                        }
+                        if (!existing.isCompletedExceptionally()) {
+                            final Session session = existing.join();
+                            if (!session.isFinished()) {
+                                return existing;
+                            }
+                        }
                     }
-                    return factory.create(shardId);
+                    return createSession(shardId);
                 });
     }
 
-    @Override
-    public void onSessionClosed(Session session) {
-        sessionsByShardId.remove(session.getShardId());
-    }
 
     @Override
     public void close() throws Exception {
-        if (closed) {
-            return;
+        for (CompletableFuture<Session> session : sessions.values()) {
+            session.thenAccept(Session::close).exceptionally(ignore -> null);
         }
-        closed = true;
-        sessionsByShardId.values().stream().map(this::closeQuietly).forEach(CompletableFuture::join);
     }
+
+
+    @Override
+    public void accept(@NonNull ShardAssignmentChanges changes) {
+        for (Shard shard : changes.removed()) {
+            final CompletableFuture<Session> sessionFuture = sessions.remove(shard.id());
+            if (sessionFuture != null) {
+                sessionFuture.thenAccept(Session::close).exceptionally(ignore -> null);
+            }
+        }
+    }
+
 
     @VisibleForTesting
     Map<Long, Session> sessions() {
-        Map<Long, Session> sessions = new HashMap<>(sessionsByShardId.size());
-        for (var e : sessionsByShardId.entrySet()) {
+        Map<Long, Session> sessions = new HashMap<>(this.sessions.size());
+        for (var e : this.sessions.entrySet()) {
             if (e.getValue().isDone() && !e.getValue().isCompletedExceptionally()) {
                 sessions.put(e.getKey(), e.getValue().join());
             }
         }
         return sessions;
-    }
-
-    @Override
-    public void accept(@NonNull ShardAssignmentChanges changes) {
-        if (!closed) {
-            // Removed shards do not have any sessions to keep alive
-            changes.removed().forEach(s -> closeQuietly(sessionsByShardId.remove(s.id())));
-        }
-    }
-
-    @VisibleForTesting
-    CompletableFuture<Void> closeQuietly(CompletableFuture<Session> sessionFuture) {
-        final CompletableFuture<Void> future =
-                sessionFuture.thenCompose(Session::close).thenApply(__ -> null);
-        return future.exceptionally(ex -> null);
     }
 }

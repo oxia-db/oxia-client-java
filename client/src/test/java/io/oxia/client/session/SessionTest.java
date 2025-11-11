@@ -117,8 +117,7 @@ class SessionTest {
                         config,
                         shardId,
                         sessionId,
-                        InstrumentProvider.NOOP,
-                        mock(SessionNotificationListener.class));
+                        InstrumentProvider.NOOP);
         assertThat(session.getShardId()).isEqualTo(shardId);
         assertThat(session.getSessionId()).isEqualTo(sessionId);
     }
@@ -133,7 +132,7 @@ class SessionTest {
                 new Session(
                         executor, mockProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
         try {
-            Assertions.assertDoesNotThrow(session::close).join();
+            Assertions.assertDoesNotThrow(session::close);
             fail("unexpected behaviour");
         } catch (CompletionException ex) {
             Assertions.assertInstanceOf(IllegalStateException.class, ex.getCause());
@@ -164,7 +163,7 @@ class SessionTest {
                                                     .setShard(shardId)
                                                     .build());
                         });
-        session.close().join();
+        session.close();
         assertThat(service.closed).isTrue();
         assertThat(service.signalsAfterClosed).isEmpty();
     }

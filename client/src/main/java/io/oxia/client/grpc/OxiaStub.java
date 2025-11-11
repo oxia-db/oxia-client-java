@@ -28,9 +28,8 @@ import io.grpc.TlsChannelCredentials;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.api.Authentication;
-import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
-import io.oxia.proto.OxiaClientGrpc;
+import io.oxia.proto.*;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import javax.annotation.Nullable;
@@ -106,6 +105,10 @@ public class OxiaStub implements AutoCloseable {
 
     public OxiaClientGrpc.OxiaClientStub async() {
         return asyncStub;
+    }
+
+    public CompletableFuture<CreateSessionResponse> createSession(CreateSessionRequest request) {
+
     }
 
     public CompletableFuture<CloseSessionResponse> closeSession(CloseSessionRequest request) {
