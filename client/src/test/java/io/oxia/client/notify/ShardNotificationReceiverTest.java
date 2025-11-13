@@ -36,6 +36,7 @@ import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
 import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.metrics.Counter;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
@@ -90,6 +91,8 @@ class ShardNotificationReceiverTest {
     long shardId = 1L;
     String leader = "address";
     @Mock OxiaStub stub;
+    @Mock
+    OxiaStubManager stubManager;
     @Mock Consumer<Notification> notificationCallback;
     @Mock NotificationManager notificationManager;
 
@@ -104,6 +107,8 @@ class ShardNotificationReceiverTest {
                         .build()
                         .start();
         stub = new OxiaStub(InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        stubManager = mock(OxiaStubManager.class);
+        when(stubManager.getStub(any())).thenReturn(stub);
     }
 
     @AfterEach
@@ -127,7 +132,7 @@ class ShardNotificationReceiverTest {
         responses.put(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stub, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
+                        stubManager, leader, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
             await()
                     .untilAsserted(
                             () -> {
@@ -143,7 +148,7 @@ class ShardNotificationReceiverTest {
         //        responses.offer(Flux.never());
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stub, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
+                        stubManager, leader, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
             await()
                     .untilAsserted(
                             () -> {
@@ -166,8 +171,7 @@ class ShardNotificationReceiverTest {
                 NotificationBatch.newBuilder().putNotifications("key1", created(1L)).build();
         responses.offer(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
-                new ShardNotificationReceiver(
-                        stub, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
+                new ShardNotificationReceiver( stubManager, leader, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
             await()
                     .untilAsserted(
                             () -> {
@@ -187,7 +191,7 @@ class ShardNotificationReceiverTest {
         responses.put(new NotificationWrapper(notifications, null, true));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stub, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
+                        stubManager, leader, shardId, notificationCallback, notificationManager, OptionalLong.empty())) {
             await()
                     .untilAsserted(
                             () -> {

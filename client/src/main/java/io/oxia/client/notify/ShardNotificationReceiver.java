@@ -40,7 +40,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ShardNotificationReceiver implements Closeable, StreamObserver<NotificationBatch> {
 
-    private final OxiaStub stub;
+    private final OxiaStubManager manager;
+    private final String leader;
     private final NotificationManager notificationManager;
 
     @Getter(PACKAGE)
@@ -55,12 +56,14 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     private final Backoff backoff = new Backoff();
 
     ShardNotificationReceiver(
-            @NonNull OxiaStub stub,
+            @NonNull OxiaStubManager stubManager,
+            String leader,
             long shardId,
             @NonNull Consumer<Notification> callback,
             NotificationManager notificationManager,
             @NonNull OptionalLong offset) {
-        this.stub = stub;
+        this.manager = stubManager;
+        this.leader = leader;
         this.notificationManager = notificationManager;
         this.shardId = shardId;
         this.callback = callback;
@@ -72,7 +75,12 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     void start() {
         var request = NotificationsRequest.newBuilder().setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
-        stub.async().getNotifications(request.build(), this);
+        try {
+            final OxiaStub stub = manager.getStub(leader);
+            stub.async().getNotifications(request.build(), this);
+        } catch (Throwable ex) {
+            onError(ex);
+        }
     }
 
     @Override
@@ -156,8 +164,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                 @NonNull String leader,
                 @NonNull NotificationManager notificationManager,
                 @NonNull OptionalLong offset) {
-            return new ShardNotificationReceiver(
-                    stubManager.getStub(leader), shardId, callback, notificationManager, offset);
+            return new ShardNotificationReceiver(stubManager, leader, shardId, callback, notificationManager, offset);
         }
     }
 
