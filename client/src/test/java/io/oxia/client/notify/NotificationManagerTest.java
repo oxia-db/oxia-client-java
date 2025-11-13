@@ -21,12 +21,7 @@ import static io.oxia.proto.NotificationType.KEY_MODIFIED;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
@@ -272,6 +267,8 @@ class NotificationManagerTest {
 
         long shardId1 = 1L;
         long shardId2 = 2L;
+        OxiaStub stub1;
+        OxiaStub stub2;
         @Mock OxiaStubManager stubManager;
         @Mock ShardManager shardManager;
         @Mock ShardAssignmentsContainer assignments;
@@ -295,10 +292,10 @@ class NotificationManagerTest {
                             .start();
             channel1 = InProcessChannelBuilder.forName(serverName1).directExecutor().build();
             channel2 = InProcessChannelBuilder.forName(serverName2).directExecutor().build();
-            var stub1 = new OxiaStub(channel1);
-            var stub2 = new OxiaStub(channel2);
+            stub1 = new OxiaStub(channel1);
+            stub2 = new OxiaStub(channel2);
             when(stubManager.getStub("leader1")).thenReturn(stub1);
-            when(stubManager.getStub("leader2")).thenReturn(stub2);
+            when(stubManager.getStub("leader2")).thenThrow(new IllegalStateException("illegal state"));
         }
 
         @Test
@@ -328,6 +325,7 @@ class NotificationManagerTest {
                                 Set.of(),
                                 Set.of());
                 manager.accept(changes);
+                doReturn(stub2).when(stubManager).getStub("leader2");
                 await()
                         .untilAsserted(
                                 () -> {
