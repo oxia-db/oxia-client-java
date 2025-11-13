@@ -41,7 +41,7 @@ import lombok.SneakyThrows;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 class SyncOxiaClientImpl implements SyncOxiaClient {
-    final AsyncOxiaClient asyncClient;
+    private final AsyncOxiaClient asyncClient;
 
     @Override
     public PutResult put(@NonNull String key, byte @NonNull [] value) {
