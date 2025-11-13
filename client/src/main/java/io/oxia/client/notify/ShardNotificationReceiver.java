@@ -164,7 +164,8 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                 @NonNull String leader,
                 @NonNull NotificationManager notificationManager,
                 @NonNull OptionalLong offset) {
-            return new ShardNotificationReceiver(stubManager, leader, shardId, callback, notificationManager, offset);
+            return new ShardNotificationReceiver(
+                    stubManager, leader, shardId, callback, notificationManager, offset);
         }
     }
 
