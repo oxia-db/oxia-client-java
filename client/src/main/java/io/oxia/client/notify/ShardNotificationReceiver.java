@@ -57,7 +57,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     ShardNotificationReceiver(
             @NonNull OxiaStubManager stubManager,
-            String leader,
+            @NonNull String leader,
             long shardId,
             @NonNull Consumer<Notification> callback,
             NotificationManager notificationManager,
