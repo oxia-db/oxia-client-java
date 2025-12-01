@@ -84,8 +84,8 @@
         <slf4j.version>1.7.32</slf4j.version>
         <junit.jupiter.version>5.11.3</junit.jupiter.version>
         <mockito.junit.jupiter.version>5.14.2</mockito.junit.jupiter.version>
-        <opentelemetry.version>1.44.1</opentelemetry.version>
-        <opentelemetry.semconv.version>1.28.0-alpha</opentelemetry.semconv.version>
+        <opentelemetry.version>1.56.0</opentelemetry.version>
+        <opentelemetry.semconv.version>1.37.0</opentelemetry.semconv.version>
         <testcontainers.version>1.20.4</testcontainers.version>
         <guava.version>32.1.3-jre</guava.version>
 
