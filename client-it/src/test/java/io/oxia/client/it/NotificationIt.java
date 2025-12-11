@@ -16,12 +16,12 @@
 package io.oxia.client.it;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
-import io.opentelemetry.semconv.ResourceAttributes;
 import io.oxia.client.api.AsyncOxiaClient;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.OxiaClientBuilder;
@@ -63,7 +63,7 @@ public class NotificationIt {
                 Resource.getDefault()
                         .merge(
                                 Resource.create(
-                                        Attributes.of(ResourceAttributes.SERVICE_NAME, "logical-service-name")));
+                                        Attributes.of(AttributeKey.stringKey("service.name"), "logical-service-name")));
 
         metricReader = InMemoryMetricReader.create();
         SdkMeterProvider sdkMeterProvider =
