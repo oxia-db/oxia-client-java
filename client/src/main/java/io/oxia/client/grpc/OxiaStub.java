@@ -28,12 +28,14 @@ import io.grpc.TlsChannelCredentials;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.api.Authentication;
-import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
-import io.oxia.proto.OxiaClientGrpc;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import javax.annotation.Nullable;
+import io.oxia.proto.CloseSessionRequest;
+import io.oxia.proto.CloseSessionResponse;
+import io.oxia.proto.OxiaClientGrpc;
+import io.oxia.proto.ShardAssignments;
+import io.oxia.proto.ShardAssignmentsRequest;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
@@ -106,6 +108,14 @@ public class OxiaStub implements AutoCloseable {
 
     public OxiaClientGrpc.OxiaClientStub async() {
         return asyncStub;
+    }
+
+    public void watchShardAssignments(ShardAssignmentsRequest request, StreamObserver<ShardAssignments> assignments) {
+        try {
+            asyncStub.getShardAssignments(request, assignments);
+        } catch (Throwable ex) {
+            assignments.onError(ex);
+        }
     }
 
     public CompletableFuture<CloseSessionResponse> closeSession(CloseSessionRequest request) {

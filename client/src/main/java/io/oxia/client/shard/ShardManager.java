@@ -102,9 +102,10 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     }
 
     public CompletableFuture<Void> start() {
-        var req = ShardAssignmentsRequest.newBuilder().setNamespace(assignments.getNamespace()).build();
-
-        stub.async().getShardAssignments(req, this);
+        stub.watchShardAssignments(
+                ShardAssignmentsRequest.newBuilder()
+                        .setNamespace(assignments.getNamespace())
+                        .build(), this);
         return initialAssignmentsFuture;
     }
 
@@ -246,7 +247,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     }
 
     public record ShardAssignmentChanges(
-            Set<Shard> added, Set<Shard> removed, Set<Shard> reassigned) {}
+            Set<Shard> added, Set<Shard> removed, Set<Shard> reassigned) {
+    }
 
     public long getShardForKey(String key) {
         return assignments.getShardForKey(key);
@@ -266,13 +268,5 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
         callbacks.add(callback);
-    }
-
-    private boolean isErrorRetryable(@NonNull Throwable ex) {
-        if (ex instanceof NamespaceNotFoundException nsNotFoundError) {
-            return nsNotFoundError.isRetryable();
-        }
-        // Allow the rest of the errors to retry.
-        return true;
     }
 }
