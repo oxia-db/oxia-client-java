@@ -231,8 +231,8 @@ class OperationTest {
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -258,8 +258,8 @@ class OperationTest {
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -285,8 +285,8 @@ class OperationTest {
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -312,8 +312,8 @@ class OperationTest {
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -339,8 +339,8 @@ class OperationTest {
                             OptionalLong.of(sessionId),
                             Optional.of("client-id"),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -432,8 +432,8 @@ class OperationTest {
                             OptionalLong.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var response = PutResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build();
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
@@ -460,8 +460,8 @@ class OperationTest {
                             OptionalLong.of(5),
                             Optional.of("client-id"),
                             Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var response = PutResponse.newBuilder().setStatus(SESSION_DOES_NOT_EXIST).build();
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();

@@ -116,8 +116,7 @@ class PutOptionTest {
     class OverrideVersionIdTests {
         @Test
         void overrideVersionId() {
-            assertThat(new OptionOverrideVersionId(5L))
-                    .isInstanceOf(OptionOverrideVersionId.class);
+            assertThat(new OptionOverrideVersionId(5L)).isInstanceOf(OptionOverrideVersionId.class);
         }
 
         @Test

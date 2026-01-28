@@ -20,7 +20,8 @@ import io.oxia.client.api.options.PutOption;
 /**
  * @hidden
  */
-public record OptionOverrideModificationsCount(long overrideModificationsCount) implements PutOption {
+public record OptionOverrideModificationsCount(long overrideModificationsCount)
+        implements PutOption {
     public OptionOverrideModificationsCount {
         if (overrideModificationsCount < 0) {
             throw new IllegalArgumentException(
