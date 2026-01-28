@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -313,6 +313,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var versionId = OptionsUtils.getVersionId(options);
         var sequenceKeysDeltas = OptionsUtils.getSequenceKeysDeltas(options);
         var secondaryIndexes = OptionsUtils.getSecondaryIndexes(options);
+        var overrideVersionId = OptionsUtils.getOverrideVersionId(options);
+        var overrideModificationsCount = OptionsUtils.getOverrideModificationsCount(options);
 
         CompletableFuture<PutResult> future = new CompletableFuture<>();
 
@@ -327,7 +329,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             versionId,
                             OptionalLong.empty(),
                             Optional.empty(),
-                            secondaryIndexes);
+                            secondaryIndexes,
+                            overrideVersionId,
+                            overrideModificationsCount);
             writeBatchManager.getBatcher(shardId).add(op);
         } else {
             // The put operation is trying to write an ephemeral record. We need to have a valid session
@@ -346,7 +350,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                                 versionId,
                                                 OptionalLong.of(session.getSessionId()),
                                                 Optional.of(clientIdentifier),
-                                                secondaryIndexes);
+                                                secondaryIndexes,
+                                                overrideVersionId,
+                                                overrideModificationsCount);
                                 writeBatchManager.getBatcher(shardId).add(op);
                             })
                     .exceptionally(

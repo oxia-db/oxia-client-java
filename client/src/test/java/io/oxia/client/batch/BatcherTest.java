@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,7 +125,9 @@ class BatcherTest {
                         OptionalLong.empty(),
                         OptionalLong.empty(),
                         Optional.empty(),
-                        Collections.emptyList());
+                        Collections.emptyList(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty());
         when(batchFactory.getBatch(shardId)).thenReturn(batch);
         when(batch.size()).thenReturn(config.maxRequestsPerBatch(), 1);
         when(batch.canAdd(any())).thenReturn(false);

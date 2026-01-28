@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -207,7 +207,9 @@ class BatchTest {
                         OptionalLong.of(1),
                         OptionalLong.empty(),
                         Optional.empty(),
-                        Collections.emptyList());
+                        Collections.emptyList(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty());
         PutOperation putEphemeral =
                 new PutOperation(
                         putEphemeralCallable,
@@ -218,7 +220,9 @@ class BatchTest {
                         OptionalLong.of(1),
                         OptionalLong.of(1),
                         Optional.of("client-id"),
-                        Collections.emptyList());
+                        Collections.emptyList(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty());
         DeleteOperation delete = new DeleteOperation(deleteCallable, "", OptionalLong.of(1));
         DeleteRangeOperation deleteRange = new DeleteRangeOperation(deleteRangeCallable, "a", "b");
 
