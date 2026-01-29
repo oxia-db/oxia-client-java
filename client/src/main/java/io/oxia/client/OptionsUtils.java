@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ package io.oxia.client;
 import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.options.defs.OptionComparisonType;
 import io.oxia.client.api.options.defs.OptionEphemeral;
+import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
+import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionPartitionKey;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
@@ -155,6 +157,46 @@ public class OptionsUtils {
         }
 
         return res != null ? res : Collections.emptyList();
+    }
+
+    public static OptionalLong getOverrideVersionId(Set<?> options) {
+        if (options == null || options.isEmpty()) {
+            return OptionalLong.empty();
+        }
+
+        OptionalLong overrideVersionId = OptionalLong.empty();
+        for (var o : options) {
+            if (o instanceof OptionOverrideVersionId e) {
+                if (overrideVersionId.isPresent()) {
+                    throw new IllegalArgumentException(
+                            "OverrideVersionId cannot be passed multiple times: " + options);
+                }
+
+                overrideVersionId = OptionalLong.of(e.overrideVersionId());
+            }
+        }
+
+        return overrideVersionId;
+    }
+
+    public static OptionalLong getOverrideModificationsCount(Set<?> options) {
+        if (options == null || options.isEmpty()) {
+            return OptionalLong.empty();
+        }
+
+        OptionalLong overrideModificationsCount = OptionalLong.empty();
+        for (var o : options) {
+            if (o instanceof OptionOverrideModificationsCount e) {
+                if (overrideModificationsCount.isPresent()) {
+                    throw new IllegalArgumentException(
+                            "OverrideModificationsCount cannot be passed multiple times: " + options);
+                }
+
+                overrideModificationsCount = OptionalLong.of(e.overrideModificationsCount());
+            }
+        }
+
+        return overrideModificationsCount;
     }
 
     public static Optional<String> getSecondaryIndexName(Set<?> options) {

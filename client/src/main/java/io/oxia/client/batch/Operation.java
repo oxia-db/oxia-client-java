@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,7 +96,9 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull OptionalLong expectedVersionId,
                 OptionalLong sessionId,
                 Optional<String> clientIdentifier,
-                List<OptionSecondaryIndex> secondaryIndexes)
+                List<OptionSecondaryIndex> secondaryIndexes,
+                @NonNull OptionalLong overrideVersionId,
+                @NonNull OptionalLong overrideModificationsCount)
                 implements WriteOperation<PutResult> {
 
             public PutOperation {
@@ -136,6 +138,8 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                                         .build();
                             });
                 }
+                overrideVersionId.ifPresent(builder::setOverrideVersionId);
+                overrideModificationsCount.ifPresent(builder::setOverrideModificationsCount);
                 return builder.build();
             }
 

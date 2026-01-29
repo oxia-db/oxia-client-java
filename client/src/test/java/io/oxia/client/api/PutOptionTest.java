@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.OptionsUtils;
 import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
+import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import java.util.Collections;
 import java.util.Set;
@@ -107,5 +109,54 @@ class PutOptionTest {
         assertThat(OptionsUtils.isEphemeral(Set.of(PutOption.IfRecordDoesNotExist))).isFalse();
         assertThat(OptionsUtils.isEphemeral(Set.of(PutOption.IfVersionIdEquals(5)))).isFalse();
         assertThat(OptionsUtils.isEphemeral(Collections.emptySet())).isFalse();
+    }
+
+    @Nested
+    @DisplayName("OverrideVersionId tests")
+    class OverrideVersionIdTests {
+        @Test
+        void overrideVersionId() {
+            assertThat(new OptionOverrideVersionId(5L)).isInstanceOf(OptionOverrideVersionId.class);
+        }
+
+        @Test
+        void overrideVersionIdLessThanZero() {
+            assertThatNoException().isThrownBy(() -> new OptionOverrideVersionId(0L));
+            assertThatThrownBy(() -> new OptionOverrideVersionId(-1L))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void getOverrideVersionId() {
+            assertThat(OptionsUtils.getOverrideVersionId(Collections.emptySet())).isEmpty();
+            assertThat(OptionsUtils.getOverrideVersionId(Set.of(new OptionOverrideVersionId(5L))))
+                    .hasValue(5L);
+        }
+    }
+
+    @Nested
+    @DisplayName("OverrideModificationsCount tests")
+    class OverrideModificationsCountTests {
+        @Test
+        void overrideModificationsCount() {
+            assertThat(new OptionOverrideModificationsCount(3L))
+                    .isInstanceOf(OptionOverrideModificationsCount.class);
+        }
+
+        @Test
+        void overrideModificationsCountLessThanZero() {
+            assertThatNoException().isThrownBy(() -> new OptionOverrideModificationsCount(0L));
+            assertThatThrownBy(() -> new OptionOverrideModificationsCount(-1L))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void getOverrideModificationsCount() {
+            assertThat(OptionsUtils.getOverrideModificationsCount(Collections.emptySet())).isEmpty();
+            assertThat(
+                            OptionsUtils.getOverrideModificationsCount(
+                                    Set.of(new OptionOverrideModificationsCount(3L))))
+                    .hasValue(3L);
+        }
     }
 }
