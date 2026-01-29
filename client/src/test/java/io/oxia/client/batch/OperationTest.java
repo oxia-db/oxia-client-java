@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -164,7 +164,9 @@ class OperationTest {
                         OptionalLong.of(10),
                         OptionalLong.empty(),
                         Optional.empty(),
-                        Collections.emptyList());
+                        Collections.emptyList(),
+                        OptionalLong.empty(),
+                        OptionalLong.empty());
         long sessionId = 0L;
 
         @Test
@@ -181,7 +183,9 @@ class OperationTest {
                                             OptionalLong.of(KEY_NOT_EXISTS),
                                             OptionalLong.empty(),
                                             Optional.empty(),
-                                            Collections.emptyList()));
+                                            Collections.emptyList(),
+                                            OptionalLong.empty(),
+                                            OptionalLong.empty()));
             assertThatNoException()
                     .isThrownBy(
                             () ->
@@ -194,7 +198,9 @@ class OperationTest {
                                             OptionalLong.of(0L),
                                             OptionalLong.empty(),
                                             Optional.empty(),
-                                            Collections.emptyList()));
+                                            Collections.emptyList(),
+                                            OptionalLong.empty(),
+                                            OptionalLong.empty()));
             assertThatThrownBy(
                             () ->
                                     new PutOperation(
@@ -206,7 +212,9 @@ class OperationTest {
                                             OptionalLong.of(-2L),
                                             OptionalLong.empty(),
                                             Optional.empty(),
-                                            Collections.emptyList()))
+                                            Collections.emptyList(),
+                                            OptionalLong.empty(),
+                                            OptionalLong.empty()))
                     .isInstanceOf(IllegalArgumentException.class);
         }
 
@@ -222,7 +230,9 @@ class OperationTest {
                             OptionalLong.empty(),
                             OptionalLong.empty(),
                             Optional.empty(),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -247,7 +257,9 @@ class OperationTest {
                             OptionalLong.of(1L),
                             OptionalLong.empty(),
                             Optional.empty(),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -272,7 +284,9 @@ class OperationTest {
                             OptionalLong.empty(),
                             OptionalLong.empty(),
                             Optional.empty(),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -297,7 +311,9 @@ class OperationTest {
                             OptionalLong.of(KEY_NOT_EXISTS),
                             OptionalLong.empty(),
                             Optional.empty(),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -322,7 +338,9 @@ class OperationTest {
                             OptionalLong.empty(),
                             OptionalLong.of(sessionId),
                             Optional.of("client-id"),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var request = op.toProto();
             assertThat(request)
                     .satisfies(
@@ -332,6 +350,57 @@ class OperationTest {
                                 assertThat(r.hasExpectedVersionId()).isFalse();
                                 assertThat(r.getSessionId()).isEqualTo(sessionId);
                                 assertThat(r.getClientIdentity()).isEqualTo("client-id");
+                            });
+        }
+
+        @Test
+        void toProtoOverrideVersionMetadata() {
+            var op =
+                    new PutOperation(
+                            callback,
+                            "key",
+                            Optional.empty(),
+                            Optional.empty(),
+                            payload,
+                            OptionalLong.empty(),
+                            OptionalLong.empty(),
+                            Optional.empty(),
+                            Collections.emptyList(),
+                            OptionalLong.of(42L),
+                            OptionalLong.of(7L));
+            var request = op.toProto();
+            assertThat(request)
+                    .satisfies(
+                            r -> {
+                                assertThat(r.getKey()).isEqualTo(op.key());
+                                assertThat(r.hasOverrideVersionId()).isTrue();
+                                assertThat(r.getOverrideVersionId()).isEqualTo(42L);
+                                assertThat(r.hasOverrideModificationsCount()).isTrue();
+                                assertThat(r.getOverrideModificationsCount()).isEqualTo(7L);
+                            });
+        }
+
+        @Test
+        void toProtoNoOverrideVersionMetadata() {
+            var op =
+                    new PutOperation(
+                            callback,
+                            "key",
+                            Optional.empty(),
+                            Optional.empty(),
+                            payload,
+                            OptionalLong.empty(),
+                            OptionalLong.empty(),
+                            Optional.empty(),
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
+            var request = op.toProto();
+            assertThat(request)
+                    .satisfies(
+                            r -> {
+                                assertThat(r.hasOverrideVersionId()).isFalse();
+                                assertThat(r.hasOverrideModificationsCount()).isFalse();
                             });
         }
 
@@ -362,7 +431,9 @@ class OperationTest {
                             OptionalLong.of(KEY_NOT_EXISTS),
                             OptionalLong.empty(),
                             Optional.empty(),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var response = PutResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build();
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
@@ -388,7 +459,9 @@ class OperationTest {
                             OptionalLong.empty(),
                             OptionalLong.of(5),
                             Optional.of("client-id"),
-                            Collections.emptyList());
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             var response = PutResponse.newBuilder().setStatus(SESSION_DOES_NOT_EXIST).build();
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
