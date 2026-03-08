@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ package io.oxia.client.batch;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.grpc.WriteStreamWrapper;
+import io.oxia.proto.LeaderHint;
+import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
 
@@ -36,7 +38,15 @@ abstract class BatchBase {
         return stubProvider.getStubForShard(shardId);
     }
 
+    protected OxiaStub getStub(@Nullable LeaderHint leaderHint) {
+        return stubProvider.getStubForShard(shardId, leaderHint);
+    }
+
     protected WriteStreamWrapper getWriteStream() {
         return stubProvider.getWriteStreamForShard(shardId);
+    }
+
+    protected WriteStreamWrapper getWriteStream(@Nullable LeaderHint leaderHint) {
+        return stubProvider.getWriteStreamForShard(shardId, leaderHint);
     }
 }

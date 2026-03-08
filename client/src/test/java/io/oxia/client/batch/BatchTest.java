@@ -24,6 +24,7 @@ import static java.time.Duration.ZERO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -95,7 +96,7 @@ class BatchTest {
     static ClientConfig config =
             new ClientConfig(
                     "address",
-                    Duration.ofMillis(100),
+                    Duration.ofSeconds(5),
                     Duration.ofMillis(1000),
                     10,
                     1024 * 1024,
@@ -177,8 +178,12 @@ class BatchTest {
         final WriteStreamWrapper writeStreamWrapper = new WriteStreamWrapper(stub.async());
         clientByShardId = mock(OxiaStubProvider.class);
         lenient().when(clientByShardId.getStubForShard(anyLong())).thenReturn(stub);
+        lenient().when(clientByShardId.getStubForShard(anyLong(), any())).thenReturn(stub);
         lenient()
                 .when(clientByShardId.getWriteStreamForShard(anyLong()))
+                .thenReturn(writeStreamWrapper);
+        lenient()
+                .when(clientByShardId.getWriteStreamForShard(anyLong(), any()))
                 .thenReturn(writeStreamWrapper);
     }
 
@@ -235,7 +240,14 @@ class BatchTest {
                             mock(SessionManager.class),
                             config,
                             InstrumentProvider.NOOP);
-            batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 1024 * 1024);
+            batch =
+                    new WriteBatch(
+                            factory,
+                            clientByShardId,
+                            sessionManager,
+                            shardId,
+                            1024 * 1024,
+                            config.requestTimeout());
         }
 
         @Test
@@ -337,7 +349,7 @@ class BatchTest {
         @Test
         public void sendFailNoClient() {
             var stubProvider = mock(OxiaStubProvider.class);
-            when(stubProvider.getWriteStreamForShard(anyLong()))
+            when(stubProvider.getWriteStreamForShard(anyLong(), any()))
                     .thenThrow(new NoShardAvailableException(1));
 
             batch =
@@ -350,7 +362,8 @@ class BatchTest {
                             stubProvider,
                             sessionManager,
                             shardId,
-                            1024 * 1024);
+                            1024 * 1024,
+                            config.requestTimeout());
             batch.add(put);
             batch.add(delete);
             batch.add(deleteRange);
@@ -406,7 +419,7 @@ class BatchTest {
         void setup() {
             var factory =
                     new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP);
-            batch = new ReadBatch(factory, clientByShardId, shardId);
+            batch = new ReadBatch(factory, clientByShardId, shardId, config.requestTimeout());
         }
 
         @Test
@@ -459,12 +472,14 @@ class BatchTest {
         @Test
         public void sendFailNoClient() {
             var stubProvider = mock(OxiaStubProvider.class);
-            when(stubProvider.getStubForShard(anyLong())).thenThrow(new NoShardAvailableException(1));
+            when(stubProvider.getStubForShard(anyLong(), any()))
+                    .thenThrow(new NoShardAvailableException(1));
             batch =
                     new ReadBatch(
                             new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP),
                             stubProvider,
-                            shardId);
+                            shardId,
+                            config.requestTimeout());
 
             batch.add(get);
             batch.send();
