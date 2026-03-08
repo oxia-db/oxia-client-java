@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,12 @@ class WriteBatchFactory extends BatchFactory {
 
     @Override
     public Batch getBatch(long shardId) {
-        return new WriteBatch(this, stubProvider, sessionManager, shardId, getConfig().maxBatchSize());
+        return new WriteBatch(
+                this,
+                stubProvider,
+                sessionManager,
+                shardId,
+                getConfig().maxBatchSize(),
+                getConfig().requestTimeout());
     }
 }
