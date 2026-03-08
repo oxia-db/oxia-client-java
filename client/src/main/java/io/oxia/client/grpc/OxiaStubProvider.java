@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 package io.oxia.client.grpc;
 
 import io.oxia.client.shard.ShardManager;
+import io.oxia.proto.LeaderHint;
+import javax.annotation.Nullable;
 import lombok.Getter;
 
 public class OxiaStubProvider {
@@ -33,11 +35,24 @@ public class OxiaStubProvider {
     }
 
     public OxiaStub getStubForShard(long shardId) {
-        String leader = shardManager.leader(shardId);
-        return stubManager.getStub(leader);
+        return getStubForShard(shardId, null);
+    }
+
+    public OxiaStub getStubForShard(long shardId, @Nullable LeaderHint leaderHint) {
+        String target;
+        if (leaderHint != null && !leaderHint.getLeaderAddress().isEmpty()) {
+            target = leaderHint.getLeaderAddress();
+        } else {
+            target = shardManager.leader(shardId);
+        }
+        return stubManager.getStub(target);
     }
 
     public WriteStreamWrapper getWriteStreamForShard(long shardId) {
-        return writeStreamManager.getWriteStream(shardId);
+        return writeStreamManager.getWriteStream(shardId, null);
+    }
+
+    public WriteStreamWrapper getWriteStreamForShard(long shardId, @Nullable LeaderHint leaderHint) {
+        return writeStreamManager.getWriteStream(shardId, leaderHint);
     }
 }
