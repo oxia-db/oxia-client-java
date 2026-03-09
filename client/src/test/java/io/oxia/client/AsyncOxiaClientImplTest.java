@@ -96,6 +96,7 @@ class AsyncOxiaClientImplTest {
                         readBatchManager,
                         writeBatchManager,
                         sessionManager,
+                        null,
                         requestTimeout);
     }
 
