@@ -23,55 +23,96 @@ import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.ProtoUtils;
 import io.oxia.proto.LeaderHint;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
-public final class GrpcErrors {
+/**
+ * Custom Oxia gRPC status codes, matching the Go server definitions in
+ * common/constant/grpc_errors.go.
+ */
+public enum OxiaStatus {
+    NOT_INITIALIZED(100, false),
+    INVALID_TERM(101, false),
+    INVALID_STATUS(102, true),
+    CANCELLED(103, false),
+    ALREADY_CLOSED(104, true),
+    LEADER_ALREADY_CONNECTED(105, false),
+    NODE_IS_NOT_LEADER(106, true),
+    NODE_IS_NOT_FOLLOWER(107, false),
+    SESSION_NOT_FOUND(108, false),
+    INVALID_SESSION_TIMEOUT(109, false),
+    NAMESPACE_NOT_FOUND(110, false),
+    NOTIFICATIONS_NOT_ENABLED(111, false),
+    UNKNOWN(-1, false);
 
-    // Custom Oxia gRPC status codes (must match the Go server definitions)
-    public static final int CODE_INVALID_STATUS = 102;
-    public static final int CODE_ALREADY_CLOSED = 104;
-    public static final int CODE_NODE_IS_NOT_LEADER = 106;
+    private final int code;
+    private final boolean retriable;
+
+    OxiaStatus(int code, boolean retriable) {
+        this.code = code;
+        this.retriable = retriable;
+    }
+
+    public int code() {
+        return code;
+    }
+
+    public boolean isRetriable() {
+        return retriable;
+    }
+
+    private static final Map<Integer, OxiaStatus> BY_CODE =
+            Stream.of(values())
+                    .filter(s -> s.code >= 0)
+                    .collect(Collectors.toMap(OxiaStatus::code, Function.identity()));
+
+    public static OxiaStatus fromCode(int code) {
+        return BY_CODE.getOrDefault(code, UNKNOWN);
+    }
+
+    // ---- Static helpers for extracting status from gRPC errors ----
 
     private static final Metadata.Key<com.google.rpc.Status> STATUS_DETAILS_KEY =
             Metadata.Key.of(
                     "grpc-status-details-bin",
                     ProtoUtils.metadataMarshaller(com.google.rpc.Status.getDefaultInstance()));
 
-    private GrpcErrors() {}
-
+    /**
+     * Returns whether the error is retriable. Standard gRPC UNAVAILABLE and custom Oxia retriable
+     * codes return true.
+     */
     public static boolean isRetriable(@Nullable Throwable err) {
         if (err == null) {
             return false;
         }
 
-        Status status = statusFromThrowable(err);
-        if (status == null) {
-            return false;
-        }
-
-        // Standard gRPC UNAVAILABLE: connection failure, ok to re-attempt
-        if (status.getCode() == Status.Code.UNAVAILABLE) {
+        Status grpcStatus = grpcStatusFromThrowable(err);
+        if (grpcStatus != null && grpcStatus.getCode() == Status.Code.UNAVAILABLE) {
             return true;
         }
 
-        // Custom Oxia codes are transmitted in the grpc-status-details-bin trailer.
-        int rawCode = rawCodeFromThrowable(err);
-        return switch (rawCode) {
-            case CODE_INVALID_STATUS, // Leader fenced the shard; new leader expected
-                    CODE_ALREADY_CLOSED, // Leader closing; new leader expected
-                    CODE_NODE_IS_NOT_LEADER -> // Request sent to non-leader; retry to new leader
-                    true;
-            default -> false;
-        };
+        return fromError(err).retriable;
     }
 
+    /** Extracts the OxiaStatus from a gRPC error's status-details-bin trailer. */
+    public static OxiaStatus fromError(@Nullable Throwable err) {
+        com.google.rpc.Status rpcStatus = rpcStatusFromThrowable(err);
+        if (rpcStatus == null) {
+            return UNKNOWN;
+        }
+        return fromCode(rpcStatus.getCode());
+    }
+
+    /** Extracts a LeaderHint from the gRPC error details, if present. */
     @Nullable
     public static LeaderHint findLeaderHint(@Nullable Throwable err) {
         com.google.rpc.Status rpcStatus = rpcStatusFromThrowable(err);
         if (rpcStatus == null) {
             return null;
         }
-
         for (Any detail : rpcStatus.getDetailsList()) {
             if (detail.is(LeaderHint.class)) {
                 try {
@@ -96,7 +137,6 @@ public final class GrpcErrors {
                 return status;
             }
         }
-        // Unwrap
         Throwable cause = err.getCause();
         if (cause != null && cause != err) {
             return rpcStatusFromThrowable(cause);
@@ -104,22 +144,16 @@ public final class GrpcErrors {
         return null;
     }
 
-    private static int rawCodeFromThrowable(@Nullable Throwable err) {
-        com.google.rpc.Status rpcStatus = rpcStatusFromThrowable(err);
-        return rpcStatus != null ? rpcStatus.getCode() : -1;
-    }
-
     @Nullable
-    private static Status statusFromThrowable(@Nullable Throwable err) {
+    private static Status grpcStatusFromThrowable(@Nullable Throwable err) {
         if (err instanceof StatusRuntimeException sre) {
             return sre.getStatus();
         } else if (err instanceof StatusException se) {
             return se.getStatus();
         }
-        // Unwrap CompletionException/ExecutionException
         Throwable cause = err.getCause();
         if (cause != null && cause != err) {
-            return statusFromThrowable(cause);
+            return grpcStatusFromThrowable(cause);
         }
         return null;
     }
