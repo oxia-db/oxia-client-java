@@ -94,11 +94,7 @@ public enum OxiaStatus {
         return fromError(err).retriable;
     }
 
-    /**
-     * Extracts the OxiaStatus from a gRPC error. Reads the custom code from the
-     * grpc-status-details-bin trailer, then falls back to the gRPC status description. The fallback
-     * is needed because Go gRPC only sends the trailer when details are explicitly attached.
-     */
+    /** Extracts the OxiaStatus from a gRPC error's grpc-status-details-bin trailer. */
     public static OxiaStatus fromError(@Nullable Throwable err) {
         if (err == null) {
             return UNKNOWN;
@@ -107,15 +103,12 @@ public enum OxiaStatus {
         if (rpcStatus != null) {
             return fromCode(rpcStatus.getCode());
         }
+        // Fallback: Go gRPC only sends the trailer when details are attached.
+        // For plain errors, match the description.
         Status grpcStatus = grpcStatusFromThrowable(err);
-        if (grpcStatus != null && grpcStatus.getDescription() != null) {
-            return fromDescription(grpcStatus.getDescription());
-        }
-        return UNKNOWN;
-    }
-
-    static OxiaStatus fromDescription(String description) {
-        if (description.startsWith("oxia: namespace not found")) {
+        if (grpcStatus != null
+                && grpcStatus.getDescription() != null
+                && grpcStatus.getDescription().startsWith("oxia: namespace not found")) {
             return NAMESPACE_NOT_FOUND;
         }
         return UNKNOWN;
