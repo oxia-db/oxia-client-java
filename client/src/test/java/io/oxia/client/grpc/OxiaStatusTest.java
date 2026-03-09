@@ -72,8 +72,24 @@ class OxiaStatusTest {
     @Nested
     class FromError {
         @Test
-        void extractsOxiaStatus() {
+        void extractsOxiaStatusFromTrailer() {
             var err = oxiaError(OxiaStatus.NODE_IS_NOT_LEADER, "node is not leader for shard 0");
+            assertThat(OxiaStatus.fromError(err)).isEqualTo(OxiaStatus.NODE_IS_NOT_LEADER);
+        }
+
+        @Test
+        void fallsBackToDescriptionWhenNoTrailer() {
+            // Simulates what the real Go server sends: no grpc-status-details-bin trailer,
+            // just a plain gRPC error with description
+            var err = Status.UNKNOWN.withDescription("oxia: namespace not found").asRuntimeException();
+            assertThat(OxiaStatus.fromError(err)).isEqualTo(OxiaStatus.NAMESPACE_NOT_FOUND);
+        }
+
+        @Test
+        void descriptionFallbackMatchesPrefix() {
+            // NODE_IS_NOT_LEADER uses prefix matching (description may include shard info)
+            var err =
+                    Status.UNKNOWN.withDescription("node is not leader for shard 42").asRuntimeException();
             assertThat(OxiaStatus.fromError(err)).isEqualTo(OxiaStatus.NODE_IS_NOT_LEADER);
         }
 

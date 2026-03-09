@@ -34,26 +34,34 @@ import javax.annotation.Nullable;
  * common/constant/grpc_errors.go.
  */
 public enum OxiaStatus {
-    NOT_INITIALIZED(100, false),
-    INVALID_TERM(101, false),
-    INVALID_STATUS(102, true),
-    CANCELLED(103, false),
-    ALREADY_CLOSED(104, true),
-    LEADER_ALREADY_CONNECTED(105, false),
-    NODE_IS_NOT_LEADER(106, true),
-    NODE_IS_NOT_FOLLOWER(107, false),
-    SESSION_NOT_FOUND(108, false),
-    INVALID_SESSION_TIMEOUT(109, false),
-    NAMESPACE_NOT_FOUND(110, false),
-    NOTIFICATIONS_NOT_ENABLED(111, false),
-    UNKNOWN(-1, false);
+    NOT_INITIALIZED(100, false, "oxia: server not initialized yet"),
+    INVALID_TERM(101, false, "oxia: invalid term"),
+    INVALID_STATUS(102, true, "oxia: invalid status"),
+    CANCELLED(103, false, "oxia: operation was cancelled"),
+    ALREADY_CLOSED(104, true, "oxia: resource is already closed"),
+    LEADER_ALREADY_CONNECTED(105, false, "oxia: leader is already connected"),
+    NODE_IS_NOT_LEADER(106, true, "node is not leader"),
+    NODE_IS_NOT_FOLLOWER(107, false, null),
+    SESSION_NOT_FOUND(108, false, "oxia: session not found"),
+    INVALID_SESSION_TIMEOUT(109, false, "oxia: invalid session timeout"),
+    NAMESPACE_NOT_FOUND(110, false, "oxia: namespace not found"),
+    NOTIFICATIONS_NOT_ENABLED(111, false, "oxia: notifications not enabled on namespace"),
+    UNKNOWN(-1, false, null);
 
     private final int code;
     private final boolean retriable;
 
-    OxiaStatus(int code, boolean retriable) {
+    /**
+     * The error message prefix used by the Go server. Used as a fallback when the
+     * grpc-status-details-bin trailer is not present (Go gRPC only sends this trailer when details
+     * are attached via WithDetails()).
+     */
+    private final String descriptionPrefix;
+
+    OxiaStatus(int code, boolean retriable, String descriptionPrefix) {
         this.code = code;
         this.retriable = retriable;
+        this.descriptionPrefix = descriptionPrefix;
     }
 
     public int code() {
@@ -97,13 +105,34 @@ public enum OxiaStatus {
         return fromError(err).retriable;
     }
 
-    /** Extracts the OxiaStatus from a gRPC error's status-details-bin trailer. */
+    /**
+     * Extracts the OxiaStatus from a gRPC error. First tries the grpc-status-details-bin trailer,
+     * then falls back to matching the error description. The fallback is needed because the Go gRPC
+     * server only sends the trailer when details are explicitly attached (e.g., LeaderHint).
+     */
     public static OxiaStatus fromError(@Nullable Throwable err) {
         com.google.rpc.Status rpcStatus = rpcStatusFromThrowable(err);
-        if (rpcStatus == null) {
-            return UNKNOWN;
+        if (rpcStatus != null) {
+            return fromCode(rpcStatus.getCode());
         }
-        return fromCode(rpcStatus.getCode());
+        Status grpcStatus = grpcStatusFromThrowable(err);
+        if (grpcStatus != null && grpcStatus.getDescription() != null) {
+            return fromDescription(grpcStatus.getDescription());
+        }
+        return UNKNOWN;
+    }
+
+    /**
+     * Matches a gRPC error description against known Oxia error message prefixes. This is the
+     * fallback path when grpc-status-details-bin is not available.
+     */
+    static OxiaStatus fromDescription(String description) {
+        for (OxiaStatus s : values()) {
+            if (s.descriptionPrefix != null && description.startsWith(s.descriptionPrefix)) {
+                return s;
+            }
+        }
+        return UNKNOWN;
     }
 
     /** Extracts a LeaderHint from the gRPC error details, if present. */
@@ -146,6 +175,9 @@ public enum OxiaStatus {
 
     @Nullable
     private static Status grpcStatusFromThrowable(@Nullable Throwable err) {
+        if (err == null) {
+            return null;
+        }
         if (err instanceof StatusRuntimeException sre) {
             return sre.getStatus();
         } else if (err instanceof StatusException se) {
