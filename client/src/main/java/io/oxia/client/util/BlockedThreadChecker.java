@@ -17,10 +17,11 @@ package io.oxia.client.util;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 
@@ -31,34 +32,69 @@ import lombok.extern.slf4j.Slf4j;
  * threads. If a callback blocks for too long, it stalls all gRPC I/O on that channel. This checker
  * periodically inspects registered threads and logs a warning (with stack trace) when a thread has
  * been executing a task longer than the configured threshold.
+ *
+ * <p>Controlled via JVM system properties:
+ *
+ * <ul>
+ *   <li>{@code -Doxia.client.blockedThreadChecker.enabled=true} — enable the checker (default:
+ *       disabled)
+ *   <li>{@code -Doxia.client.blockedThreadChecker.intervalMs=1000} — check interval in
+ *       milliseconds (default: 1000)
+ *   <li>{@code -Doxia.client.blockedThreadChecker.warnThresholdMs=500} — warning threshold in
+ *       milliseconds (default: 500)
+ * </ul>
  */
 @Slf4j
 public class BlockedThreadChecker implements AutoCloseable {
 
-    static final Duration DEFAULT_CHECK_INTERVAL = Duration.ofSeconds(1);
-    static final Duration DEFAULT_WARN_THRESHOLD = Duration.ofMillis(500);
+    static final String PROP_ENABLED = "oxia.client.blockedThreadChecker.enabled";
+    static final String PROP_INTERVAL_MS = "oxia.client.blockedThreadChecker.intervalMs";
+    static final String PROP_WARN_THRESHOLD_MS = "oxia.client.blockedThreadChecker.warnThresholdMs";
 
-    private final Timer timer;
+    static final long DEFAULT_CHECK_INTERVAL_MS = 1000;
+    static final long DEFAULT_WARN_THRESHOLD_MS = 500;
+
+    private final ScheduledExecutorService scheduler;
     private final Map<Thread, TaskExecution> trackedThreads = new ConcurrentHashMap<>();
     private final long warnThresholdNanos;
     private volatile boolean closed;
 
-    public BlockedThreadChecker() {
-        this(DEFAULT_CHECK_INTERVAL, DEFAULT_WARN_THRESHOLD);
+    /** Returns {@code true} if the checker is enabled via system property. */
+    public static boolean isEnabled() {
+        return Boolean.getBoolean(PROP_ENABLED);
     }
 
-    public BlockedThreadChecker(Duration checkInterval, Duration warnThreshold) {
+    /**
+     * Creates a checker configured from system properties, or {@code null} if not enabled. Call
+     * sites should use {@link #createIfEnabled()} and null-check.
+     */
+    public static BlockedThreadChecker createIfEnabled() {
+        if (!isEnabled()) {
+            return null;
+        }
+        long intervalMs = getLongProperty(PROP_INTERVAL_MS, DEFAULT_CHECK_INTERVAL_MS);
+        long warnMs = getLongProperty(PROP_WARN_THRESHOLD_MS, DEFAULT_WARN_THRESHOLD_MS);
+        log.info(
+                "Blocked thread checker enabled (interval={}ms, warnThreshold={}ms)",
+                intervalMs,
+                warnMs);
+        return new BlockedThreadChecker(Duration.ofMillis(intervalMs), Duration.ofMillis(warnMs));
+    }
+
+    BlockedThreadChecker(Duration checkInterval, Duration warnThreshold) {
         this.warnThresholdNanos = warnThreshold.toNanos();
-        this.timer = new Timer("oxia-blocked-thread-checker", true);
-        this.timer.schedule(
-                new TimerTask() {
-                    @Override
-                    public void run() {
-                        checkAll();
-                    }
-                },
+        this.scheduler =
+                Executors.newSingleThreadScheduledExecutor(
+                        r -> {
+                            Thread t = new Thread(r, "oxia-blocked-thread-checker");
+                            t.setDaemon(true);
+                            return t;
+                        });
+        this.scheduler.scheduleAtFixedRate(
+                this::checkAll,
                 checkInterval.toMillis(),
-                checkInterval.toMillis());
+                checkInterval.toMillis(),
+                TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -86,7 +122,7 @@ public class BlockedThreadChecker implements AutoCloseable {
         trackedThreads.forEach(
                 (thread, execution) -> {
                     long elapsed = now - execution.startNanos();
-                    if (elapsed > warnThresholdNanos && execution.tryWarn()) {
+                    if (elapsed > warnThresholdNanos && execution.shouldWarn(now)) {
                         log.warn(
                                 "Thread {} has been blocked for {} ms (threshold: {} ms)",
                                 thread.getName(),
@@ -100,13 +136,28 @@ public class BlockedThreadChecker implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
-        timer.cancel();
+        scheduler.shutdownNow();
         trackedThreads.clear();
     }
 
+    private static long getLongProperty(String key, long defaultValue) {
+        String value = System.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            log.warn("Invalid value for system property {}: '{}', using default {}", key, value, defaultValue);
+            return defaultValue;
+        }
+    }
+
     private static class TaskExecution {
+        private static final long WARN_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(5);
+
         private final long startNanos;
-        private final AtomicLong warnedAt = new AtomicLong(0);
+        private final AtomicLong lastWarnedNanos = new AtomicLong(0);
 
         TaskExecution(long startNanos) {
             this.startNanos = startNanos;
@@ -116,9 +167,16 @@ public class BlockedThreadChecker implements AutoCloseable {
             return startNanos;
         }
 
-        /** Returns true only on the first warn for this execution, to avoid log spam. */
-        boolean tryWarn() {
-            return warnedAt.compareAndSet(0, System.nanoTime());
+        /**
+         * Returns true if enough time has passed since the last warning. Warns on first detection,
+         * then at most once every 5 seconds to avoid log spam.
+         */
+        boolean shouldWarn(long nowNanos) {
+            long lastWarned = lastWarnedNanos.get();
+            if (lastWarned == 0 || (nowNanos - lastWarned) >= WARN_INTERVAL_NANOS) {
+                return lastWarnedNanos.compareAndSet(lastWarned, nowNanos);
+            }
+            return false;
         }
     }
 

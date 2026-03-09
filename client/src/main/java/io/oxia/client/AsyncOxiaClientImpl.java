@@ -68,6 +68,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import lombok.NonNull;
 
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
@@ -75,7 +76,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
         ScheduledExecutorService executor =
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client"));
-        var blockedThreadChecker = new BlockedThreadChecker();
+        var blockedThreadChecker = BlockedThreadChecker.createIfEnabled();
         var stubManager = new OxiaStubManager(config, blockedThreadChecker);
 
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
@@ -117,7 +118,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull BatchManager readBatchManager;
     private final @NonNull BatchManager writeBatchManager;
     private final @NonNull SessionManager sessionManager;
-    private final @NonNull BlockedThreadChecker blockedThreadChecker;
+    private final BlockedThreadChecker blockedThreadChecker;
     private final long requestTimeoutMs;
     private volatile boolean closed;
 
@@ -154,7 +155,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager readBatchManager,
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
-            @NonNull BlockedThreadChecker blockedThreadChecker,
+            BlockedThreadChecker blockedThreadChecker,
             Duration requestTimeout) {
         this.clientIdentifier = clientIdentifier;
         this.instrumentProvider = instrumentProvider;
@@ -869,7 +870,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         notificationManager.close();
         shardManager.close();
         stubManager.close();
-        blockedThreadChecker.close();
+        if (blockedThreadChecker != null) {
+            blockedThreadChecker.close();
+        }
         scheduledExecutor.shutdownNow();
     }
 
