@@ -1,4 +1,4 @@
-name: CI - Maven Publish Release
+name: CI - Publish Release
 
 on:
   push:
@@ -19,12 +19,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          cache: gradle
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -33,12 +28,14 @@ jobs:
           passphrase: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Release Maven package
-        run: mvn -s etc/settings.xml -B deploy -Prelease -Dspotless.check.skip=true -DskipTests
+      - name: Release to Maven Central
+        run: ./gradlew publishAllPublicationsToMavenCentral --no-configuration-cache
         env:
-          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}

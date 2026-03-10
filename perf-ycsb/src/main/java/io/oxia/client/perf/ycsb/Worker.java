@@ -26,7 +26,9 @@ import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.ObservableLongGauge;
+import io.oxia.client.api.*;
 import io.oxia.client.api.exceptions.OxiaException;
+import io.oxia.client.api.options.PutOption;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.perf.ycsb.generator.Generator;
 import io.oxia.client.perf.ycsb.generator.GeneratorType;
@@ -36,6 +38,7 @@ import io.oxia.client.perf.ycsb.generator.OperationGeneratorOptions;
 import io.oxia.client.perf.ycsb.generator.OperationType;
 import io.oxia.client.perf.ycsb.operations.Operations;
 import io.oxia.client.perf.ycsb.operations.Status;
+import io.oxia.client.perf.ycsb.output.*;
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.List;
@@ -409,7 +412,7 @@ public final class Worker implements Runnable, Closeable, Operations {
         try {
             final GetResult result = client.get(key);
             if (result != null) {
-                return Status.success(result.getValue());
+                return Status.success(result.value());
             }
             return Status.failed("empty result");
         } catch (Throwable ex) {

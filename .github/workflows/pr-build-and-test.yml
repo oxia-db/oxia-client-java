@@ -19,28 +19,29 @@ jobs:
 
     steps:
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Build and Verify
-        run: mvn --no-transfer-progress --batch-mode verify
+        run: ./gradlew build
 
       - name: Validate Javadoc creation
-        run: mvn --no-transfer-progress --batch-mode javadoc:jar -pl client-api
+        run: ./gradlew :client-api:javadoc
 
-      - name: Package surefire test results
+      - name: Package test results
         if: failure()
         run: |
           rm -rf test-results
           mkdir test-results
-          find . -type d -name "*surefire*" -exec cp --parents -R {} test-results/ \;
+          find . -type d -name "tests" -path "*/build/reports/*" -exec cp --parents -R {} test-results/ \;
           zip -r test-results.zip test-results
       - name: Upload test results
         uses: actions/upload-artifact@v4
