@@ -17,18 +17,17 @@ the following capabilities:
 Requirements:
 
 * JDK 17
-* Maven 3.8.6+
+* Gradle 9.4+ (wrapper included)
 
 Common build actions:
 
-|             Action              |                 Command                  |
-|---------------------------------|------------------------------------------|
-| Full build and test             | `mvn clean verify`                       |
-| Skip tests                      | `mvn clean verify -DskipTests`           |
-| Skip Jacoco test coverage check | `mvn clean verify -Djacoco.skip`         |
-| Skip Spotless formatting check  | `mvn clean verify -Dspotless.check.skip` |
-| Format code                     | `mvn spotless:apply`                     |
-| Generate license headers        | `mvn license:format`                     |
+|             Action              |                 Command                   |
+|---------------------------------|-------------------------------------------|
+| Full build and test             | `./gradlew build`                         |
+| Skip tests                      | `./gradlew build -x test`                |
+| Skip Jacoco test coverage check | `./gradlew build -x jacocoTestReport`    |
+| Skip Spotless formatting check  | `./gradlew build -x spotlessCheck`       |
+| Format code                     | `./gradlew spotlessApply`                |
 
 ### Contributing to Oxia
 
@@ -38,6 +37,6 @@ Feel free to open an [issue](https://github.com/oxia-db/oxia/issues/new) or star
 
 ### License
 
-Copyright 2022-2025 The Oxia Authors
+Copyright 2022-2026 The Oxia Authors
 
 Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
