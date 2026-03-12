@@ -153,16 +153,15 @@ class SessionTest {
                         InstrumentProvider.NOOP,
                         mock(SessionNotificationListener.class));
 
+        var expectedHeartbeat = new SessionHeartbeat();
+        expectedHeartbeat.setSessionId(sessionId).setShard(shardId);
+        var expectedBytes = expectedHeartbeat.toByteArray();
         await()
                 .untilAsserted(
                         () -> {
                             assertThat(service.signals.size()).isGreaterThan(2);
                             assertThat(service.signals)
-                                    .containsOnly(
-                                            SessionHeartbeat.newBuilder()
-                                                    .setSessionId(sessionId)
-                                                    .setShard(shardId)
-                                                    .build());
+                                    .allSatisfy(hb -> assertThat(hb.toByteArray()).isEqualTo(expectedBytes));
                         });
         session.close().join();
         assertThat(service.closed).isTrue();
@@ -183,7 +182,7 @@ class SessionTest {
                 signalsAfterClosed.add(heartbeat);
             }
 
-            responseObserver.onNext(KeepAliveResponse.getDefaultInstance());
+            responseObserver.onNext(new KeepAliveResponse());
             responseObserver.onCompleted();
         }
 
@@ -191,7 +190,7 @@ class SessionTest {
         public void closeSession(
                 CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
             closed.compareAndSet(false, true);
-            responseObserver.onNext(CloseSessionResponse.getDefaultInstance());
+            responseObserver.onNext(new CloseSessionResponse());
             responseObserver.onCompleted();
         }
     }

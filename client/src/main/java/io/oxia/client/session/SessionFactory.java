@@ -42,12 +42,11 @@ public class SessionFactory {
     @NonNull
     CompletableFuture<Session> create(long shardId) {
         var stub = stubProvider.getStubForShard(shardId);
-        var request =
-                CreateSessionRequest.newBuilder()
-                        .setSessionTimeoutMs((int) config.sessionTimeout().toMillis())
-                        .setShard(shardId)
-                        .setClientIdentity(config.clientIdentifier())
-                        .build();
+        var request = new CreateSessionRequest();
+        request
+                .setSessionTimeoutMs((int) config.sessionTimeout().toMillis())
+                .setShard(shardId)
+                .setClientIdentity(config.clientIdentifier());
 
         CompletableFuture<Session> future = new CompletableFuture<>();
         stub.async()

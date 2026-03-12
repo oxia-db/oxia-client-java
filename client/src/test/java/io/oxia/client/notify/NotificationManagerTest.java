@@ -306,14 +306,12 @@ class NotificationManagerTest {
 
         @Test
         void notificationsFromMultipleShards() throws Exception {
-            var notifications1 =
-                    NotificationBatch.newBuilder()
-                            .putNotifications("key1", created(1L))
-                            .putNotifications("key3", modified(3L))
-                            .build();
+            var notifications1 = new NotificationBatch();
+            notifications1.putNotifications("key1").copyFrom(created(1L));
+            notifications1.putNotifications("key3").copyFrom(modified(3L));
 
-            var notifications2 =
-                    NotificationBatch.newBuilder().putNotifications("key2", deleted()).build();
+            var notifications2 = new NotificationBatch();
+            notifications2.putNotifications("key2").copyFrom(deleted());
 
             responses1.offer(notifications1);
             responses2.offer(notifications2);
@@ -351,21 +349,21 @@ class NotificationManagerTest {
         }
 
         static io.oxia.proto.Notification created(long version) {
-            return io.oxia.proto.Notification.newBuilder()
-                    .setType(KEY_CREATED)
-                    .setVersionId(version)
-                    .build();
+            var notification = new io.oxia.proto.Notification();
+            notification.setType(KEY_CREATED).setVersionId(version);
+            return notification;
         }
 
         static io.oxia.proto.Notification deleted() {
-            return io.oxia.proto.Notification.newBuilder().setType(KEY_DELETED).build();
+            var notification = new io.oxia.proto.Notification();
+            notification.setType(KEY_DELETED);
+            return notification;
         }
 
         static io.oxia.proto.Notification modified(long version) {
-            return io.oxia.proto.Notification.newBuilder()
-                    .setType(KEY_MODIFIED)
-                    .setVersionId(version)
-                    .build();
+            var notification = new io.oxia.proto.Notification();
+            notification.setType(KEY_MODIFIED).setVersionId(version);
+            return notification;
         }
     }
 }

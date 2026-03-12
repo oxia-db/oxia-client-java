@@ -15,7 +15,6 @@
  */
 package io.oxia.client.api;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.oxia.client.ProtoUtil;
@@ -27,19 +26,14 @@ class PutResultTest {
 
     @Test
     void fromProto() {
-        var payload = "hello".getBytes(UTF_8);
-        assertThat(
-                        ProtoUtil.getPutResultFromProto(
-                                "test-key",
-                                PutResponse.newBuilder()
-                                        .setVersion(
-                                                io.oxia.proto.Version.newBuilder()
-                                                        .setVersionId(1L)
-                                                        .setCreatedTimestamp(2L)
-                                                        .setModifiedTimestamp(3L)
-                                                        .setModificationsCount(4L)
-                                                        .build())
-                                        .build()))
+        var response = new PutResponse();
+        response
+                .setVersion()
+                .setVersionId(1L)
+                .setCreatedTimestamp(2L)
+                .setModifiedTimestamp(3L)
+                .setModificationsCount(4L);
+        assertThat(ProtoUtil.getPutResultFromProto("test-key", response))
                 .isEqualTo(
                         new PutResult(
                                 "test-key", new Version(1L, 2L, 3L, 4L, Optional.empty(), Optional.empty())));

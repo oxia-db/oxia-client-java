@@ -25,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.google.protobuf.ByteString;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
@@ -36,12 +35,14 @@ import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import io.oxia.client.options.GetOptions;
+import io.oxia.proto.DeleteRangeRequest;
 import io.oxia.proto.DeleteRangeResponse;
+import io.oxia.proto.DeleteRequest;
 import io.oxia.proto.DeleteResponse;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
+import io.oxia.proto.PutRequest;
 import io.oxia.proto.PutResponse;
-import io.oxia.proto.Version;
 import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
@@ -74,7 +75,8 @@ class OperationTest {
 
         @Test
         void completeKeyNotFound() {
-            var response = GetResponse.newBuilder().setStatus(KEY_NOT_FOUND).build();
+            var response = new GetResponse();
+            response.setStatus(KEY_NOT_FOUND);
             op.complete(response);
             assertThat(callback).isCompletedWithValueMatching(Objects::isNull);
         }
@@ -82,19 +84,14 @@ class OperationTest {
         @Test
         void completeOk() {
             var payload = "hello".getBytes(UTF_8);
-            var response =
-                    GetResponse.newBuilder()
-                            .setKey("my-key")
-                            .setStatus(OK)
-                            .setValue(ByteString.copyFrom(payload))
-                            .setVersion(
-                                    Version.newBuilder()
-                                            .setVersionId(1L)
-                                            .setCreatedTimestamp(2L)
-                                            .setModifiedTimestamp(3L)
-                                            .setModificationsCount(4L)
-                                            .build())
-                            .build();
+            var response = new GetResponse();
+            response.setKey("my-key").setStatus(OK).setValue(payload);
+            response
+                    .setVersion()
+                    .setVersionId(1L)
+                    .setCreatedTimestamp(2L)
+                    .setModifiedTimestamp(3L)
+                    .setModificationsCount(4L);
             op.complete(response);
             assertThat(callback)
                     .isCompletedWithValue(
@@ -108,21 +105,16 @@ class OperationTest {
         @Test
         void completeOkEphemeral() {
             var payload = "hello".getBytes(UTF_8);
-            var response =
-                    GetResponse.newBuilder()
-                            .setKey("my-key")
-                            .setStatus(OK)
-                            .setValue(ByteString.copyFrom(payload))
-                            .setVersion(
-                                    Version.newBuilder()
-                                            .setVersionId(1L)
-                                            .setCreatedTimestamp(2L)
-                                            .setModifiedTimestamp(3L)
-                                            .setModificationsCount(4L)
-                                            .setSessionId(5L)
-                                            .setClientIdentity("client-id")
-                                            .build())
-                            .build();
+            var response = new GetResponse();
+            response.setKey("my-key").setStatus(OK).setValue(payload);
+            response
+                    .setVersion()
+                    .setVersionId(1L)
+                    .setCreatedTimestamp(2L)
+                    .setModifiedTimestamp(3L)
+                    .setModificationsCount(4L)
+                    .setSessionId(5L)
+                    .setClientIdentity("client-id");
             op.complete(response);
             assertThat(callback)
                     .isCompletedWithValue(
@@ -131,21 +123,6 @@ class OperationTest {
                                     payload,
                                     new io.oxia.client.api.Version(
                                             1L, 2L, 3L, 4L, Optional.of(5L), Optional.of("client-id"))));
-        }
-
-        @Test
-        void completeOther() {
-            var response = GetResponse.newBuilder().setStatusValue(-1).build();
-            op.complete(response);
-            assertThat(callback).isCompletedExceptionally();
-            assertThatThrownBy(callback::get)
-                    .satisfies(
-                            e -> {
-                                assertThat(e).isInstanceOf(ExecutionException.class);
-                                assertThat(e.getCause())
-                                        .isInstanceOf(IllegalStateException.class)
-                                        .hasMessage("GRPC.Status: UNRECOGNIZED");
-                            });
         }
     }
 
@@ -233,12 +210,13 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
-                                assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
+                                assertThat(r.getValue()).isEqualTo(op.value());
                                 assertThat(r.hasExpectedVersionId()).isFalse();
                                 assertThat(r.hasSessionId()).isFalse();
                                 assertThat(r.hasClientIdentity()).isFalse();
@@ -260,12 +238,13 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
-                                assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
+                                assertThat(r.getValue()).isEqualTo(op.value());
                                 assertThat(r.getExpectedVersionId()).isEqualTo(1L);
                                 assertThat(r.hasSessionId()).isFalse();
                                 assertThat(r.hasClientIdentity()).isFalse();
@@ -287,13 +266,14 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
                                 assertThat(r.getPartitionKey()).isEqualTo(op.partitionKey().get());
-                                assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
+                                assertThat(r.getValue()).isEqualTo(op.value());
                                 assertThat(r.hasSessionId()).isFalse();
                                 assertThat(r.hasClientIdentity()).isFalse();
                             });
@@ -314,12 +294,13 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
-                                assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
+                                assertThat(r.getValue()).isEqualTo(op.value());
                                 assertThat(r.getExpectedVersionId()).isEqualTo(KEY_NOT_EXISTS);
                                 assertThat(r.hasSessionId()).isFalse();
                                 assertThat(r.hasClientIdentity()).isFalse();
@@ -341,12 +322,13 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getKey()).isEqualTo(op.key());
-                                assertThat(r.getValue().toByteArray()).isEqualTo(op.value());
+                                assertThat(r.getValue()).isEqualTo(op.value());
                                 assertThat(r.hasExpectedVersionId()).isFalse();
                                 assertThat(r.getSessionId()).isEqualTo(sessionId);
                                 assertThat(r.getClientIdentity()).isEqualTo("client-id");
@@ -368,7 +350,8 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.of(42L),
                             OptionalLong.of(7L));
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
@@ -395,7 +378,8 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var request = op.toProto();
+            var request = new PutRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
@@ -406,7 +390,8 @@ class OperationTest {
 
         @Test
         void completeUnexpectedVersion() {
-            var response = PutResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build();
+            var response = new PutResponse();
+            response.setStatus(UNEXPECTED_VERSION_ID);
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
             assertThatThrownBy(callback::get)
@@ -434,7 +419,8 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var response = PutResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build();
+            var response = new PutResponse();
+            response.setStatus(UNEXPECTED_VERSION_ID);
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
             assertThatThrownBy(callback::get)
@@ -462,7 +448,8 @@ class OperationTest {
                             Collections.emptyList(),
                             OptionalLong.empty(),
                             OptionalLong.empty());
-            var response = PutResponse.newBuilder().setStatus(SESSION_DOES_NOT_EXIST).build();
+            var response = new PutResponse();
+            response.setStatus(SESSION_DOES_NOT_EXIST);
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
             assertThatThrownBy(callback::get)
@@ -477,18 +464,14 @@ class OperationTest {
 
         @Test
         void completeOk() {
-            var response =
-                    PutResponse.newBuilder()
-                            .setStatus(OK)
-                            .setKey("my-key")
-                            .setVersion(
-                                    Version.newBuilder()
-                                            .setVersionId(1L)
-                                            .setCreatedTimestamp(2L)
-                                            .setModifiedTimestamp(3L)
-                                            .setModificationsCount(4L)
-                                            .build())
-                            .build();
+            var response = new PutResponse();
+            response.setStatus(OK).setKey("my-key");
+            response
+                    .setVersion()
+                    .setVersionId(1L)
+                    .setCreatedTimestamp(2L)
+                    .setModifiedTimestamp(3L)
+                    .setModificationsCount(4L);
             op.complete(response);
             assertThat(callback)
                     .isCompletedWithValue(
@@ -500,20 +483,16 @@ class OperationTest {
 
         @Test
         void completeEphemeral() {
-            var response =
-                    PutResponse.newBuilder()
-                            .setStatus(OK)
-                            .setKey("my-key")
-                            .setVersion(
-                                    Version.newBuilder()
-                                            .setVersionId(1L)
-                                            .setCreatedTimestamp(2L)
-                                            .setModifiedTimestamp(3L)
-                                            .setModificationsCount(4L)
-                                            .setSessionId(sessionId)
-                                            .setClientIdentity("client-id")
-                                            .build())
-                            .build();
+            var response = new PutResponse();
+            response.setStatus(OK).setKey("my-key");
+            response
+                    .setVersion()
+                    .setVersionId(1L)
+                    .setCreatedTimestamp(2L)
+                    .setModifiedTimestamp(3L)
+                    .setModificationsCount(4L)
+                    .setSessionId(sessionId)
+                    .setClientIdentity("client-id");
             op.complete(response);
             assertThat(callback)
                     .isCompletedWithValue(
@@ -521,21 +500,6 @@ class OperationTest {
                                     "my-key",
                                     new io.oxia.client.api.Version(
                                             1L, 2L, 3L, 4L, Optional.of(sessionId), Optional.of("client-id"))));
-        }
-
-        @Test
-        void completeOther() {
-            var response = PutResponse.newBuilder().setStatusValue(-1).build();
-            op.complete(response);
-            assertThat(callback).isCompletedExceptionally();
-            assertThatThrownBy(callback::get)
-                    .satisfies(
-                            e -> {
-                                assertThat(e).isInstanceOf(ExecutionException.class);
-                                assertThat(e.getCause())
-                                        .isInstanceOf(IllegalStateException.class)
-                                        .hasMessage("GRPC.Status: UNRECOGNIZED");
-                            });
         }
     }
 
@@ -559,7 +523,8 @@ class OperationTest {
         @Test
         void toProtoNoExpectedVersion() {
             var op = new DeleteOperation(callback, "key");
-            var request = op.toProto();
+            var request = new DeleteRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
@@ -570,7 +535,8 @@ class OperationTest {
 
         @Test
         void toProtoExpectedVersion() {
-            var request = op.toProto();
+            var request = new DeleteRequest();
+            op.toProto(request);
             assertThat(request)
                     .satisfies(
                             r -> {
@@ -581,7 +547,8 @@ class OperationTest {
 
         @Test
         void completeUnexpectedVersion() {
-            var response = DeleteResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build();
+            var response = new DeleteResponse();
+            response.setStatus(UNEXPECTED_VERSION_ID);
             op.complete(response);
             assertThat(callback).isCompletedExceptionally();
             assertThatThrownBy(callback::get)
@@ -596,31 +563,18 @@ class OperationTest {
 
         @Test
         void completeOk() {
-            var response = DeleteResponse.newBuilder().setStatus(OK).build();
+            var response = new DeleteResponse();
+            response.setStatus(OK);
             op.complete(response);
             assertThat(callback).isCompletedWithValueMatching(r -> r);
         }
 
         @Test
         void completeKeyNotFound() {
-            var response = DeleteResponse.newBuilder().setStatus(KEY_NOT_FOUND).build();
+            var response = new DeleteResponse();
+            response.setStatus(KEY_NOT_FOUND);
             op.complete(response);
             assertThat(callback).isCompletedWithValueMatching(r -> !r);
-        }
-
-        @Test
-        void completeOther() {
-            var response = DeleteResponse.newBuilder().setStatusValue(-1).build();
-            op.complete(response);
-            assertThat(callback).isCompletedExceptionally();
-            assertThatThrownBy(callback::get)
-                    .satisfies(
-                            e -> {
-                                assertThat(e).isInstanceOf(ExecutionException.class);
-                                assertThat(e.getCause())
-                                        .isInstanceOf(IllegalStateException.class)
-                                        .hasMessage("GRPC.Status: UNRECOGNIZED");
-                            });
         }
     }
 
@@ -632,31 +586,18 @@ class OperationTest {
 
         @Test
         void toProto() {
-            var request = op.toProto();
+            var request = new DeleteRangeRequest();
+            op.toProto(request);
             assertThat(request.getStartInclusive()).isEqualTo(op.startKeyInclusive());
             assertThat(request.getEndExclusive()).isEqualTo(op.endKeyExclusive());
         }
 
         @Test
         void completeOk() {
-            var response = DeleteRangeResponse.newBuilder().setStatus(OK).build();
+            var response = new DeleteRangeResponse();
+            response.setStatus(OK);
             op.complete(response);
             assertThat(callback).isCompleted();
-        }
-
-        @Test
-        void completeOther() {
-            var response = DeleteRangeResponse.newBuilder().setStatusValue(-1).build();
-            op.complete(response);
-            assertThat(callback).isCompletedExceptionally();
-            assertThatThrownBy(callback::get)
-                    .satisfies(
-                            e -> {
-                                assertThat(e).isInstanceOf(ExecutionException.class);
-                                assertThat(e.getCause())
-                                        .isInstanceOf(IllegalStateException.class)
-                                        .hasMessage("GRPC.Status: UNRECOGNIZED");
-                            });
         }
     }
 }

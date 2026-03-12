@@ -86,8 +86,8 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         this.shardId = shardId;
         this.sessionId = sessionId;
         this.clientIdentifier = config.clientIdentifier();
-        this.heartbeat =
-                SessionHeartbeat.newBuilder().setShard(shardId).setSessionId(sessionId).build();
+        this.heartbeat = new SessionHeartbeat();
+        this.heartbeat.setShard(shardId).setSessionId(sessionId);
         this.listener = listener;
 
         log.info(
@@ -187,12 +187,10 @@ public class Session implements StreamObserver<KeepAliveResponse> {
             sessionsClosed.increment();
             heartbeatFuture.cancel(true);
             final var stub = stubProvider.getStubForShard(shardId);
+            var closeRequest = new CloseSessionRequest();
+            closeRequest.setShard(shardId).setSessionId(sessionId);
             future =
-                    stub.closeSession(
-                                    CloseSessionRequest.newBuilder()
-                                            .setShard(shardId)
-                                            .setSessionId(sessionId)
-                                            .build())
+                    stub.closeSession(closeRequest)
                             .thenApply(__ -> null); // we are not using the response so far
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));

@@ -69,7 +69,7 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
     @Override
     public void onNext(ReadResponse response) {
         for (int i = 0; i < response.getGetsCount(); i++) {
-            GetResponse gr = response.getGets(i);
+            GetResponse gr = response.getGetAt(i);
             gets.get(responseIndex).complete(gr);
 
             ++responseIndex;
@@ -96,9 +96,11 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
 
     @NonNull
     ReadRequest toProto() {
-        return ReadRequest.newBuilder()
-                .setShard(getShardId())
-                .addAllGets(gets.stream().map(Operation.ReadOperation.GetOperation::toProto).toList())
-                .build();
+        var req = new ReadRequest();
+        req.setShard(getShardId());
+        for (var g : gets) {
+            req.addGet().copyFrom(g.toProto());
+        }
+        return req;
     }
 }

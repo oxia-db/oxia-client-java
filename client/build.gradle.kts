@@ -15,38 +15,19 @@
  */
 
 plugins {
-    alias(libs.plugins.protobuf)
+    alias(libs.plugins.lightproto)
 }
 
 dependencies {
     api(project(":client-api"))
 
     implementation(libs.caffeine)
-    implementation(libs.protobuf.java)
+    implementation(libs.netty.buffer)
     implementation(libs.grpc.netty.shaded)
-    implementation(libs.grpc.protobuf)
     implementation(libs.grpc.stub)
     implementation(libs.opentelemetry.api)
     implementation(libs.jakarta.annotation.api)
     implementation(libs.zero.allocation.hashing)
 
     testImplementation(libs.grpc.inprocess)
-}
-
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:3.25.8"
-    }
-    plugins {
-        create("grpc") {
-            artifact = "io.grpc:protoc-gen-grpc-java:1.75.0"
-        }
-    }
-    generateProtoTasks {
-        all().forEach { task ->
-            task.plugins {
-                create("grpc")
-            }
-        }
-    }
 }

@@ -35,6 +35,7 @@ import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.util.Backoff;
+import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import java.util.ArrayList;
@@ -102,7 +103,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     }
 
     public CompletableFuture<Void> start() {
-        var req = ShardAssignmentsRequest.newBuilder().setNamespace(assignments.getNamespace()).build();
+        var req = new ShardAssignmentsRequest();
+        req.setNamespace(assignments.getNamespace());
 
         stub.async().getShardAssignments(req, this);
         return initialAssignmentsFuture;
@@ -178,7 +180,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     }
 
     private void updateAssignments(io.oxia.proto.ShardAssignments shardAssignments) {
-        var nsSharedAssignments = shardAssignments.getNamespacesMap().get(assignments.getNamespace());
+        NamespaceShardsAssignment nsSharedAssignments;
+        try {
+            nsSharedAssignments = shardAssignments.getNamespaces(assignments.getNamespace());
+        } catch (IllegalArgumentException e) {
+            nsSharedAssignments = null;
+        }
         if (nsSharedAssignments == null) {
             /*
             It shouldn't happen, but we have to do some defensive programming to avoid server nodes

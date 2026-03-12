@@ -16,7 +16,6 @@
 package io.oxia.client.batch;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.stream.Collectors.toList;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.oxia.client.grpc.OxiaStubProvider;
@@ -104,13 +103,13 @@ final class WriteBatch extends BatchBase implements Batch {
                                         System.nanoTime() - startSendTimeNanos);
 
                                 for (var i = 0; i < deletes.size(); i++) {
-                                    deletes.get(i).complete(response.getDeletes(i));
+                                    deletes.get(i).complete(response.getDeleteAt(i));
                                 }
                                 for (var i = 0; i < deleteRanges.size(); i++) {
-                                    deleteRanges.get(i).complete(response.getDeleteRanges(i));
+                                    deleteRanges.get(i).complete(response.getDeleteRangeAt(i));
                                 }
                                 for (var i = 0; i < puts.size(); i++) {
-                                    puts.get(i).complete(response.getPuts(i));
+                                    puts.get(i).complete(response.getPutAt(i));
                                 }
                             })
                     .exceptionally(
@@ -132,18 +131,17 @@ final class WriteBatch extends BatchBase implements Batch {
 
     @NonNull
     WriteRequest toProto() {
-        return WriteRequest.newBuilder()
-                .setShard(getShardId())
-                .addAllPuts(
-                        puts.stream().map(Operation.WriteOperation.PutOperation::toProto).collect(toList()))
-                .addAllDeletes(
-                        deletes.stream()
-                                .map(Operation.WriteOperation.DeleteOperation::toProto)
-                                .collect(toList()))
-                .addAllDeleteRanges(
-                        deleteRanges.stream()
-                                .map(Operation.WriteOperation.DeleteRangeOperation::toProto)
-                                .collect(toList()))
-                .build();
+        var req = new WriteRequest();
+        req.setShard(getShardId());
+        for (var p : puts) {
+            p.toProto(req.addPut());
+        }
+        for (var d : deletes) {
+            d.toProto(req.addDelete());
+        }
+        for (var dr : deleteRanges) {
+            dr.toProto(req.addDeleteRange());
+        }
+        return req;
     }
 }

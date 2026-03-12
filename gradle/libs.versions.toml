@@ -1,6 +1,7 @@
 [versions]
 grpc = "1.75.0"
-protobuf = "3.25.8"
+netty = "4.1.131.Final"
+lightproto = "0.5.1"
 opentelemetry = "1.57.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
@@ -20,7 +21,6 @@ hdr-histogram = "2.1.9"
 jcommander = "1.82"
 
 # Plugins
-protobuf-plugin = "0.9.6"
 shadow = "9.3.2"
 spotless = "8.3.0"
 spotbugs-plugin = "6.1.7"
@@ -48,12 +48,11 @@ opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semco
 
 # gRPC
 grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded" }
-grpc-protobuf = { module = "io.grpc:grpc-protobuf" }
 grpc-stub = { module = "io.grpc:grpc-stub" }
 grpc-inprocess = { module = "io.grpc:grpc-inprocess" }
 
-# Protobuf
-protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+# Netty
+netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
 
 # Client dependencies
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
@@ -76,7 +75,7 @@ commons-compress = { module = "org.apache.commons:commons-compress", version.ref
 commons-lang3 = { module = "org.apache.commons:commons-lang3", version.ref = "commons-lang3" }
 
 [plugins]
-protobuf = { id = "com.google.protobuf", version.ref = "protobuf-plugin" }
+lightproto = { id = "io.github.merlimat.lightproto", version.ref = "lightproto" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs-plugin" }

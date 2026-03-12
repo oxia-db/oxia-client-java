@@ -20,6 +20,8 @@ import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardSt
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -28,7 +30,6 @@ import static org.mockito.Mockito.when;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.metrics.InstrumentProvider;
-import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
@@ -163,19 +164,20 @@ public class ShardManagerTest {
 
         @Test
         void start() {
-            var assignment = ShardAssignment.newBuilder().setShard(0).setLeader("leader0").build();
-            var nsAssignment = NamespaceShardsAssignment.newBuilder().addAssignments(assignment).build();
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
             when(stub.async()).thenReturn(async);
 
             doAnswer(
                             invocation -> {
-                                manager.onNext(
-                                        ShardAssignments.newBuilder().putNamespaces(namespace, nsAssignment).build());
+                                var sa = new ShardAssignments();
+                                sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+                                manager.onNext(sa);
                                 return null;
                             })
                     .when(async)
-                    .getShardAssignments(
-                            ShardAssignmentsRequest.newBuilder().setNamespace(namespace).build(), manager);
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
 
             var future = manager.start();
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
