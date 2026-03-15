@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,19 +17,28 @@ package io.oxia.client.grpc;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.util.BlockedThreadChecker;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import javax.annotation.Nullable;
 
 public class OxiaStubManager implements AutoCloseable {
     @VisibleForTesting final Map<Key, OxiaStub> stubs = new ConcurrentHashMap<>();
 
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
+    private final @Nullable BlockedThreadChecker blockedThreadChecker;
 
     public OxiaStubManager(ClientConfig clientConfig) {
+        this(clientConfig, null);
+    }
+
+    public OxiaStubManager(
+            ClientConfig clientConfig, @Nullable BlockedThreadChecker blockedThreadChecker) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
+        this.blockedThreadChecker = blockedThreadChecker;
     }
 
     public OxiaStub getStub(String address) {
@@ -39,7 +48,8 @@ public class OxiaStubManager implements AutoCloseable {
             modKey += maxConnectionPerNode;
         }
         return stubs.computeIfAbsent(
-                new Key(address, modKey), key -> new OxiaStub(key.address, clientConfig));
+                new Key(address, modKey),
+                key -> new OxiaStub(key.address, clientConfig, blockedThreadChecker));
     }
 
     @Override

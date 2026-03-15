@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,22 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.stream.Collectors.toList;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.oxia.client.grpc.OxiaStatus;
 import io.oxia.client.grpc.OxiaStubProvider;
 import io.oxia.client.session.SessionManager;
+import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
+import io.oxia.proto.WriteResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import lombok.NonNull;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 final class WriteBatch extends BatchBase implements Batch {
 
     private final WriteBatchFactory factory;
@@ -40,6 +49,7 @@ final class WriteBatch extends BatchBase implements Batch {
 
     private final SessionManager sessionManager;
     private final int maxBatchSize;
+    private final Duration requestTimeout;
     private int byteSize;
     private long bytes;
     private long startSendTimeNanos;
@@ -49,12 +59,14 @@ final class WriteBatch extends BatchBase implements Batch {
             @NonNull OxiaStubProvider stubProvider,
             @NonNull SessionManager sessionManager,
             long shardId,
-            int maxBatchSize) {
+            int maxBatchSize,
+            @NonNull Duration requestTimeout) {
         super(stubProvider, shardId);
         this.factory = factory;
         this.sessionManager = sessionManager;
         this.byteSize = 0;
         this.maxBatchSize = maxBatchSize;
+        this.requestTimeout = requestTimeout;
     }
 
     int sizeOf(@NonNull Operation<?> operation) {
@@ -95,32 +107,62 @@ final class WriteBatch extends BatchBase implements Batch {
     @Override
     public void send() {
         startSendTimeNanos = System.nanoTime();
-        try {
-            getWriteStream()
-                    .send(toProto())
-                    .thenAccept(
-                            response -> {
-                                factory.writeRequestLatencyHistogram.recordSuccess(
-                                        System.nanoTime() - startSendTimeNanos);
+        WriteRequest request = toProto();
+        long deadlineNanos = System.nanoTime() + requestTimeout.toNanos();
 
-                                for (var i = 0; i < deletes.size(); i++) {
-                                    deletes.get(i).complete(response.getDeletes(i));
-                                }
-                                for (var i = 0; i < deleteRanges.size(); i++) {
-                                    deleteRanges.get(i).complete(response.getDeleteRanges(i));
-                                }
-                                for (var i = 0; i < puts.size(); i++) {
-                                    puts.get(i).complete(response.getPuts(i));
-                                }
-                            })
-                    .exceptionally(
-                            ex -> {
-                                handleError(ex);
-                                return null;
-                            });
-        } catch (Throwable t) {
-            handleError(t);
+        doRequestWithRetries(request, deadlineNanos, new Backoff())
+                .thenAccept(
+                        response -> {
+                            factory.writeRequestLatencyHistogram.recordSuccess(
+                                    System.nanoTime() - startSendTimeNanos);
+
+                            for (var i = 0; i < deletes.size(); i++) {
+                                deletes.get(i).complete(response.getDeletes(i));
+                            }
+                            for (var i = 0; i < deleteRanges.size(); i++) {
+                                deleteRanges.get(i).complete(response.getDeleteRanges(i));
+                            }
+                            for (var i = 0; i < puts.size(); i++) {
+                                puts.get(i).complete(response.getPuts(i));
+                            }
+                        })
+                .exceptionally(
+                        ex -> {
+                            handleError(ex);
+                            return null;
+                        });
+    }
+
+    CompletableFuture<WriteResponse> doRequestWithRetries(
+            WriteRequest request, long deadlineNanos, Backoff backoff) {
+        CompletableFuture<WriteResponse> attempt;
+        try {
+            attempt = getWriteStream().send(request);
+        } catch (Exception e) {
+            attempt = CompletableFuture.failedFuture(e);
         }
+        return attempt.exceptionallyCompose(
+                ex -> {
+                    if (!OxiaStatus.isRetriable(ex)) {
+                        return CompletableFuture.failedFuture(ex);
+                    }
+
+                    long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
+                    if (remainingMillis <= 0) {
+                        return CompletableFuture.failedFuture(ex);
+                    }
+
+                    long delayMillis = Math.min(backoff.nextDelayMillis(), remainingMillis);
+                    log.warn(
+                            "Write request failed, retrying. shard={} retry-after={}ms error={}",
+                            getShardId(),
+                            delayMillis,
+                            ex.getMessage());
+
+                    Executor delayed = CompletableFuture.delayedExecutor(delayMillis, TimeUnit.MILLISECONDS);
+                    return CompletableFuture.supplyAsync(() -> null, delayed)
+                            .thenCompose(__ -> doRequestWithRetries(request, deadlineNanos, backoff));
+                });
     }
 
     public void handleError(Throwable batchError) {

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,12 +24,10 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
-import io.oxia.client.grpc.CustomStatusCode;
+import io.oxia.client.grpc.OxiaStatus;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -124,22 +122,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        if (error instanceof StatusRuntimeException statusError) {
-            var status = statusError.getStatus();
-            if (status.getCode() == Status.Code.UNKNOWN) {
-                // Suppress unknown errors
-                final var description = status.getDescription();
-                if (description != null) {
-                    var customStatusCode = CustomStatusCode.fromDescription(description);
-                    if (customStatusCode == CustomStatusCode.ErrorNamespaceNotFound) {
-                        log.error("Namespace not found: {}", assignments.getNamespace());
-                        if (!initialAssignmentsFuture.isDone()) {
-                            if (initialAssignmentsFuture.completeExceptionally(
-                                    new NamespaceNotFoundException(assignments.getNamespace()))) {
-                                close();
-                            }
-                        }
-                    }
+        if (OxiaStatus.fromError(error) == OxiaStatus.NAMESPACE_NOT_FOUND) {
+            log.error("Namespace not found: {}", assignments.getNamespace());
+            if (!initialAssignmentsFuture.isDone()) {
+                if (initialAssignmentsFuture.completeExceptionally(
+                        new NamespaceNotFoundException(assignments.getNamespace()))) {
+                    close();
                 }
             }
         }

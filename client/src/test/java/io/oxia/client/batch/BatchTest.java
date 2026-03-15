@@ -235,7 +235,14 @@ class BatchTest {
                             mock(SessionManager.class),
                             config,
                             InstrumentProvider.NOOP);
-            batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 1024 * 1024);
+            batch =
+                    new WriteBatch(
+                            factory,
+                            clientByShardId,
+                            sessionManager,
+                            shardId,
+                            1024 * 1024,
+                            config.requestTimeout());
         }
 
         @Test
@@ -350,7 +357,8 @@ class BatchTest {
                             stubProvider,
                             sessionManager,
                             shardId,
-                            1024 * 1024);
+                            1024 * 1024,
+                            config.requestTimeout());
             batch.add(put);
             batch.add(delete);
             batch.add(deleteRange);
@@ -406,7 +414,7 @@ class BatchTest {
         void setup() {
             var factory =
                     new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP);
-            batch = new ReadBatch(factory, clientByShardId, shardId);
+            batch = new ReadBatch(factory, clientByShardId, shardId, config.requestTimeout());
         }
 
         @Test
@@ -464,7 +472,8 @@ class BatchTest {
                     new ReadBatch(
                             new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP),
                             stubProvider,
-                            shardId);
+                            shardId,
+                            config.requestTimeout());
 
             batch.add(get);
             batch.send();

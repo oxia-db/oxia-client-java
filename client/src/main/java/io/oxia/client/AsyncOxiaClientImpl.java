@@ -38,6 +38,7 @@ import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.util.BlockedThreadChecker;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
@@ -67,6 +68,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import lombok.NonNull;
 
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
@@ -74,7 +76,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
         ScheduledExecutorService executor =
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client"));
-        var stubManager = new OxiaStubManager(config);
+        var blockedThreadChecker = BlockedThreadChecker.createIfEnabled();
+        var stubManager = new OxiaStubManager(config, blockedThreadChecker);
 
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
         var serviceAddrStub = stubManager.getStub(config.serviceAddress());
@@ -102,6 +105,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         readBatchManager,
                         writeBatchManager,
                         sessionManager,
+                        blockedThreadChecker,
                         config.requestTimeout());
         return shardManager.start().thenApply(v -> client);
     }
@@ -114,6 +118,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull BatchManager readBatchManager;
     private final @NonNull BatchManager writeBatchManager;
     private final @NonNull SessionManager sessionManager;
+    private final BlockedThreadChecker blockedThreadChecker;
     private final long requestTimeoutMs;
     private volatile boolean closed;
 
@@ -150,6 +155,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager readBatchManager,
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
+            BlockedThreadChecker blockedThreadChecker,
             Duration requestTimeout) {
         this.clientIdentifier = clientIdentifier;
         this.instrumentProvider = instrumentProvider;
@@ -159,6 +165,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         this.readBatchManager = readBatchManager;
         this.writeBatchManager = writeBatchManager;
         this.sessionManager = sessionManager;
+        this.blockedThreadChecker = blockedThreadChecker;
         this.scheduledExecutor = scheduledExecutor;
         this.requestTimeoutMs = requestTimeout.toMillis();
 
@@ -863,6 +870,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         notificationManager.close();
         shardManager.close();
         stubManager.close();
+        if (blockedThreadChecker != null) {
+            blockedThreadChecker.close();
+        }
         scheduledExecutor.shutdownNow();
     }
 

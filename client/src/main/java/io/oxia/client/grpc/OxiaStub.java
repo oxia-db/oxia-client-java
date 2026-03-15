@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import io.grpc.TlsChannelCredentials;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.api.Authentication;
+import io.oxia.client.util.BlockedThreadChecker;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.OxiaClientGrpc;
@@ -57,16 +58,35 @@ public class OxiaStub implements AutoCloseable {
     }
 
     public OxiaStub(String address, ClientConfig clientConfig) {
+        this(address, clientConfig, null);
+    }
+
+    public OxiaStub(
+            String address,
+            ClientConfig clientConfig,
+            @Nullable BlockedThreadChecker blockedThreadChecker) {
         this(
+                buildChannel(address, clientConfig, blockedThreadChecker),
+                clientConfig.authentication());
+    }
+
+    private static ManagedChannel buildChannel(
+            String address,
+            ClientConfig clientConfig,
+            @Nullable BlockedThreadChecker blockedThreadChecker) {
+        var builder =
                 Grpc.newChannelBuilder(
                                 getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
                         .keepAliveTime(clientConfig.connectionKeepAliveTime().toMillis(), MILLISECONDS)
                         .keepAliveTimeout(clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
                         .keepAliveWithoutCalls(true)
-                        .disableRetry()
-                        .directExecutor()
-                        .build(),
-                clientConfig.authentication());
+                        .disableRetry();
+        if (blockedThreadChecker != null) {
+            builder.executor(blockedThreadChecker.checkedDirectExecutor());
+        } else {
+            builder.directExecutor();
+        }
+        return builder.build();
     }
 
     public OxiaStub(ManagedChannel channel) {
