@@ -18,18 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Build
-        run: mvn clean install -DskipTests
-      - name: Extract Maven project version
-        run: echo ::set-output name=version::$(mvn -q -Dexec.executable=echo -Dexec.args='${project.version}' --non-recursive exec:exec)
+        run: ./gradlew assemble
+      - name: Extract project version
+        run: echo "version=$(./gradlew properties -q | grep '^version:' | awk '{print $2}')" >> $GITHUB_OUTPUT
         id: version
       - uses: docker/setup-qemu-action@v2
       - uses: docker/setup-buildx-action@v2

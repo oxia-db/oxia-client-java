@@ -17,10 +17,11 @@ jobs:
 
     steps:
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
       - name: Checkout code
         uses: actions/checkout@v5
@@ -28,10 +29,10 @@ jobs:
           fetch-depth: 0
 
       - name: Build
-        run: mvn --no-transfer-progress --batch-mode -DskipTests install
+        run: ./gradlew assemble
 
-      - name: Validate Javadoc creation
-        run: mvn --no-transfer-progress --batch-mode -Prelease javadoc:javadoc -pl client-api
+      - name: Generate Javadoc
+        run: ./gradlew :client-api:javadoc
 
       - name: Update latest symlink
         uses: peaceiris/actions-gh-pages@v4
@@ -39,6 +40,6 @@ jobs:
           personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
           external_repository: oxia-db/oxia-db.github.io
           publish_branch: main
-          publish_dir: ./client-api/target/reports/apidocs
+          publish_dir: ./client-api/build/docs/javadoc
           destination_dir: public/oxia-client-java/apidocs/latest
-          keep_files: false  # Replace latest with new version
+          keep_files: false
