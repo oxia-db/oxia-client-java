@@ -51,8 +51,6 @@ subprojects {
         implementation(platform(rootProject.libs.opentelemetry.bom))
         implementation(platform(rootProject.libs.opentelemetry.bom.alpha))
         implementation(platform(rootProject.libs.junit.bom))
-        implementation(platform(rootProject.libs.testcontainers.bom))
-
         constraints {
             implementation(rootProject.libs.guava)
             implementation(rootProject.libs.opentelemetry.semconv)

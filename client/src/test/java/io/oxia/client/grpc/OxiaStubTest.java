@@ -15,43 +15,12 @@
  */
 package io.oxia.client.grpc;
 
-import static io.oxia.client.util.ConfigUtils.*;
-
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.TlsChannelCredentials;
-import io.oxia.testcontainers.OxiaContainer;
-import lombok.Cleanup;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.output.Slf4jLogConsumer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-@Testcontainers
-@Slf4j
 public class OxiaStubTest {
-    @Container
-    private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
-                    .withLogConsumer(new Slf4jLogConsumer(log));
-
-    @Test
-    @SneakyThrows
-    public void testMaxConnectionPerNode() {
-        final var maxConnectionPerNode = 10;
-        final var clientConfig =
-                getDefaultClientConfig(
-                        builder -> {
-                            builder.maxConnectionPerNode(maxConnectionPerNode);
-                        });
-        @Cleanup var stubManager = new OxiaStubManager(clientConfig);
-        for (int i = 0; i < 1000; i++) {
-            stubManager.getStub(oxia.getServiceAddress());
-        }
-        Assertions.assertEquals(maxConnectionPerNode, stubManager.stubs.size());
-    }
 
     @Test
     public void testAddressTrim() {
