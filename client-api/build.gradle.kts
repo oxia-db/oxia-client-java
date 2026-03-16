@@ -23,5 +23,5 @@ tasks.javadoc {
     opts.use(true)
     opts.windowTitle("Oxia Java Client API")
     opts.docTitle("Oxia Java Client API")
-    opts.noQualifiers(listOf("all"))
+    opts.noQualifiers("all")
 }
