@@ -58,6 +58,11 @@ subprojects {
             implementation(rootProject.libs.byte.buddy.agent)
             implementation(rootProject.libs.commons.compress)
             implementation(rootProject.libs.commons.lang3)
+            implementation(rootProject.libs.protobuf.java)
+            implementation(rootProject.libs.jackson.databind)
+            implementation(rootProject.libs.jackson.core)
+            implementation(rootProject.libs.log4j.core)
+            implementation(rootProject.libs.bcpkix)
         }
 
         testImplementation(rootProject.libs.assertj)
@@ -101,6 +106,12 @@ subprojects {
     spotbugs {
         excludeFilter.set(rootProject.file("etc/findbugsExclude.xml"))
         onlyAnalyze.set(listOf("io.oxia.client.*"))
+    }
+
+    configurations.named("spotbugs") {
+        resolutionStrategy {
+            force("org.apache.logging.log4j:log4j-core:${rootProject.libs.versions.log4j.get()}")
+        }
     }
 
     jacoco {
