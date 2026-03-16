@@ -111,6 +111,8 @@ subprojects {
     configurations.named("spotbugs") {
         resolutionStrategy {
             force("org.apache.logging.log4j:log4j-core:${rootProject.libs.versions.log4j.get()}")
+            force("org.apache.ant:ant:1.10.15")
+            force("org.apache.bcel:bcel:6.12.0")
         }
     }
 
