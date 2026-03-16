@@ -33,7 +33,7 @@ dependencies {
     implementation(project(":client-api"))
     implementation(project(":client"))
     implementation(libs.guava)
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    implementation(libs.jackson.databind)
     implementation("info.picocli:picocli:4.7.6")
     implementation(libs.opentelemetry.exporter.logging)
     implementation(libs.opentelemetry.exporter.otlp)
