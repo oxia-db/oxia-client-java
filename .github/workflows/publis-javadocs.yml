@@ -39,7 +39,7 @@ jobs:
       - name: Update latest symlink
         uses: peaceiris/actions-gh-pages@v4
         with:
-          personal_token: ${{ secrets.PAGES_DEPLOY_TOKEN }}
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
           external_repository: oxia-db/oxia-db.github.io
           publish_branch: main
           publish_dir: ./client-api/build/docs/javadoc
