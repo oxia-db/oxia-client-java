@@ -42,14 +42,16 @@ public class ProtoUtil {
         return new PutResult(key, getVersionFromProto(response.getVersion()));
     }
 
+    private static final byte[] EMPTY_VALUE = new byte[0];
+
     public static @NonNull GetResult getResultFromProto(
             @NonNull String originalKey, @NonNull GetResponse response) {
         String key = originalKey;
         if (response.hasKey()) {
             key = response.getKey();
         }
-        return new GetResult(
-                key, response.getValue().toByteArray(), getVersionFromProto(response.getVersion()));
+        byte[] value = response.hasValue() ? response.getValue() : EMPTY_VALUE;
+        return new GetResult(key, value, getVersionFromProto(response.getVersion()));
     }
 
     public static @NonNull Version getVersionFromProto(@NonNull io.oxia.proto.Version version) {

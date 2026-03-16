@@ -122,12 +122,10 @@ class ShardNotificationReceiverTest {
         when(notificationManager.getCounterNotificationsBatchesReceived())
                 .thenReturn(mock(Counter.class));
 
-        var notifications =
-                NotificationBatch.newBuilder()
-                        .putNotifications("key1", created(1L))
-                        .putNotifications("key2", deleted(2L))
-                        .putNotifications("key3", modified(3L))
-                        .build();
+        var notifications = new NotificationBatch();
+        notifications.putNotifications("key1").copyFrom(created(1L));
+        notifications.putNotifications("key2").copyFrom(deleted(2L));
+        notifications.putNotifications("key3").copyFrom(modified(3L));
         responses.put(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
@@ -176,8 +174,7 @@ class ShardNotificationReceiverTest {
                 .thenReturn(mock(Counter.class));
 
         responses.offer(new NotificationWrapper(null, Status.UNAVAILABLE.asException(), false));
-        var notifications =
-                NotificationBatch.newBuilder().putNotifications("key1", created(1L)).build();
+        var notifications = newNotificationBatch("key1", created(1L));
         responses.offer(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
@@ -201,8 +198,7 @@ class ShardNotificationReceiverTest {
         when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
         when(notificationManager.getCounterNotificationsBatchesReceived())
                 .thenReturn(mock(Counter.class));
-        var notifications =
-                NotificationBatch.newBuilder().putNotifications("key1", created(1L)).build();
+        var notifications = newNotificationBatch("key1", created(1L));
         responses.put(new NotificationWrapper(notifications, null, true));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
@@ -221,24 +217,28 @@ class ShardNotificationReceiverTest {
         assertThat(requests).hasValue(2);
     }
 
+    static NotificationBatch newNotificationBatch(
+            String key, io.oxia.proto.Notification notification) {
+        var batch = new NotificationBatch();
+        batch.putNotifications(key).copyFrom(notification);
+        return batch;
+    }
+
     static io.oxia.proto.Notification created(long version) {
-        return io.oxia.proto.Notification.newBuilder()
-                .setType(KEY_CREATED)
-                .setVersionId(version)
-                .build();
+        var notification = new io.oxia.proto.Notification();
+        notification.setType(KEY_CREATED).setVersionId(version);
+        return notification;
     }
 
     static io.oxia.proto.Notification deleted(long version) {
-        return io.oxia.proto.Notification.newBuilder()
-                .setType(KEY_DELETED)
-                .setVersionId(version)
-                .build();
+        var notification = new io.oxia.proto.Notification();
+        notification.setType(KEY_DELETED).setVersionId(version);
+        return notification;
     }
 
     static io.oxia.proto.Notification modified(long version) {
-        return io.oxia.proto.Notification.newBuilder()
-                .setType(KEY_MODIFIED)
-                .setVersionId(version)
-                .build();
+        var notification = new io.oxia.proto.Notification();
+        notification.setType(KEY_MODIFIED).setVersionId(version);
+        return notification;
     }
 }

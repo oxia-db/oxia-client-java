@@ -557,9 +557,10 @@ class AsyncOxiaClientImplTest {
     }
 
     private ListResponse listResponse(long shardId, String first, String second) {
-        return ListResponse.newBuilder()
-                .addAllKeys(List.of(shardId + "-" + first, shardId + "-" + second))
-                .build();
+        var response = new ListResponse();
+        response.addKey(shardId + "-" + first);
+        response.addKey(shardId + "-" + second);
+        return response;
     }
 
     @Test

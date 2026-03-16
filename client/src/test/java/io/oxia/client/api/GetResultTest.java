@@ -18,10 +18,8 @@ package io.oxia.client.api;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.google.protobuf.ByteString;
 import io.oxia.client.ProtoUtil;
 import io.oxia.proto.GetResponse;
-import io.oxia.proto.Version;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -30,19 +28,15 @@ class GetResultTest {
     @Test
     void fromProto() {
         var payload = "hello".getBytes(UTF_8);
-        assertThat(
-                        ProtoUtil.getResultFromProto(
-                                "original-key",
-                                GetResponse.newBuilder()
-                                        .setValue(ByteString.copyFrom(payload))
-                                        .setVersion(
-                                                Version.newBuilder()
-                                                        .setVersionId(1L)
-                                                        .setCreatedTimestamp(2L)
-                                                        .setModifiedTimestamp(3L)
-                                                        .setModificationsCount(4L)
-                                                        .build())
-                                        .build()))
+        var response = new GetResponse();
+        response.setValue(payload);
+        response
+                .setVersion()
+                .setVersionId(1L)
+                .setCreatedTimestamp(2L)
+                .setModifiedTimestamp(3L)
+                .setModificationsCount(4L);
+        assertThat(ProtoUtil.getResultFromProto("original-key", response))
                 .isEqualTo(
                         new GetResult(
                                 "original-key",
@@ -54,20 +48,15 @@ class GetResultTest {
     @Test
     void fromProtoWithOverride() {
         var payload = "hello".getBytes(UTF_8);
-        assertThat(
-                        ProtoUtil.getResultFromProto(
-                                "original-key",
-                                GetResponse.newBuilder()
-                                        .setKey("new-key")
-                                        .setValue(ByteString.copyFrom(payload))
-                                        .setVersion(
-                                                Version.newBuilder()
-                                                        .setVersionId(1L)
-                                                        .setCreatedTimestamp(2L)
-                                                        .setModifiedTimestamp(3L)
-                                                        .setModificationsCount(4L)
-                                                        .build())
-                                        .build()))
+        var response = new GetResponse();
+        response.setKey("new-key").setValue(payload);
+        response
+                .setVersion()
+                .setVersionId(1L)
+                .setCreatedTimestamp(2L)
+                .setModifiedTimestamp(3L)
+                .setModificationsCount(4L);
+        assertThat(ProtoUtil.getResultFromProto("original-key", response))
                 .isEqualTo(
                         new GetResult(
                                 "new-key",

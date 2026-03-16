@@ -28,8 +28,6 @@ import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.metrics.InstrumentProvider;
-import io.oxia.proto.Int32HashRange;
-import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
@@ -116,12 +114,8 @@ class ShardManagerGrpcTest {
 
     @Test
     void start() {
-        var assignments =
-                ShardAssignments.newBuilder()
-                        .putNamespaces(
-                                DefaultNamespace,
-                                NamespaceShardsAssignment.newBuilder().addAssignments(assignment(0, 0, 3)).build())
-                        .build();
+        var assignments = new ShardAssignments();
+        assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         responses.offer(new AssignmentWrapper(assignments, null, false));
         try (var shardManager =
                 new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
@@ -143,21 +137,12 @@ class ShardManagerGrpcTest {
 
     @Test
     void update() {
-        var assignments0 =
-                ShardAssignments.newBuilder()
-                        .putNamespaces(
-                                DefaultNamespace,
-                                NamespaceShardsAssignment.newBuilder().addAssignments(assignment(0, 0, 3)).build())
-                        .build();
-        var assignments1 =
-                ShardAssignments.newBuilder()
-                        .putNamespaces(
-                                DefaultNamespace,
-                                NamespaceShardsAssignment.newBuilder()
-                                        .addAssignments(assignment(1, 0, 1))
-                                        .addAssignments(assignment(2, 2, 3))
-                                        .build())
-                        .build();
+        var assignments0 = new ShardAssignments();
+        assignments0.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
+        var assignments1 = new ShardAssignments();
+        var ns1 = assignments1.putNamespaces(DefaultNamespace);
+        ns1.addAssignment().copyFrom(assignment(1, 0, 1));
+        ns1.addAssignment().copyFrom(assignment(2, 2, 3));
         responses.offer(new AssignmentWrapper(assignments0, null, false));
         responses.offer(new AssignmentWrapper(assignments1, null, false));
         try (var shardManager =
@@ -176,12 +161,8 @@ class ShardManagerGrpcTest {
     @Test
     public void recoveryFromError() {
         responses.offer(new AssignmentWrapper(null, Status.UNAVAILABLE.asException(), false));
-        var assignments =
-                ShardAssignments.newBuilder()
-                        .putNamespaces(
-                                DefaultNamespace,
-                                NamespaceShardsAssignment.newBuilder().addAssignments(assignment(0, 0, 3)).build())
-                        .build();
+        var assignments = new ShardAssignments();
+        assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         responses.offer(new AssignmentWrapper(assignments, null, false));
         try (var shardManager =
                 new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
@@ -195,12 +176,8 @@ class ShardManagerGrpcTest {
     @Test
     public void recoveryFromEndOfStream() {
         responses.offer(new AssignmentWrapper(null, null, true));
-        var assignments =
-                ShardAssignments.newBuilder()
-                        .putNamespaces(
-                                DefaultNamespace,
-                                NamespaceShardsAssignment.newBuilder().addAssignments(assignment(0, 0, 3)).build())
-                        .build();
+        var assignments = new ShardAssignments();
+        assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         responses.offer(new AssignmentWrapper(assignments, null, false));
         try (var shardManager =
                 new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
@@ -212,12 +189,9 @@ class ShardManagerGrpcTest {
     }
 
     ShardAssignment assignment(int shardId, int min, int max) {
-        var hashRange =
-                Int32HashRange.newBuilder().setMinHashInclusive(min).setMaxHashInclusive(max).build();
-        return ShardAssignment.newBuilder()
-                .setShard(shardId)
-                .setLeader("leader" + shardId)
-                .setInt32HashRange(hashRange)
-                .build();
+        var assignment = new ShardAssignment();
+        assignment.setShard(shardId).setLeader("leader" + shardId);
+        assignment.setInt32HashRange().setMinHashInclusive(min).setMaxHashInclusive(max);
+        return assignment;
     }
 }

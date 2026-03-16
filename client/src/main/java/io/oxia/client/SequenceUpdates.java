@@ -82,7 +82,8 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         var leader = shardManager.leader(shardId);
         var stub = stubManager.getStub(leader).async();
 
-        var request = GetSequenceUpdatesRequest.newBuilder().setShard(shardId).setKey(key).build();
+        var request = new GetSequenceUpdatesRequest();
+        request.setShard(shardId).setKey(key);
 
         this.call =
                 stub.getChannel()

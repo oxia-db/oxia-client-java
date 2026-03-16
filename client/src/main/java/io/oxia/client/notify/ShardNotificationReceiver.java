@@ -73,11 +73,12 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     }
 
     void start() {
-        var request = NotificationsRequest.newBuilder().setShard(shardId);
+        var request = new NotificationsRequest();
+        request.setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
         try {
             final OxiaStub stub = manager.getStub(leader);
-            stub.async().getNotifications(request.build(), this);
+            stub.async().getNotifications(request, this);
         } catch (Throwable ex) {
             onError(ex);
         }
@@ -95,28 +96,26 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         notificationManager.getCounterNotificationsBatchesReceived().increment();
         notificationManager.getCounterNotificationsReceived().add(batch.getNotificationsCount());
 
-        batch
-                .getNotificationsMap()
-                .forEach(
-                        (key, notification) -> {
-                            if (log.isDebugEnabled()) {
-                                log.debug("--- Got notification: {} - {}", key, notification.getType());
-                            }
+        batch.forEachNotifications(
+                (key, notification) -> {
+                    if (log.isDebugEnabled()) {
+                        log.debug("--- Got notification: {} - {}", key, notification.getType());
+                    }
 
-                            var n =
-                                    switch (notification.getType()) {
-                                        case KEY_CREATED -> new KeyCreated(key, notification.getVersionId());
-                                        case KEY_MODIFIED -> new KeyModified(key, notification.getVersionId());
-                                        case KEY_DELETED -> new KeyDeleted(key);
-                                        case KEY_RANGE_DELETED ->
-                                                new Notification.KeyRangeDelete(key, notification.getKeyRangeLast());
-                                        case UNRECOGNIZED -> null;
-                                    };
+                    var n =
+                            switch (notification.getType()) {
+                                case KEY_CREATED -> new KeyCreated(key, notification.getVersionId());
+                                case KEY_MODIFIED -> new KeyModified(key, notification.getVersionId());
+                                case KEY_DELETED -> new KeyDeleted(key);
+                                case KEY_RANGE_DELETED ->
+                                        new Notification.KeyRangeDelete(key, notification.getKeyRangeLast());
+                                default -> null;
+                            };
 
-                            if (n != null) {
-                                callback.accept(n);
-                            }
-                        });
+                    if (n != null) {
+                        callback.accept(n);
+                    }
+                });
     }
 
     @Override

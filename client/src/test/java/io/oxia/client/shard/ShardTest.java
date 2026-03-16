@@ -17,7 +17,6 @@ package io.oxia.client.shard;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.oxia.proto.Int32HashRange;
 import io.oxia.proto.ShardAssignment;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -30,16 +29,10 @@ class ShardTest {
 
     @Test
     void shardFromProto() {
-        var shard =
-                Shard.fromProto(
-                        ShardAssignment.newBuilder()
-                                .setShard(1)
-                                .setInt32HashRange(
-                                        Int32HashRange.newBuilder()
-                                                .setMinHashInclusive(2)
-                                                .setMaxHashInclusive(3)
-                                                .build())
-                                .build());
+        var assignment = new ShardAssignment();
+        assignment.setShard(1);
+        assignment.setInt32HashRange().setMinHashInclusive(2).setMaxHashInclusive(3);
+        var shard = Shard.fromProto(assignment);
         assertThat(shard)
                 .satisfies(
                         s -> {

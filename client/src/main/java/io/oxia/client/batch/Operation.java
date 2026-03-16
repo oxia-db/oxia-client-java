@@ -23,7 +23,6 @@ import static io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import static io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import static io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 
-import com.google.protobuf.ByteString;
 import io.oxia.client.ProtoUtil;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -64,15 +63,14 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull GetOptions options)
                 implements ReadOperation<GetResult> {
             GetRequest toProto() {
-                var builder =
-                        GetRequest.newBuilder()
-                                .setKey(key)
-                                .setComparisonType(options.comparisonType())
-                                .setIncludeValue(options.includeValue());
+                var req = new GetRequest();
+                req.setKey(key)
+                        .setComparisonType(options.comparisonType())
+                        .setIncludeValue(options.includeValue());
                 if (options.secondaryIndexName() != null) {
-                    builder.setSecondaryIndexName(options.secondaryIndexName());
+                    req.setSecondaryIndexName(options.secondaryIndexName());
                 }
-                return builder.build();
+                return req;
             }
 
             void complete(@NonNull GetResponse response) {
@@ -121,26 +119,22 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 }
             }
 
-            PutRequest toProto() {
-                var builder = PutRequest.newBuilder().setKey(key).setValue(ByteString.copyFrom(value));
-                partitionKey.ifPresent(builder::setPartitionKey);
-                expectedVersionId.ifPresent(builder::setExpectedVersionId);
-                sessionId.ifPresent(builder::setSessionId);
-                clientIdentifier.ifPresent(builder::setClientIdentity);
-                sequenceKeysDeltas.ifPresent(builder::addAllSequenceKeyDelta);
+            void toProto(PutRequest req) {
+                req.setKey(key).setValue(value);
+                partitionKey.ifPresent(req::setPartitionKey);
+                expectedVersionId.ifPresent(req::setExpectedVersionId);
+                sessionId.ifPresent(req::setSessionId);
+                clientIdentifier.ifPresent(req::setClientIdentity);
+                sequenceKeysDeltas.ifPresent(deltas -> deltas.forEach(req::addSequenceKeyDelta));
                 if (!secondaryIndexes.isEmpty()) {
                     secondaryIndexes.forEach(
-                            si -> {
-                                builder
-                                        .addSecondaryIndexesBuilder()
-                                        .setIndexName(si.indexName())
-                                        .setSecondaryKey(si.secondaryKey())
-                                        .build();
-                            });
+                            si ->
+                                    req.addSecondaryIndexe()
+                                            .setIndexName(si.indexName())
+                                            .setSecondaryKey(si.secondaryKey()));
                 }
-                overrideVersionId.ifPresent(builder::setOverrideVersionId);
-                overrideModificationsCount.ifPresent(builder::setOverrideModificationsCount);
-                return builder.build();
+                overrideVersionId.ifPresent(req::setOverrideVersionId);
+                overrideModificationsCount.ifPresent(req::setOverrideModificationsCount);
             }
 
             void complete(@NonNull PutResponse response) {
@@ -193,10 +187,9 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 }
             }
 
-            DeleteRequest toProto() {
-                var builder = DeleteRequest.newBuilder().setKey(key);
-                expectedVersionId.ifPresent(builder::setExpectedVersionId);
-                return builder.build();
+            void toProto(DeleteRequest req) {
+                req.setKey(key);
+                expectedVersionId.ifPresent(req::setExpectedVersionId);
             }
 
             void complete(@NonNull DeleteResponse response) {
@@ -219,11 +212,8 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull String startKeyInclusive,
                 @NonNull String endKeyExclusive)
                 implements WriteOperation<Void> {
-            DeleteRangeRequest toProto() {
-                return DeleteRangeRequest.newBuilder()
-                        .setStartInclusive(startKeyInclusive)
-                        .setEndExclusive(endKeyExclusive)
-                        .build();
+            void toProto(DeleteRangeRequest req) {
+                req.setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
             }
 
             void complete(@NonNull DeleteRangeResponse response) {

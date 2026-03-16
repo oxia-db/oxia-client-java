@@ -71,12 +71,9 @@ class HashRangeTest {
 
     @Test
     void fromProto() {
-        var range =
-                HashRange.fromProto(
-                        Int32HashRange.newBuilder()
-                                .setMinHashInclusive(Integer.MIN_VALUE)
-                                .setMaxHashInclusive(-1)
-                                .build());
+        var hashRange = new Int32HashRange();
+        hashRange.setMinHashInclusive(Integer.MIN_VALUE).setMaxHashInclusive(-1);
+        var range = HashRange.fromProto(hashRange);
         assertThat(range.minInclusive()).isEqualTo(((long) Integer.MAX_VALUE) + 1L);
         assertThat(range.maxInclusive()).isEqualTo(((long) Integer.MAX_VALUE * 2L) + 1L);
     }

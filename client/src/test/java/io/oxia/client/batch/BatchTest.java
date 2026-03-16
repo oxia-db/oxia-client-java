@@ -53,11 +53,8 @@ import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.NoShardAvailableException;
-import io.oxia.proto.DeleteRangeResponse;
-import io.oxia.proto.DeleteResponse;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
-import io.oxia.proto.PutResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.WriteRequest;
@@ -264,26 +261,36 @@ class BatchTest {
             batch.add(delete);
             batch.add(deleteRange);
             var request = batch.toProto();
+            var expectedPut = new io.oxia.proto.PutRequest();
+            put.toProto(expectedPut);
+            var expectedDelete = new io.oxia.proto.DeleteRequest();
+            delete.toProto(expectedDelete);
+            var expectedDeleteRange = new io.oxia.proto.DeleteRangeRequest();
+            deleteRange.toProto(expectedDeleteRange);
             assertThat(request)
                     .satisfies(
                             r -> {
-                                assertThat(r.getPutsList()).containsOnly(put.toProto());
-                                assertThat(r.getDeletesList()).containsOnly(delete.toProto());
-                                assertThat(r.getDeleteRangesList()).containsOnly(deleteRange.toProto());
+                                assertThat(r.getPutsCount()).isEqualTo(1);
+                                assertThat(r.getPutAt(0).toByteArray()).isEqualTo(expectedPut.toByteArray());
+                                assertThat(r.getDeletesCount()).isEqualTo(1);
+                                assertThat(r.getDeleteAt(0).toByteArray()).isEqualTo(expectedDelete.toByteArray());
+                                assertThat(r.getDeleteRangesCount()).isEqualTo(1);
+                                assertThat(r.getDeleteRangeAt(0).toByteArray())
+                                        .isEqualTo(expectedDeleteRange.toByteArray());
                             });
         }
 
         @Test
         public void sendOk() {
             writeResponses.add(
-                    o ->
-                            o.onNext(
-                                    WriteResponse.newBuilder()
-                                            .addPuts(PutResponse.newBuilder().setStatus(UNEXPECTED_VERSION_ID).build())
-                                            .addPuts(PutResponse.newBuilder().setStatus(OK).build())
-                                            .addDeletes(DeleteResponse.newBuilder().setStatus(KEY_NOT_FOUND).build())
-                                            .addDeleteRanges(DeleteRangeResponse.newBuilder().setStatus(OK).build())
-                                            .build()));
+                    o -> {
+                        var resp = new WriteResponse();
+                        resp.addPut().setStatus(UNEXPECTED_VERSION_ID);
+                        resp.addPut().setStatus(OK).setVersion();
+                        resp.addDelete().setStatus(KEY_NOT_FOUND);
+                        resp.addDeleteRange().setStatus(OK);
+                        o.onNext(resp);
+                    });
             writeResponses.add(StreamObserver::onCompleted);
 
             batch.add(put);
@@ -428,14 +435,21 @@ class BatchTest {
             assertThat(request)
                     .satisfies(
                             r -> {
-                                assertThat(r.getGetsList()).containsOnly(get.toProto());
+                                assertThat(r.getGetsCount()).isEqualTo(1);
+                                assertThat(r.getGetAt(0).toByteArray()).isEqualTo(get.toProto().toByteArray());
                             });
         }
 
         @Test
         public void sendOk() {
-            var getResponse = GetResponse.newBuilder().setStatus(KEY_NOT_FOUND).build();
-            readResponses.add(o -> o.onNext(ReadResponse.newBuilder().addGets(getResponse).build()));
+            var getResponse = new GetResponse();
+            getResponse.setStatus(KEY_NOT_FOUND);
+            readResponses.add(
+                    o -> {
+                        var resp = new ReadResponse();
+                        resp.addGet().copyFrom(getResponse);
+                        o.onNext(resp);
+                    });
             readResponses.add(StreamObserver::onCompleted);
 
             batch.add(get);

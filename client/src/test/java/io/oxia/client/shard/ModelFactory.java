@@ -18,33 +18,30 @@ package io.oxia.client.shard;
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 
 import io.oxia.proto.Int32HashRange;
-import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
 import lombok.NonNull;
 
 public class ModelFactory {
     static @NonNull Int32HashRange newHashRange(int min, int max) {
-        return Int32HashRange.newBuilder().setMinHashInclusive(min).setMaxHashInclusive(max).build();
+        var range = new Int32HashRange();
+        range.setMinHashInclusive(min).setMaxHashInclusive(max);
+        return range;
     }
 
     static @NonNull ShardAssignment newShardAssignment(
             long id, int min, int max, @NonNull String leader) {
-        return ShardAssignment.newBuilder()
-                .setShard(id)
-                .setLeader(leader)
-                .setInt32HashRange(newHashRange(min, max))
-                .build();
+        var assignment = new ShardAssignment();
+        assignment.setShard(id).setLeader(leader);
+        assignment.setInt32HashRange().setMinHashInclusive(min).setMaxHashInclusive(max);
+        return assignment;
     }
 
     static @NonNull ShardAssignments newShardAssignments(
             long id, int min, int max, @NonNull String leader) {
-        return ShardAssignments.newBuilder()
-                .putNamespaces(
-                        DefaultNamespace,
-                        NamespaceShardsAssignment.newBuilder()
-                                .addAssignments(newShardAssignment(id, min, max, leader))
-                                .build())
-                .build();
+        var assignments = new ShardAssignments();
+        var nsAssignment = assignments.putNamespaces(DefaultNamespace);
+        nsAssignment.addAssignment().copyFrom(newShardAssignment(id, min, max, leader));
+        return assignments;
     }
 }

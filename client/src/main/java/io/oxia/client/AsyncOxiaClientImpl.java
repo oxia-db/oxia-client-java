@@ -539,7 +539,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                         switch (options.comparisonType()) {
                                             case EQUAL, CEILING, HIGHER -> results.get(0);
                                             case FLOOR, LOWER -> results.get(results.size() - 1);
-                                            case UNRECOGNIZED -> null;
+                                            default -> null;
                                         };
 
                                 result.complete(gr);
@@ -632,13 +632,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Optional<String> secondaryIndexName) {
         var leader = shardManager.leader(shardId);
         var stub = stubManager.getStub(leader);
-        var requestBuilder =
-                ListRequest.newBuilder()
-                        .setShard(shardId)
-                        .setStartInclusive(startKeyInclusive)
-                        .setEndExclusive(endKeyExclusive);
-        secondaryIndexName.ifPresent(requestBuilder::setSecondaryIndexName);
-        var request = requestBuilder.build();
+        var request = new ListRequest();
+        request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
+        secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         CompletableFuture<List<String>> future = new CompletableFuture<>();
         List<String> result = new ArrayList<>();
@@ -649,7 +645,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             @Override
                             public void onNext(ListResponse response) {
                                 for (int i = 0; i < response.getKeysCount(); i++) {
-                                    result.add(response.getKeys(i));
+                                    result.add(response.getKeyAt(i));
                                 }
                             }
 
@@ -758,14 +754,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             RangeScanConsumer consumer) {
         var leader = shardManager.leader(shardId);
         var stub = stubManager.getStub(leader);
-        var requestBuilder =
-                RangeScanRequest.newBuilder()
-                        .setShard(shardId)
-                        .setStartInclusive(startKeyInclusive)
-                        .setEndExclusive(endKeyExclusive);
-
-        secondaryIndexName.ifPresent(requestBuilder::setSecondaryIndexName);
-        var request = requestBuilder.build();
+        var request = new RangeScanRequest();
+        request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
+        secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         stub.async()
                 .rangeScan(
@@ -774,7 +765,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             @Override
                             public void onNext(RangeScanResponse response) {
                                 for (int i = 0; i < response.getRecordsCount(); i++) {
-                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecords(i)));
+                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
                                 }
                             }
 
