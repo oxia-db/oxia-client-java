@@ -30,9 +30,7 @@ dependencies {
     implementation(libs.jakarta.annotation.api)
     implementation(libs.zero.allocation.hashing)
 
-    testImplementation(project(":testcontainers"))
     testImplementation(libs.grpc.inprocess)
-    testImplementation(libs.testcontainers.junit.jupiter)
 }
 
 protobuf {
