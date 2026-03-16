@@ -17,3 +17,11 @@
 dependencies {
     api(libs.opentelemetry.api)
 }
+
+tasks.javadoc {
+    val opts = options as StandardJavadocDocletOptions
+    opts.use(true)
+    opts.windowTitle("Oxia Java Client API")
+    opts.docTitle("Oxia Java Client API")
+    opts.noQualifiers("all")
+}
