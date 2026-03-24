@@ -32,13 +32,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.Function;
-import lombok.extern.slf4j.Slf4j;
+import io.github.merlimat.slog.Logger;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.Recorder;
 
-@Slf4j
 public class PerfClient {
+
+  private static final Logger log = Logger.get(PerfClient.class);
 
   private static final List<String> keys = new ArrayList<>();
   private static final LongAdder writeOps = new LongAdder();
@@ -115,25 +115,25 @@ public class PerfClient {
       writeReportHistogram = writeLatency.getIntervalHistogram(writeReportHistogram);
       readReportHistogram = readLatency.getIntervalHistogram(readReportHistogram);
 
-      log.info(
+      log.infof(
           """
-                            Stats - Total ops: {} ops/s - Failed ops: {} ops/s
-                               Write ops {} w/s  Latency ms: 50% {} - 95% {} - 99% {} - 99.9% {} - max {}
-                               Read  ops {} r/s  Latency ms: 50% {} - 95% {} - 99% {} - 99.9% {} - max {}""",
-          INT_FORMAT.apply(writeRate + readRate),
-          INT_FORMAT.apply(failedWriteRate + failedReadRate),
-          INT_FORMAT.apply(writeRate),
-          DEC_FORMAT.apply(writeReportHistogram.getValueAtPercentile(50) / 1000.0),
-          DEC_FORMAT.apply(writeReportHistogram.getValueAtPercentile(95) / 1000.0),
-          DEC_FORMAT.apply(writeReportHistogram.getValueAtPercentile(99) / 1000.0),
-          DEC_FORMAT.apply(writeReportHistogram.getValueAtPercentile(99.9) / 1000.0),
-          DEC_FORMAT.apply(writeReportHistogram.getMaxValue() / 1000.0),
-          INT_FORMAT.apply(readRate),
-          DEC_FORMAT.apply(readReportHistogram.getValueAtPercentile(50) / 1000.0),
-          DEC_FORMAT.apply(readReportHistogram.getValueAtPercentile(95) / 1000.0),
-          DEC_FORMAT.apply(readReportHistogram.getValueAtPercentile(99) / 1000.0),
-          DEC_FORMAT.apply(readReportHistogram.getValueAtPercentile(99.9) / 1000.0),
-          DEC_FORMAT.apply(readReportHistogram.getMaxValue() / 1000.0));
+              Stats - Total ops: %7.0f ops/s - Failed ops: %7.0f ops/s
+                 Write ops %7.0f w/s  Latency ms: 50%% %7.1f - 95%% %7.1f - 99%% %7.1f - 99.9%% %7.1f - max %7.1f
+                 Read  ops %7.0f r/s  Latency ms: 50%% %7.1f - 95%% %7.1f - 99%% %7.1f - 99.9%% %7.1f - max %7.1f""",
+          writeRate + readRate,
+          failedWriteRate + failedReadRate,
+          writeRate,
+          writeReportHistogram.getValueAtPercentile(50) / 1000.0,
+          writeReportHistogram.getValueAtPercentile(95) / 1000.0,
+          writeReportHistogram.getValueAtPercentile(99) / 1000.0,
+          writeReportHistogram.getValueAtPercentile(99.9) / 1000.0,
+          writeReportHistogram.getMaxValue() / 1000.0,
+          readRate,
+          readReportHistogram.getValueAtPercentile(50) / 1000.0,
+          readReportHistogram.getValueAtPercentile(95) / 1000.0,
+          readReportHistogram.getValueAtPercentile(99) / 1000.0,
+          readReportHistogram.getValueAtPercentile(99.9) / 1000.0,
+          readReportHistogram.getMaxValue() / 1000.0);
 
       writeReportHistogram.reset();
       readReportHistogram.reset();
@@ -168,7 +168,7 @@ public class PerfClient {
               })
           .exceptionally(
               ex -> {
-                log.warn("Write operation failed {}", ex.getMessage());
+                log.warn().exceptionMessage(ex).log("Write operation failed");
                 writeFailed.increment();
                 semaphore.release();
                 return null;
@@ -201,7 +201,7 @@ public class PerfClient {
               })
           .exceptionally(
               ex -> {
-                log.warn("Read operation failed {}", ex.getMessage());
+                log.warn().exceptionMessage(ex).log("Read operation failed");
                 readFailed.increment();
                 semaphore.release();
                 return null;
@@ -209,6 +209,4 @@ public class PerfClient {
     }
   }
 
-  static final Function<Double, String> DEC_FORMAT = d -> String.format("%7.1f", d);
-  static final Function<Double, String> INT_FORMAT = d -> String.format("%7.0f", d);
 }

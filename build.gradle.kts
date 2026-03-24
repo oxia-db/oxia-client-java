@@ -40,7 +40,7 @@ subprojects {
     }
 
     dependencies {
-        implementation(rootProject.libs.slf4j.api)
+        implementation(rootProject.libs.slog)
 
         compileOnly(rootProject.libs.lombok)
         annotationProcessor(rootProject.libs.lombok)

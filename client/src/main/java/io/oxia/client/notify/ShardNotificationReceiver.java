@@ -18,6 +18,7 @@ package io.oxia.client.notify;
 import static io.oxia.client.api.Notification.KeyModified;
 import static lombok.AccessLevel.PACKAGE;
 
+import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
@@ -35,10 +36,10 @@ import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class ShardNotificationReceiver implements Closeable, StreamObserver<NotificationBatch> {
+
+    private final Logger log;
 
     private final OxiaStubManager manager;
     private final String leader;
@@ -68,6 +69,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         this.shardId = shardId;
         this.callback = callback;
         this.offset = offset;
+        this.log = Logger.get(ShardNotificationReceiver.class).with().attr("shard", shardId).build();
 
         start();
     }
@@ -98,9 +100,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
         batch.forEachNotifications(
                 (key, notification) -> {
-                    if (log.isDebugEnabled()) {
-                        log.debug("--- Got notification: {} - {}", key, notification.getType());
-                    }
+                    log.debug().attr("key", key).attr("type", notification.getType()).log("Got notification");
 
                     var n =
                             switch (notification.getType()) {
@@ -125,17 +125,16 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         }
 
         long retryDelayMillis = backoff.nextDelayMillis();
-        log.warn(
-                "Error while receiving notifications for shard={}: {} - Retrying in {} seconds",
-                shardId,
-                t.getMessage(),
-                retryDelayMillis / 1000.0);
+        log.warn()
+                .attr("retryInSeconds", retryDelayMillis / 1000.0)
+                .exceptionMessage(t)
+                .log("Error while receiving notifications");
         notificationManager
                 .getExecutor()
                 .schedule(
                         () -> {
                             if (!closed) {
-                                log.info("Retrying getting notifications for shard={}", shardId);
+                                log.info("Retrying getting notifications");
                                 start();
                             }
                         },

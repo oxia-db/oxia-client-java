@@ -34,9 +34,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class NotificationManager implements AutoCloseable, Consumer<ShardAssignmentChanges> {
     private final ConcurrentMap<Long, ShardNotificationReceiver> shardReceivers =
             new ConcurrentHashMap<>();

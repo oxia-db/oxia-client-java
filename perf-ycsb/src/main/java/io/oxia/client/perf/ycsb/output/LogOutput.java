@@ -18,10 +18,11 @@ package io.oxia.client.perf.ycsb.output;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import io.github.merlimat.slog.Logger;
 
-@Slf4j
 final class LogOutput implements Output {
+
+    private static final Logger log = Logger.get(LogOutput.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private final boolean pretty;
 

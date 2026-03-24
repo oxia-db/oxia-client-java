@@ -21,6 +21,7 @@ plugins {
 
 application {
     mainClass.set("io.oxia.client.perf.PerfClient")
+    applicationDefaultJvmArgs = listOf("-Dlog4j.configurationFile=classpath:log4j2.xml")
 }
 
 dependencies {
@@ -33,7 +34,8 @@ dependencies {
     implementation(libs.opentelemetry.sdk)
     implementation(libs.opentelemetry.sdk.autoconfigure)
     implementation(libs.hdr.histogram)
-    implementation(libs.slf4j.simple)
+    implementation(libs.log4j.core)
+    implementation(libs.log4j.slf4j2.impl)
 }
 
 tasks.shadowJar {

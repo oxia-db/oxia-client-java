@@ -28,9 +28,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class SessionManager
         implements AutoCloseable, Consumer<ShardAssignmentChanges>, SessionNotificationListener {
 

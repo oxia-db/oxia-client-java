@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.WriteRequest;
@@ -24,10 +25,10 @@ import java.util.Deque;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
+
+    private final Logger log;
 
     private final StreamObserver<WriteRequest> clientStream;
     private final Deque<CompletableFuture<WriteResponse>> pendingWrites;
@@ -35,7 +36,8 @@ public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
     private volatile boolean completed;
     private volatile Throwable completedException;
 
-    public WriteStreamWrapper(OxiaClientGrpc.OxiaClientStub stub) {
+    public WriteStreamWrapper(OxiaClientGrpc.OxiaClientStub stub, long shardId) {
+        this.log = Logger.get(WriteStreamWrapper.class).with().attr("shard", shardId).build();
         this.pendingWrites = new ArrayDeque<>();
         this.completed = false;
         this.completedException = null;
@@ -62,10 +64,11 @@ public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
             completedException = error;
             completed = true;
             if (!pendingWrites.isEmpty()) {
-                log.warn(
-                        "Receive error when writing data to server through the stream, prepare to fail pending requests. pendingWrites={} {}",
-                        pendingWrites.size(),
-                        completedException.getMessage());
+                log.warn()
+                        .attr("pendingWrites", pendingWrites.size())
+                        .exceptionMessage(completedException)
+                        .log(
+                                "Receive error when writing data to server through the stream, prepare to fail pending requests");
             }
             pendingWrites.forEach(f -> f.completeExceptionally(completedException));
             pendingWrites.clear();
@@ -77,9 +80,10 @@ public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
         synchronized (WriteStreamWrapper.this) {
             completed = true;
             if (!pendingWrites.isEmpty()) {
-                log.info(
-                        "Receive stream close signal when writing data to server through the stream, prepare to cancel pending requests. pendingWrites={}",
-                        pendingWrites.size());
+                log.info()
+                        .attr("pendingWrites", pendingWrites.size())
+                        .log(
+                                "Receive stream close signal when writing data to server through the stream, prepare to cancel pending requests");
             }
             pendingWrites.forEach(f -> f.completeExceptionally(new CancellationException()));
             pendingWrites.clear();
@@ -98,9 +102,7 @@ public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
             }
             final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
             try {
-                if (log.isDebugEnabled()) {
-                    log.debug("Sending request {}", request);
-                }
+                log.debug().attr("request", request).log("Sending request");
                 clientStream.onNext(request);
                 pendingWrites.add(future);
             } catch (Exception e) {

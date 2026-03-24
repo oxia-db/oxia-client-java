@@ -35,9 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import javax.annotation.Nullable;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class OxiaStub implements AutoCloseable {
     public static String TLS_SCHEMA = "tls://";
     private final ManagedChannel channel;

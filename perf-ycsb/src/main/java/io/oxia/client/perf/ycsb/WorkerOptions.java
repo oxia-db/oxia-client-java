@@ -18,12 +18,13 @@ package io.oxia.client.perf.ycsb;
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk;
 import io.oxia.client.OxiaClientBuilderImpl;
 import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
+import io.github.merlimat.slog.Logger;
 import picocli.CommandLine;
 
-@Slf4j
 @CommandLine.Command(name = "ycsb")
 public final class WorkerOptions implements Runnable {
+
+  private static final Logger log = Logger.get(WorkerOptions.class);
 
   @CommandLine.Option(
       names = {"--name"},
@@ -202,7 +203,7 @@ public final class WorkerOptions implements Runnable {
         Thread.sleep(TimeUnit.SECONDS.toMillis(elapsedMs));
       }
     } catch (Throwable ex) {
-      log.error("unexpected error. ", ex);
+      log.error().exception(ex).log("unexpected error");
     }
   }
 }
