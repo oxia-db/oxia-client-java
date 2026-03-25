@@ -1,7 +1,7 @@
 [versions]
 grpc = "1.75.0"
 netty = "4.1.131.Final"
-lightproto = "0.5.1"
+lightproto = "0.6.3"
 opentelemetry = "1.57.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
@@ -86,7 +86,7 @@ commons-compress = { module = "org.apache.commons:commons-compress", version.ref
 commons-lang3 = { module = "org.apache.commons:commons-lang3", version.ref = "commons-lang3" }
 
 [plugins]
-lightproto = { id = "io.github.merlimat.lightproto", version.ref = "lightproto" }
+lightproto = { id = "io.streamnative.lightproto", version.ref = "lightproto" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs-plugin" }
