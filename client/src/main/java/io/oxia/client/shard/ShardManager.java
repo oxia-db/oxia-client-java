@@ -24,6 +24,7 @@ import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.github.merlimat.slog.Logger;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -48,10 +49,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignments> {
+
+    private static final Logger LOG = Logger.get(ShardManager.class);
+    private final Logger log;
     private final ScheduledExecutorService executor;
     private final OxiaStub stub;
     private final @NonNull ShardAssignmentsContainer assignments;
@@ -75,6 +77,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         this.executor = executor;
         this.assignments = assignments;
         this.callbacks = callbacks;
+        this.log = LOG.with().attr("namespace", assignments.getNamespace()).build();
 
         this.shardAssignmentsEvents =
                 instrumentProvider.newCounter(
@@ -134,7 +137,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 if (description != null) {
                     var customStatusCode = CustomStatusCode.fromDescription(description);
                     if (customStatusCode == CustomStatusCode.ErrorNamespaceNotFound) {
-                        log.error("Namespace not found: {}", assignments.getNamespace());
+                        log.error("Namespace not found");
                         if (!initialAssignmentsFuture.isDone()) {
                             if (initialAssignmentsFuture.completeExceptionally(
                                     new NamespaceNotFoundException(assignments.getNamespace()))) {
@@ -145,13 +148,11 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 }
             }
         }
-        log.warn("Failed receiving shard assignments.", getRootCause(error));
+        log.warn().exception(getRootCause(error)).log("Failed receiving shard assignments");
         executor.schedule(
                 () -> {
                     if (!closed) {
-                        log.info(
-                                "Retry creating stream for shard assignments namespace={}",
-                                assignments.getNamespace());
+                        log.info("Retry creating stream for shard assignments");
                         start();
                     }
                 },
@@ -169,9 +170,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         executor.schedule(
                 () -> {
                     if (!closed) {
-                        log.info(
-                                "Retry creating stream for shard assignments after stream closed namespace={}",
-                                assignments.getNamespace());
+                        log.info("Retry creating stream for shard assignments after stream closed");
                         start();
                     }
                 },
@@ -213,7 +212,10 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                                 .findOverlapping(assignments.values())
                                 .forEach(
                                         existing -> {
-                                            log.info("Deleting shard {} as it overlaps with {}", existing, update);
+                                            LOG.info()
+                                                    .attr("existing", existing)
+                                                    .attr("update", update)
+                                                    .log("Deleting shard as it overlaps");
                                             toDelete.add(existing.id());
                                         }));
 

@@ -21,6 +21,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.RateLimiter;
+import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleHistogram;
@@ -48,10 +49,10 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public final class Worker implements Runnable, Closeable, Operations {
+
+    private static final Logger log = Logger.get(Worker.class);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final WorkerOptions options;
@@ -203,7 +204,7 @@ public final class Worker implements Runnable, Closeable, Operations {
     public void run() {
         try {
             final String optionsStr = MAPPER.writeValueAsString(options);
-            log.info("starting worker. the options={}", optionsStr);
+            log.info().attr("options", optionsStr).log("starting worker");
         } catch (JsonProcessingException ex) {
             throw new WorkerException(ex);
         }
@@ -240,7 +241,9 @@ public final class Worker implements Runnable, Closeable, Operations {
 
                                         intervalOutput.report(internalSnapshotFunc.apply(lastSnapshotTime));
                                         if (options.operationNum > 0) {
-                                            log.info("remain operation num {}", operationNum.get());
+                                            log.info()
+                                                    .attr("remainOperationNum", operationNum.get())
+                                                    .log("remain operation num");
                                         }
                                         lastSnapshotTime = System.nanoTime();
                                     }
@@ -276,7 +279,7 @@ public final class Worker implements Runnable, Closeable, Operations {
                                             }
                                             if (!sts.isSuccess()) {
                                                 operationCounter.add(1, operationWriteFailedAttributes);
-                                                log.warn("write failed. the error info {}", sts.getErrorInfo());
+                                                log.warn().attr("errorInfo", sts.getErrorInfo()).log("write failed");
                                                 final long latencyMicros = NANOSECONDS.toMicros(System.nanoTime() - start);
                                                 operationLatency.record(
                                                         latencyMicros / MICROS, operationWriteFailedAttributes);
@@ -301,7 +304,7 @@ public final class Worker implements Runnable, Closeable, Operations {
                                                 final long latencyMicros = NANOSECONDS.toMicros(System.nanoTime() - start);
                                                 operationLatency.record(
                                                         latencyMicros / MICROS, operationReadFailedAttributes);
-                                                log.warn("read failed. the error info {}", sts.getErrorInfo());
+                                                log.warn().attr("errorInfo", sts.getErrorInfo()).log("read failed");
                                                 globalReport.readFailed().increment();
                                                 intervalReport.readFailed().increment();
                                             } else {

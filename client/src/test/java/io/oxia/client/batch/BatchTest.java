@@ -171,7 +171,7 @@ class BatchTest {
         stub =
                 new OxiaStub(
                         InProcessChannelBuilder.forName(serverName).directExecutor().build(), authentication);
-        final WriteStreamWrapper writeStreamWrapper = new WriteStreamWrapper(stub.async());
+        final WriteStreamWrapper writeStreamWrapper = new WriteStreamWrapper(stub.async(), 0L);
         clientByShardId = mock(OxiaStubProvider.class);
         lenient().when(clientByShardId.getStubForShard(anyLong())).thenReturn(stub);
         lenient()

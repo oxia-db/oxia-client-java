@@ -6,7 +6,8 @@ opentelemetry = "1.57.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
 guava = "33.5.0-jre"
-slf4j = "1.7.32"
+slf4j = "2.0.16"
+slog = "0.9.1"
 lombok = "1.18.42"
 assertj = "3.27.7"
 awaitility = "4.2.2"
@@ -39,6 +40,7 @@ junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 
 # Compile dependencies
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slog = { module = "io.github.merlimat.slog:slog", version.ref = "slog" }
 lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api" }
@@ -68,6 +70,7 @@ protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "p
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
 log4j-core = { module = "org.apache.logging.log4j:log4j-core", version.ref = "log4j" }
+log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", version.ref = "log4j" }
 bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncy-castle" }
 
 # Perf dependencies

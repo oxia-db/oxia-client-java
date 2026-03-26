@@ -15,6 +15,7 @@
  */
 package io.oxia.client;
 
+import io.github.merlimat.slog.Logger;
 import io.grpc.ClientCall;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
@@ -31,10 +32,10 @@ import java.io.IOException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpdatesResponse> {
+
+    private static final Logger log = Logger.get(SequenceUpdates.class);
 
     private final String key;
     private final String partitionKey;
@@ -108,7 +109,7 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         if (closed || isClientClosed.apply(null)) {
             return;
         }
-        log.warn("Failure while processing sequence updates: {}", t.getMessage(), t);
+        log.warn().exception(t).log("Failure while processing sequence updates");
         createStream();
     }
 

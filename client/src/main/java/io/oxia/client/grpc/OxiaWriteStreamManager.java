@@ -49,7 +49,8 @@ public final class OxiaWriteStreamManager {
                                     final var asyncStub = provider.getStubForShard(shardId).async();
                                     return new WriteStreamWrapper(
                                             asyncStub.withInterceptors(
-                                                    MetadataUtils.newAttachHeadersInterceptor(headers)));
+                                                    MetadataUtils.newAttachHeadersInterceptor(headers)),
+                                            shardId);
                                 });
             }
             if (wrapper.isValid()) {

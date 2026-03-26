@@ -20,6 +20,7 @@ import static lombok.AccessLevel.PUBLIC;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
+import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
@@ -38,10 +39,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class Session implements StreamObserver<KeepAliveResponse> {
+
+    private final @NonNull Logger log;
 
     private final @NonNull OxiaStubProvider stubProvider;
     private final @NonNull Duration sessionTimeout;
@@ -89,12 +90,15 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         this.heartbeat = new SessionHeartbeat();
         this.heartbeat.setShard(shardId).setSessionId(sessionId);
         this.listener = listener;
+        this.log =
+                Logger.get(Session.class)
+                        .with()
+                        .attr("shard", shardId)
+                        .attr("sessionId", sessionId)
+                        .attr("clientIdentity", config.clientIdentifier())
+                        .build();
 
-        log.info(
-                "Session created shard={} sessionId={} clientIdentity={}",
-                shardId,
-                sessionId,
-                config.clientIdentifier());
+        log.info("Session created");
 
         this.sessionsOpened =
                 instrumentProvider.newCounter(
@@ -125,7 +129,9 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                             try {
                                 sendKeepAlive();
                             } catch (Throwable ex) {
-                                log.warn("receive error when send keep-alive request", Throwables.getRootCause(ex));
+                                log.warn()
+                                        .exception(Throwables.getRootCause(ex))
+                                        .log("receive error when send keep-alive request");
                             }
                         },
                         heartbeatInterval.toMillis(),
@@ -147,23 +153,12 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     @Override
     public void onNext(KeepAliveResponse value) {
         lastSuccessfullResponse = Instant.now();
-        if (log.isDebugEnabled()) {
-            log.debug(
-                    "Received keep-alive response shard={} sessionId={} clientIdentity={}",
-                    shardId,
-                    sessionId,
-                    clientIdentifier);
-        }
+        log.debug("Received keep-alive response");
     }
 
     @Override
     public void onError(Throwable t) {
-        log.warn(
-                "Error during session keep-alive shard={} sessionId={} clientIdentity={}: {}",
-                shardId,
-                sessionId,
-                clientIdentifier,
-                t.getMessage());
+        log.warn().exceptionMessage(t).log("Error during session keep-alive");
     }
 
     @Override
@@ -173,11 +168,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
 
     private void handleSessionExpired() {
         sessionsExpired.increment();
-        log.warn(
-                "Session expired shard={} sessionId={} clientIdentity={}",
-                shardId,
-                sessionId,
-                clientIdentifier);
+        log.warn("Session expired");
         close();
     }
 
@@ -198,11 +189,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         return future.whenComplete(
                 (__, ignore) -> {
                     listener.onSessionClosed(Session.this);
-                    log.info(
-                            "Session closed shard={} sessionId={} clientIdentity={}",
-                            shardId,
-                            sessionId,
-                            clientIdentifier);
+                    log.info("Session closed");
                 });
     }
 }
