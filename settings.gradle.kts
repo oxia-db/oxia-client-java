@@ -18,6 +18,15 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
+// Force plexus-utils to patched version to fix CVE-2025-67030 (directory traversal)
+buildscript {
+    configurations.configureEach {
+        resolutionStrategy {
+            force("org.codehaus.plexus:plexus-utils:4.0.3")
+        }
+    }
+}
+
 rootProject.name = "oxia-java"
 
 include("client-api")
