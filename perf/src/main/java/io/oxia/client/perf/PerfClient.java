@@ -68,6 +68,9 @@ public class PerfClient {
       System.exit(1);
     }
 
+    // Suppress OTel auto-configuration INFO message from java.util.logging
+    java.util.logging.Logger.getLogger("io.opentelemetry").setLevel(java.util.logging.Level.WARNING);
+
     AutoConfiguredOpenTelemetrySdk sdk =
         AutoConfiguredOpenTelemetrySdk.builder()
             .addPropertiesSupplier(
