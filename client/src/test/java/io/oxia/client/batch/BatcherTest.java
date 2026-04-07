@@ -95,8 +95,12 @@ class BatcherTest {
         when(batch.size()).thenReturn(1);
         when(batch.canAdd(any())).thenReturn(true);
         batcher.add(op);
-        await().untilAsserted(() -> verify(batch).add(op));
-        verify(batch, never()).send();
+        // Single operation with empty queue: batch is flushed immediately.
+        await().untilAsserted(
+                () -> {
+                    verify(batch).add(op);
+                    verify(batch).send();
+                });
     }
 
     @Test
@@ -161,7 +165,7 @@ class BatcherTest {
     }
 
     @Test
-    void sendBatchOnLingerExpiration() throws Exception {
+    void sendBatchImmediatelyWhenQueueEmpty() throws Exception {
         var callback = new CompletableFuture<GetResult>();
         Operation<?> op =
                 new GetOperation(
@@ -170,26 +174,29 @@ class BatcherTest {
         when(batch.size()).thenReturn(1);
         when(batch.canAdd(any())).thenReturn(true);
         batcher.add(op);
-        await().untilAsserted(() -> verify(batch).add(op));
-        batcher.add(op);
-        await().untilAsserted(() -> verify(batch).send());
+        // Single operation with empty queue: flushed immediately without waiting for linger.
+        await().untilAsserted(
+                () -> {
+                    verify(batch).add(op);
+                    verify(batch).send();
+                });
     }
 
     @Test
-    void sendBatchOnLingerExpirationMulti() throws Exception {
+    void batchMultipleOpsWhenQueueNotEmpty() throws Exception {
         var callback = new CompletableFuture<GetResult>();
         Operation<?> op =
                 new GetOperation(
                         callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
         when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(1);
+        when(batch.size()).thenReturn(1, 2, 3);
         when(batch.canAdd(any())).thenReturn(true);
-        when(batch.getStartTimeNanos()).thenReturn(System.nanoTime());
+        // Add multiple ops quickly so the batcher drains them together.
         batcher.add(op);
         batcher.add(op);
         batcher.add(op);
         await().untilAsserted(() -> verify(batch, times(3)).add(op));
-        batcher.add(op);
+        // After draining all 3, queue is empty — batch is flushed.
         await().untilAsserted(() -> verify(batch).send());
     }
 
