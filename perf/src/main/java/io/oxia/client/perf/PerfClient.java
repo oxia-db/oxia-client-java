@@ -26,6 +26,7 @@ import io.oxia.client.api.OxiaClientBuilder;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,7 +68,17 @@ public class PerfClient {
       System.exit(1);
     }
 
-    AutoConfiguredOpenTelemetrySdk sdk = AutoConfiguredOpenTelemetrySdk.builder().build();
+    AutoConfiguredOpenTelemetrySdk sdk =
+        AutoConfiguredOpenTelemetrySdk.builder()
+            .addPropertiesSupplier(
+                () ->
+                    // Default to no-op exporters. Users can override via env variables
+                    // (e.g. OTEL_METRICS_EXPORTER=otlp) to enable exporting.
+                    Map.of(
+                        "otel.metrics.exporter", "none",
+                        "otel.traces.exporter", "none",
+                        "otel.logs.exporter", "none"))
+            .build();
 
     AsyncOxiaClient client =
         OxiaClientBuilder.create(arguments.serviceAddr)
