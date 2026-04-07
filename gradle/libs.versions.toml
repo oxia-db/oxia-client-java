@@ -1,7 +1,7 @@
 [versions]
 grpc = "1.75.0"
 netty = "4.1.131.Final"
-lightproto = "0.6.3"
+lightproto = "0.6.6"
 opentelemetry = "1.57.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
