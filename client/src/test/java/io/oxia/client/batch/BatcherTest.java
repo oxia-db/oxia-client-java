@@ -19,7 +19,6 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -96,11 +95,12 @@ class BatcherTest {
         when(batch.canAdd(any())).thenReturn(true);
         batcher.add(op);
         // Single operation with empty queue: batch is flushed immediately.
-        await().untilAsserted(
-                () -> {
-                    verify(batch).add(op);
-                    verify(batch).send();
-                });
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op);
+                            verify(batch).send();
+                        });
     }
 
     @Test
@@ -175,11 +175,12 @@ class BatcherTest {
         when(batch.canAdd(any())).thenReturn(true);
         batcher.add(op);
         // Single operation with empty queue: flushed immediately without waiting for linger.
-        await().untilAsserted(
-                () -> {
-                    verify(batch).add(op);
-                    verify(batch).send();
-                });
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op);
+                            verify(batch).send();
+                        });
     }
 
     @Test
