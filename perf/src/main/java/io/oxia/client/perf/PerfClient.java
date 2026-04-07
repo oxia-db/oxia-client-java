@@ -48,6 +48,7 @@ public class PerfClient {
   private static final Recorder writeLatency = new Recorder(TimeUnit.SECONDS.toMicros(120_000), 5);
   private static final Recorder readLatency = new Recorder(TimeUnit.SECONDS.toMicros(120_000), 5);
   private static final PerfArguments arguments = new PerfArguments();
+  private static volatile boolean closing = false;
 
   public static void main(String[] args) throws Exception {
     JCommander jc = new JCommander(arguments);
@@ -84,6 +85,15 @@ public class PerfClient {
 
     ExecutorService executor = Executors.newCachedThreadPool();
 
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  closing = true;
+                  executor.shutdownNow();
+                  Runtime.getRuntime().halt(0);
+                }));
+
     if (arguments.readPercentage != 100) {
       executor.execute(() -> generateWriteTraffic(client));
     }
@@ -97,7 +107,7 @@ public class PerfClient {
 
     long oldTime = System.nanoTime();
 
-    while (true) {
+    while (!closing) {
       try {
         Thread.sleep(10000);
       } catch (InterruptedException e) {
@@ -150,7 +160,7 @@ public class PerfClient {
     byte[] value = new byte[arguments.valueSize];
     Random rand = new Random();
 
-    while (true) {
+    while (!closing) {
       limiter.acquire();
       semaphore.acquireUninterruptibly();
 
@@ -183,7 +193,7 @@ public class PerfClient {
 
     Random rand = new Random();
 
-    while (true) {
+    while (!closing) {
       limiter.acquire();
       semaphore.acquireUninterruptibly();
 
