@@ -75,7 +75,6 @@ public class Batcher implements AutoCloseable {
 
     public void batcherLoop() {
         Batch batch = null;
-        long lingerBudgetNanos = -1L;
 
         Operation<?>[] localOperations = new Operation<?>[DEFAULT_INITIAL_QUEUE_CAPACITY];
         int localOperationsIndex = 0;
@@ -86,13 +85,22 @@ public class Batcher implements AutoCloseable {
             try {
                 if (localOperationsIndex >= localOperationsCount) {
                     if (batch == null) {
+                        // No pending batch — block until at least one operation arrives.
                         localOperationsCount = operations.takeAll(localOperations);
                     } else {
-                        localOperationsCount =
-                                operations.pollAll(localOperations, lingerBudgetNanos, NANOSECONDS);
-                        long spentLingerBudgetNanos =
-                                Math.max(0, System.nanoTime() - batch.getStartTimeNanos());
-                        lingerBudgetNanos = Math.max(0L, lingerBudgetNanos - spentLingerBudgetNanos);
+                        // We have a pending batch. Non-blocking drain to pick up any
+                        // operations that arrived while we were processing.
+                        localOperationsCount = operations.pollAll(localOperations, 0, NANOSECONDS);
+                        if (localOperationsCount == 0) {
+                            // Queue is empty — no concurrent producers are filling it right
+                            // now. Flush the current batch immediately rather than lingering,
+                            // since there is nothing to batch with.
+                            batch.send();
+                            batch = null;
+
+                            // Block until the next operation arrives.
+                            localOperationsCount = operations.takeAll(localOperations);
+                        }
                     }
                     localOperationsIndex = 0;
                 }
@@ -104,7 +112,6 @@ public class Batcher implements AutoCloseable {
             if (localOperationsIndex < localOperationsCount) {
                 if (batch == null) {
                     batch = batchFactory.getBatch(shardId);
-                    lingerBudgetNanos = config.batchLinger().toNanos();
                 }
 
                 Operation<?> operation = localOperations[localOperationsIndex++];
@@ -112,7 +119,6 @@ public class Batcher implements AutoCloseable {
                     if (!batch.canAdd(operation)) {
                         batch.send();
                         batch = batchFactory.getBatch(shardId);
-                        lingerBudgetNanos = config.batchLinger().toNanos();
                     }
                     batch.add(operation);
                 } catch (Exception e) {
@@ -120,11 +126,9 @@ public class Batcher implements AutoCloseable {
                 }
             }
 
-            if (batch != null) {
-                if (batch.size() == config.maxRequestsPerBatch() || lingerBudgetNanos == 0) {
-                    batch.send();
-                    batch = null;
-                }
+            if (batch != null && batch.size() == config.maxRequestsPerBatch()) {
+                batch.send();
+                batch = null;
             }
         }
     }
