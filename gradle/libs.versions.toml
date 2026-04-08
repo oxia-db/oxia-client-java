@@ -26,7 +26,7 @@ hdr-histogram = "2.1.9"
 jcommander = "1.82"
 
 # Plugins
-shadow = "9.3.2"
+shadow = "9.4.1"
 spotless = "8.3.0"
 spotbugs-plugin = "6.1.12"
 maven-publish-plugin = "0.36.0"
