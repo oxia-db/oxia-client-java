@@ -26,6 +26,16 @@ application {
             "-Dlog4j.configurationFile=classpath:log4j2.xml",
             // Suppress Netty sun.misc.Unsafe warnings on Java 23+
             "--sun-misc-unsafe-memory-access=allow",
+            // Use ZGC for low-latency garbage collection
+            "-XX:+UseZGC",
+            // JIT compiler optimizations
+            "-XX:+TieredCompilation",
+            "-XX:-OmitStackTraceInFastThrow",
+            // Heap settings
+            "-Xms512m",
+            "-Xmx1g",
+            // Direct memory for Netty buffers
+            "-XX:MaxDirectMemorySize=512m",
         )
 }
 
