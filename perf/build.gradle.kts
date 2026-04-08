@@ -32,7 +32,7 @@ application {
             "-XX:+TieredCompilation",
             "-XX:-OmitStackTraceInFastThrow",
             // Heap settings
-            "-Xms128m",
+            "-Xms512m",
             "-Xmx1g",
             // Direct memory for Netty buffers
             "-XX:MaxDirectMemorySize=512m",
