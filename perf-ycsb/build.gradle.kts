@@ -14,6 +14,19 @@
  * limitations under the License.
  */
 
+// Force patched versions of Shadow plugin's transitive buildscript deps:
+//   - plexus-utils 4.0.3 fixes CVE-2025-67030 (directory traversal)
+//   - log4j-core 2.25.4 fixes CVE-2026-34477, CVE-2026-34478, CVE-2026-34480
+buildscript {
+    configurations.classpath {
+        resolutionStrategy {
+            force("org.codehaus.plexus:plexus-utils:4.0.3")
+            force("org.apache.logging.log4j:log4j-core:2.25.4")
+            force("org.apache.logging.log4j:log4j-api:2.25.4")
+        }
+    }
+}
+
 plugins {
     application
     alias(libs.plugins.shadow)
