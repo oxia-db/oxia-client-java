@@ -30,4 +30,12 @@ dependencies {
     implementation(libs.zero.allocation.hashing)
 
     testImplementation(libs.grpc.inprocess)
+    testImplementation(libs.opentelemetry.sdk)
+    testImplementation(libs.opentelemetry.sdk.testing)
+    testImplementation(libs.oxia.testcontainers)
+    testImplementation(libs.testcontainers.junit.jupiter)
+}
+
+tasks.test {
+    maxHeapSize = "1g"
 }

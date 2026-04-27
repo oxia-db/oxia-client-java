@@ -5,6 +5,8 @@ lightproto = "0.6.6"
 opentelemetry = "1.57.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
+testcontainers = "1.20.4"
+oxia-testcontainers = "0.7.4"
 guava = "33.5.0-jre"
 slf4j = "2.0.16"
 slog = "0.9.5"
@@ -79,6 +81,9 @@ hdr-histogram = { module = "org.hdrhistogram:HdrHistogram", version.ref = "hdr-h
 
 # Test dependencies
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+oxia-testcontainers = { module = "io.github.oxia-db:oxia-testcontainers", version.ref = "oxia-testcontainers" }
+testcontainers = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
 assertj = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
 mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
