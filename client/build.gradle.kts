@@ -37,20 +37,5 @@ dependencies {
 }
 
 tasks.test {
-    exclude("io/oxia/client/it/**")
-}
-
-val integrationTestTask = tasks.register<Test>("integrationTest") {
-    description = "Runs the client integration tests."
-    group = LifecycleBasePlugin.VERIFICATION_GROUP
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
-    include("io/oxia/client/it/**")
     maxHeapSize = "1g"
-    shouldRunAfter(tasks.test)
-    useJUnitPlatform()
-}
-
-tasks.named("check") {
-    dependsOn(integrationTestTask)
 }
