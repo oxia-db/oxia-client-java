@@ -30,4 +30,27 @@ dependencies {
     implementation(libs.zero.allocation.hashing)
 
     testImplementation(libs.grpc.inprocess)
+    testImplementation(libs.opentelemetry.sdk)
+    testImplementation(libs.opentelemetry.sdk.testing)
+    testImplementation(libs.oxia.testcontainers)
+    testImplementation(libs.testcontainers.junit.jupiter)
+}
+
+tasks.test {
+    exclude("io/oxia/client/it/**")
+}
+
+val integrationTestTask = tasks.register<Test>("integrationTest") {
+    description = "Runs the client integration tests."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("io/oxia/client/it/**")
+    maxHeapSize = "1g"
+    shouldRunAfter(tasks.test)
+    useJUnitPlatform()
+}
+
+tasks.named("check") {
+    dependsOn(integrationTestTask)
 }
