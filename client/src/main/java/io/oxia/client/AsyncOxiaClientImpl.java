@@ -761,59 +761,60 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
-        stub.async()
-                .rangeScan(
-                        request,
-                        new ClientResponseObserver<RangeScanRequest, RangeScanResponse>() {
-                            ClientCallStreamObserver<RangeScanRequest> requestStream;
-                            volatile boolean cancelled = false;
+        var observer =
+                new ClientResponseObserver<RangeScanRequest, RangeScanResponse>() {
+                    ClientCallStreamObserver<RangeScanRequest> requestStream;
+                    volatile boolean cancelled = false;
 
-                            @Override
-                            public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
-                                this.requestStream = requestStream;
-                                if (cancelRegistrar != null) {
-                                    cancelRegistrar.accept(this::cancelStream);
-                                }
-                            }
+                    @Override
+                    public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
+                        this.requestStream = requestStream;
+                    }
 
-                            private void cancelStream() {
-                                if (cancelled) {
-                                    return;
-                                }
-                                cancelled = true;
-                                requestStream.cancel("Range scan cancelled", null);
-                            }
+                    void cancelStream() {
+                        if (cancelled) {
+                            return;
+                        }
+                        cancelled = true;
+                        requestStream.cancel("Range scan cancelled", null);
+                    }
 
-                            @Override
-                            public void onNext(RangeScanResponse response) {
-                                if (cancelled) {
-                                    return;
-                                }
-                                for (int i = 0; i < response.getRecordsCount(); i++) {
-                                    if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                        cancelStream();
-                                        consumer.onCompleted();
-                                        return;
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void onError(Throwable t) {
-                                if (cancelled) {
-                                    return;
-                                }
-                                consumer.onError(t);
-                            }
-
-                            @Override
-                            public void onCompleted() {
-                                if (cancelled) {
-                                    return;
-                                }
+                    @Override
+                    public void onNext(RangeScanResponse response) {
+                        if (cancelled) {
+                            return;
+                        }
+                        for (int i = 0; i < response.getRecordsCount(); i++) {
+                            if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
+                                cancelStream();
                                 consumer.onCompleted();
+                                return;
                             }
-                        });
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        if (cancelled) {
+                            return;
+                        }
+                        consumer.onError(t);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        if (cancelled) {
+                            return;
+                        }
+                        consumer.onCompleted();
+                    }
+                };
+
+        stub.async().rangeScan(request, observer);
+
+        if (cancelRegistrar != null) {
+            cancelRegistrar.accept(observer::cancelStream);
+        }
     }
 
     private void internalRangeScanMultiShards(

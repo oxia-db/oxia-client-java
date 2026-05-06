@@ -577,11 +577,10 @@ class OxiaClientIT {
         try (SyncOxiaClient syncClient =
                 OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
             for (int i = 0; i < 30; i++) {
-                syncClient.put(String.format("range-scan-close-%02d", i), Integer.toString(i).getBytes());
+                syncClient.put(String.format("rs-close-%02d", i), Integer.toString(i).getBytes());
             }
 
-            try (CloseableIterable<GetResult> scan =
-                    syncClient.rangeScan("range-scan-close-", "range-scan-close-~")) {
+            try (CloseableIterable<GetResult> scan = syncClient.rangeScan("rs-close-", "rs-close-~")) {
                 int count = 0;
                 for (GetResult ignored : scan) {
                     count++;
@@ -591,8 +590,7 @@ class OxiaClientIT {
             }
 
             // After close, the iterable can no longer be iterated.
-            CloseableIterable<GetResult> scan =
-                    syncClient.rangeScan("range-scan-close-", "range-scan-close-~");
+            CloseableIterable<GetResult> scan = syncClient.rangeScan("rs-close-", "rs-close-~");
             scan.close();
             assertThatThrownBy(scan::iterator).isInstanceOf(IllegalStateException.class);
         }
@@ -601,7 +599,7 @@ class OxiaClientIT {
     @Test
     void testRangeScanEarlyStop() throws Exception {
         for (int i = 0; i < 20; i++) {
-            client.put(String.format("range-scan-stop-%02d", i), Integer.toString(i).getBytes()).get();
+            client.put(String.format("rs-stop-%02d", i), Integer.toString(i).getBytes()).get();
         }
 
         int stopAfter = 3;
@@ -611,8 +609,8 @@ class OxiaClientIT {
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         client.rangeScan(
-                "range-scan-stop-",
-                "range-scan-stop-~",
+                "rs-stop-",
+                "rs-stop-~",
                 new RangeScanConsumer() {
                     @Override
                     public boolean onNext(GetResult result) {
