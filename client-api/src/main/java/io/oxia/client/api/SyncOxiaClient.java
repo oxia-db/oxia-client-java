@@ -160,8 +160,8 @@ public interface SyncOxiaClient extends AutoCloseable {
      * Scan any existing records within the specified range of keys.
      *
      * <p>The returned iterable holds an active server stream and should be closed (e.g. via
-     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is
-     * only torn down when iteration runs to its natural end.
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -175,8 +175,8 @@ public interface SyncOxiaClient extends AutoCloseable {
      * Scan any existing records within the specified range of keys.
      *
      * <p>The returned iterable holds an active server stream and should be closed (e.g. via
-     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is
-     * only torn down when iteration runs to its natural end.
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.

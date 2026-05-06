@@ -67,7 +67,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import lombok.NonNull;
@@ -739,12 +738,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
-                        shardId,
-                        startKeyInclusive,
-                        endKeyExclusive,
-                        secondaryIndexName,
-                        timedConsumer,
-                        null);
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer, null);
             } else {
                 internalRangeScanMultiShards(
                         startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
@@ -775,8 +769,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             volatile boolean cancelled = false;
 
                             @Override
-                            public void beforeStart(
-                                    ClientCallStreamObserver<RangeScanRequest> requestStream) {
+                            public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
                                 this.requestStream = requestStream;
                                 if (cancelRegistrar != null) {
                                     cancelRegistrar.accept(this::cancelStream);
@@ -797,8 +790,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                     return;
                                 }
                                 for (int i = 0; i < response.getRecordsCount(); i++) {
-                                    if (!consumer.onNext(
-                                            ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
+                                    if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
                                         cancelStream();
                                         consumer.onCompleted();
                                         return;

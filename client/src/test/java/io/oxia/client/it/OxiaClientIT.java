@@ -577,8 +577,7 @@ class OxiaClientIT {
         try (SyncOxiaClient syncClient =
                 OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
             for (int i = 0; i < 30; i++) {
-                syncClient.put(
-                        String.format("range-scan-close-%02d", i), Integer.toString(i).getBytes());
+                syncClient.put(String.format("range-scan-close-%02d", i), Integer.toString(i).getBytes());
             }
 
             try (CloseableIterable<GetResult> scan =
