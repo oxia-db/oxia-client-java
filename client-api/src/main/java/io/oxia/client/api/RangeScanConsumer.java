@@ -25,8 +25,11 @@ public interface RangeScanConsumer {
      * Invoked for each record returned by the range scan operation.
      *
      * @param result The GetResult for the record.
+     * @return {@code true} to keep receiving records, {@code false} to stop the iteration. When
+     *     {@code false} is returned, the underlying server stream is cancelled, no further {@link
+     *     #onNext} invocations will be made, and {@link #onCompleted()} will be invoked once.
      */
-    void onNext(GetResult result);
+    boolean onNext(GetResult result);
 
     /**
      * Invoked when an error occurs during the range scan operation.

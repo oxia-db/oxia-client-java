@@ -16,6 +16,7 @@
 package io.oxia.client;
 
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
@@ -29,7 +30,9 @@ import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
 import java.io.Closeable;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -160,20 +163,42 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
         return rangeScan(startKeyInclusive, endKeyExclusive, Collections.emptySet());
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             Set<RangeScanOption> options) {
-        return () -> {
-            GetResultIterator gri = new GetResultIterator();
-            asyncClient.rangeScan(startKeyInclusive, endKeyExclusive, gri, options);
-            return gri;
+        return new CloseableIterable<>() {
+            private final List<GetResultIterator> active = new ArrayList<>();
+            private boolean closed = false;
+
+            @Override
+            public synchronized Iterator<GetResult> iterator() {
+                if (closed) {
+                    throw new IllegalStateException("Range scan iterable is closed");
+                }
+                GetResultIterator gri = new GetResultIterator();
+                active.add(gri);
+                asyncClient.rangeScan(startKeyInclusive, endKeyExclusive, gri, options);
+                return gri;
+            }
+
+            @Override
+            public synchronized void close() {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                for (GetResultIterator gri : active) {
+                    gri.close();
+                }
+                active.clear();
+            }
         };
     }
 

@@ -16,6 +16,8 @@
 package io.oxia.client;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
+import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -705,9 +707,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                     final AtomicLong totalSize = new AtomicLong();
 
                     @Override
-                    public void onNext(GetResult result) {
+                    public boolean onNext(GetResult result) {
                         totalSize.addAndGet(result.value().length);
-                        consumer.onNext(result);
+                        return consumer.onNext(result);
                     }
 
                     @Override
@@ -736,7 +738,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
-                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer, null);
             } else {
                 internalRangeScanMultiShards(
                         startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
@@ -751,34 +753,68 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer) {
+            RangeScanConsumer consumer,
+            Consumer<Runnable> cancelRegistrar) {
         var leader = shardManager.leader(shardId);
         var stub = stubManager.getStub(leader);
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
-        stub.async()
-                .rangeScan(
-                        request,
-                        new StreamObserver<>() {
-                            @Override
-                            public void onNext(RangeScanResponse response) {
-                                for (int i = 0; i < response.getRecordsCount(); i++) {
-                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
-                                }
-                            }
+        var observer =
+                new ClientResponseObserver<RangeScanRequest, RangeScanResponse>() {
+                    ClientCallStreamObserver<RangeScanRequest> requestStream;
+                    volatile boolean cancelled = false;
 
-                            @Override
-                            public void onError(Throwable t) {
-                                consumer.onError(t);
-                            }
+                    @Override
+                    public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
+                        this.requestStream = requestStream;
+                    }
 
-                            @Override
-                            public void onCompleted() {
+                    void cancelStream() {
+                        if (cancelled) {
+                            return;
+                        }
+                        cancelled = true;
+                        requestStream.cancel("Range scan cancelled", null);
+                    }
+
+                    @Override
+                    public void onNext(RangeScanResponse response) {
+                        if (cancelled) {
+                            return;
+                        }
+                        for (int i = 0; i < response.getRecordsCount(); i++) {
+                            if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
+                                cancelStream();
                                 consumer.onCompleted();
+                                return;
                             }
-                        });
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        if (cancelled) {
+                            return;
+                        }
+                        consumer.onError(t);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        if (cancelled) {
+                            return;
+                        }
+                        consumer.onCompleted();
+                    }
+                };
+
+        stub.async().rangeScan(request, observer);
+
+        if (cancelRegistrar != null) {
+            cancelRegistrar.accept(observer::cancelStream);
+        }
     }
 
     private void internalRangeScanMultiShards(
@@ -787,16 +823,22 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Optional<String> secondaryIndexName,
             RangeScanConsumer consumer) {
         final Set<Long> shardIds = shardManager.allShardIds();
-        final RangeScanConsumer multiShardConsumer =
+        final SharedRangeScanConsumer multiShardConsumer =
                 new SharedRangeScanConsumer(shardIds.size(), consumer);
         for (long shardId : shardIds) {
             internalShardRangeScan(
-                    shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer);
+                    shardId,
+                    startKeyInclusive,
+                    endKeyExclusive,
+                    secondaryIndexName,
+                    multiShardConsumer,
+                    multiShardConsumer::registerCancelHandler);
         }
     }
 
     static class SharedRangeScanConsumer implements RangeScanConsumer {
         private final RangeScanConsumer delegate;
+        private final List<Runnable> cancelHandlers = new ArrayList<>();
 
         private int pendingCompletedRequests;
         private boolean completed = false;
@@ -807,12 +849,32 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             this.delegate = delegate;
         }
 
-        @Override
-        public synchronized void onNext(GetResult result) {
+        synchronized void registerCancelHandler(Runnable handler) {
             if (completed) {
+                handler.run();
                 return;
             }
-            delegate.onNext(result);
+            cancelHandlers.add(handler);
+        }
+
+        @Override
+        public synchronized boolean onNext(GetResult result) {
+            if (completed) {
+                return false;
+            }
+            if (delegate.onNext(result)) {
+                return true;
+            }
+            completed = true;
+            for (Runnable h : cancelHandlers) {
+                try {
+                    h.run();
+                } catch (Throwable ignored) {
+                }
+            }
+            cancelHandlers.clear();
+            delegate.onCompleted();
+            return false;
         }
 
         @Override
