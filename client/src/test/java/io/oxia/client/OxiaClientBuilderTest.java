@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.oxia.client.api.Authentication;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;
@@ -131,6 +132,29 @@ class OxiaClientBuilderTest {
         assertThat(metadata).isNotNull();
         String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
+    }
+
+    @Test
+    void loadConfigPreservesPreSetAuthentication() {
+        Authentication preSet =
+                new Authentication() {
+                    @Override
+                    public Map<String, String> generateCredentials() {
+                        return Map.of("X-Pre-Set", "yes");
+                    }
+
+                    @Override
+                    public void configure(String params) {}
+                };
+
+        Properties properties = new Properties();
+        properties.setProperty("requestTimeout", "1");
+
+        builder.authentication(preSet).loadConfig(properties);
+
+        OxiaClientBuilderImpl impl = (OxiaClientBuilderImpl) builder;
+        assertThat(impl.authentication).isSameAs(preSet);
+        assertThat(impl.authentication.generateCredentials()).containsEntry("X-Pre-Set", "yes");
     }
 
     @Test
