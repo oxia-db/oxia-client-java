@@ -81,8 +81,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -94,8 +93,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -128,8 +126,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -143,8 +140,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
