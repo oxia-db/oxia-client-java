@@ -589,8 +589,9 @@ class AsyncOxiaClientImplTest {
                                 5,
                                 new RangeScanConsumer() {
                                     @Override
-                                    public void onNext(GetResult result) {
+                                    public boolean onNext(GetResult result) {
                                         results.add(result);
+                                        return true;
                                     }
 
                                     @Override
@@ -689,5 +690,98 @@ class AsyncOxiaClientImplTest {
         Assertions.assertEquals(1, onErrorCount.get());
         Assertions.assertEquals(0, onCompletedCount.get());
         Assertions.assertEquals(0, results.size());
+    }
+
+    @Test
+    void testSharedRangeScanConsumerEarlyStop() {
+        final int shards = 3;
+        final int stopAfter = 2;
+        final List<GetResult> results = new ArrayList<>();
+        final AtomicInteger onErrorCount = new AtomicInteger(0);
+        final AtomicInteger onCompletedCount = new AtomicInteger(0);
+
+        final RangeScanConsumer userConsumer =
+                new RangeScanConsumer() {
+                    @Override
+                    public boolean onNext(GetResult result) {
+                        results.add(result);
+                        return results.size() < stopAfter;
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        onErrorCount.incrementAndGet();
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        onCompletedCount.incrementAndGet();
+                    }
+                };
+
+        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(shards, userConsumer);
+        final var cancelCounts = new ArrayList<AtomicInteger>();
+        for (int i = 0; i < shards; i++) {
+            final AtomicInteger c = new AtomicInteger(0);
+            cancelCounts.add(c);
+            shared.registerCancelHandler(c::incrementAndGet);
+        }
+
+        // First onNext returns true.
+        Assertions.assertTrue(
+                shared.onNext(
+                        new GetResult("k1", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+        // Second onNext returns false (user requested stop).
+        Assertions.assertFalse(
+                shared.onNext(
+                        new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+
+        // All cancel handlers should have been invoked exactly once.
+        for (AtomicInteger c : cancelCounts) {
+            Assertions.assertEquals(1, c.get());
+        }
+        // onCompleted was called exactly once on the user consumer.
+        Assertions.assertEquals(1, onCompletedCount.get());
+        Assertions.assertEquals(0, onErrorCount.get());
+        Assertions.assertEquals(stopAfter, results.size());
+
+        // Subsequent shard onNext calls are dropped (return false).
+        Assertions.assertFalse(
+                shared.onNext(
+                        new GetResult("k3", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+        Assertions.assertEquals(stopAfter, results.size());
+
+        // Subsequent per-shard onCompleted calls (e.g., from cancel-induced errors) do not
+        // re-trigger user onCompleted.
+        shared.onCompleted();
+        shared.onCompleted();
+        Assertions.assertEquals(1, onCompletedCount.get());
+    }
+
+    @Test
+    void testSharedRangeScanConsumerLateCancelHandler() {
+        // A cancel handler registered after the scan has been stopped must run immediately.
+        final RangeScanConsumer userConsumer =
+                new RangeScanConsumer() {
+                    @Override
+                    public boolean onNext(GetResult result) {
+                        return false;
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {}
+
+                    @Override
+                    public void onCompleted() {}
+                };
+
+        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
+        Assertions.assertFalse(
+                shared.onNext(
+                        new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+
+        final AtomicInteger lateCancel = new AtomicInteger(0);
+        shared.registerCancelHandler(lateCancel::incrementAndGet);
+        Assertions.assertEquals(1, lateCancel.get());
     }
 }

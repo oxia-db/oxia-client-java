@@ -36,6 +36,7 @@ import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
@@ -43,6 +44,7 @@ import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -62,8 +64,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterAll;
@@ -565,6 +570,76 @@ class OxiaClientIT {
                     StreamSupport.stream(iterable.spliterator(), false).map(GetResult::key).sorted().toList();
             assertThat(sameKeys).isEqualTo(keys);
         }
+    }
+
+    @Test
+    void testRangeScanCloseStopsIteration() throws Exception {
+        try (SyncOxiaClient syncClient =
+                OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
+            for (int i = 0; i < 30; i++) {
+                syncClient.put(
+                        String.format("range-scan-close-%02d", i), Integer.toString(i).getBytes());
+            }
+
+            try (CloseableIterable<GetResult> scan =
+                    syncClient.rangeScan("range-scan-close-", "range-scan-close-~")) {
+                int count = 0;
+                for (GetResult ignored : scan) {
+                    count++;
+                    if (count == 3) break;
+                }
+                assertThat(count).isEqualTo(3);
+            }
+
+            // After close, the iterable can no longer be iterated.
+            CloseableIterable<GetResult> scan =
+                    syncClient.rangeScan("range-scan-close-", "range-scan-close-~");
+            scan.close();
+            assertThatThrownBy(scan::iterator).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
+    void testRangeScanEarlyStop() throws Exception {
+        for (int i = 0; i < 20; i++) {
+            client.put(String.format("range-scan-stop-%02d", i), Integer.toString(i).getBytes()).get();
+        }
+
+        int stopAfter = 3;
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger onNextCalls = new AtomicInteger();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        client.rangeScan(
+                "range-scan-stop-",
+                "range-scan-stop-~",
+                new RangeScanConsumer() {
+                    @Override
+                    public boolean onNext(GetResult result) {
+                        onNextCalls.incrementAndGet();
+                        received.add(result.key());
+                        return received.size() < stopAfter;
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        errorRef.set(throwable);
+                        completed.countDown();
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        completed.countDown();
+                    }
+                });
+
+        assertThat(completed.await(30, TimeUnit.SECONDS)).isTrue();
+        assertThat(errorRef.get()).isNull();
+        assertThat(received).hasSize(stopAfter);
+        // Give a moment for any in-flight onNext from cancelled streams to be ignored.
+        Thread.sleep(200);
+        assertThat(onNextCalls.get()).isEqualTo(stopAfter);
     }
 
     @Test

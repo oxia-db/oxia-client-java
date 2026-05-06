@@ -21,21 +21,28 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import lombok.SneakyThrows;
 
-public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer {
+public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer, AutoCloseable {
 
     private GetResult pendingResult;
     private Throwable error = null;
     private boolean completed = false;
+    private boolean closed = false;
 
     @Override
     @SneakyThrows
-    public synchronized void onNext(GetResult result) {
-        while (pendingResult != null) {
+    public synchronized boolean onNext(GetResult result) {
+        if (closed) {
+            return false;
+        }
+        while (pendingResult != null && !closed) {
             wait();
         }
-
+        if (closed) {
+            return false;
+        }
         pendingResult = result;
         notifyAll();
+        return true;
     }
 
     @Override
@@ -53,7 +60,7 @@ public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer
     @Override
     @SneakyThrows
     public synchronized boolean hasNext() {
-        while (error == null && !completed && pendingResult == null) {
+        while (error == null && !completed && pendingResult == null && !closed) {
             wait();
         }
 
@@ -67,7 +74,7 @@ public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer
     @Override
     @SneakyThrows
     public synchronized GetResult next() {
-        while (error == null && !completed && pendingResult == null) {
+        while (error == null && !completed && pendingResult == null && !closed) {
             wait();
         }
 
@@ -83,5 +90,14 @@ public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer
         }
 
         throw new NoSuchElementException();
+    }
+
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        notifyAll();
     }
 }
