@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -44,7 +45,9 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Conditionally associates a value with a key if the server's versionId of the record is as
      * specified, at the instant when the put is applied. The put will not be applied if the server's
-     * versionId of the record does not match the expectation set in the call.
+     * versionId of the record does not match the expectation set in the call. If you wish the put to
+     * succeed only if the key does not already exist on the server, then pass the {@link
+     * PutOption#IfRecordDoesNotExist} value.
      *
      * @param key The key with which the value should be associated.
      * @param value The value to associate with the key.
@@ -52,9 +55,11 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return The result of the put at the specified key.
      * @throws UnexpectedVersionIdException The versionId at the server did not that match supplied in
      *     the call.
+     * @throws KeyAlreadyExistsException The key already exists on the server and the put was
+     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
      */
     PutResult put(String key, byte[] value, Set<PutOption> options)
-            throws UnexpectedVersionIdException;
+            throws UnexpectedVersionIdException, KeyAlreadyExistsException;
 
     /**
      * Unconditionally deletes the record associated with the key if the record exists.

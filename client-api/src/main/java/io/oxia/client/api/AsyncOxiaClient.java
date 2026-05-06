@@ -45,7 +45,9 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The result of the put at the specified key. Supplied via a future that returns the
      *     {@link PutResult}. The future will complete exceptionally with an {@link
      *     UnexpectedVersionIdException} if the versionId at the server did not that match supplied in
-     *     the call.
+     *     the call, or with a {@link io.oxia.client.api.exceptions.KeyAlreadyExistsException
+     *     KeyAlreadyExistsException} if the key already exists on the server and the put was
+     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
      */
     CompletableFuture<PutResult> put(String key, byte[] value, Set<PutOption> options);
 
