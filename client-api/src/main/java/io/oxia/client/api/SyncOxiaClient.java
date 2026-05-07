@@ -29,7 +29,31 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
-/** Synchronous client for the Oxia service. */
+/**
+ * Blocking client for the Oxia service.
+ *
+ * <p>Each method blocks the calling thread until the operation completes, fails, or the configured
+ * request timeout elapses. Errors surface either as a checked {@link
+ * io.oxia.client.api.exceptions.OxiaException} subtype (e.g. {@link
+ * io.oxia.client.api.exceptions.UnexpectedVersionIdException}) or as a {@link RuntimeException} for
+ * transport / unrecoverable failures.
+ *
+ * <p>Instances are created via {@link OxiaClientBuilder#syncClient()} and are safe to share across
+ * threads. Always close the client when done — preferably via try-with-resources:
+ *
+ * <pre>{@code
+ * try (SyncOxiaClient client = OxiaClientBuilder.create("localhost:6648").syncClient()) {
+ *     client.put("k", "v".getBytes(StandardCharsets.UTF_8));
+ *     GetResult r = client.get("k");
+ * }
+ * }</pre>
+ *
+ * <p>Operation options (e.g. {@link PutOption}, {@link GetOption}) are passed as a {@link Set}.
+ * Pass an empty set or use the no-options overload when no options are needed.
+ *
+ * @see AsyncOxiaClient
+ * @see OxiaClientBuilder
+ */
 public interface SyncOxiaClient extends AutoCloseable {
 
     /**

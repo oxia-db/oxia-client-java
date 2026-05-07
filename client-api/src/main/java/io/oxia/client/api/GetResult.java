@@ -19,11 +19,16 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * The result of a client get request.
+ * The result of a successful get / range-scan operation.
  *
- * @param key The key associated with the record.
- * @param value The value associated with the key specified in the call.
- * @param version Metadata for the record associated with the key specified in the call.
+ * <p>A {@code null} {@code GetResult} from a {@code get} call signals that no record exists for the
+ * requested key. When {@link io.oxia.client.api.options.GetOption#ExcludeValue} is used, the {@code
+ * value} field will be {@code null} but {@code key} and {@code version} are still populated.
+ *
+ * @param key the key of the record returned by the server (may differ from the key supplied to
+ *     {@code get} when a non-equal {@link io.oxia.client.api.options.GetOption comparison} is used)
+ * @param value the record's value, or {@code null} if the value was not requested
+ * @param version metadata describing the record at the time it was read
  */
 public record GetResult(String key, byte[] value, Version version) {
 
