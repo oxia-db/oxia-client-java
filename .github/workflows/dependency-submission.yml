@@ -1,0 +1,34 @@
+name: Dependency Submission
+
+# Submits the resolved Gradle dependency graph to GitHub so Dependabot sees
+# the versions actually used at build time (with resolutionStrategy.force and
+# constraints applied) rather than the static, pre-resolution graph parsed
+# from build files. Without this, transitive declarations from plugins like
+# SpotBugs (which still declare older log4j-core versions in their POMs) keep
+# generating false-positive alerts even though the build forces a patched
+# version.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Submit dependency graph
+        uses: gradle/actions/dependency-submission@v4

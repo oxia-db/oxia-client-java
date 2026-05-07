@@ -103,7 +103,7 @@ public interface OxiaClientBuilder {
     /**
      * Specify the session timeout for this client instance.
      *
-     * <p>Default is <code>30 secs</code>.
+     * <p>Default is <code>15 secs</code>.
      *
      * @see <a href="https://oxia-db.github.io/docs/features/ephemerals">Oxia Ephemeral Records</a>
      * @param sessionTimeout the session timeout duration

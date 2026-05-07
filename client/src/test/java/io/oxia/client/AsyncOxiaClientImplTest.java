@@ -729,12 +729,10 @@ class AsyncOxiaClientImplTest {
 
         // First onNext returns true.
         Assertions.assertTrue(
-                shared.onNext(
-                        new GetResult("k1", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+                shared.onNext(new GetResult("k1", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
         // Second onNext returns false (user requested stop).
         Assertions.assertFalse(
-                shared.onNext(
-                        new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+                shared.onNext(new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
 
         // All cancel handlers should have been invoked exactly once.
         for (AtomicInteger c : cancelCounts) {
@@ -747,8 +745,7 @@ class AsyncOxiaClientImplTest {
 
         // Subsequent shard onNext calls are dropped (return false).
         Assertions.assertFalse(
-                shared.onNext(
-                        new GetResult("k3", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+                shared.onNext(new GetResult("k3", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
         Assertions.assertEquals(stopAfter, results.size());
 
         // Subsequent per-shard onCompleted calls (e.g., from cancel-induced errors) do not
@@ -777,8 +774,7 @@ class AsyncOxiaClientImplTest {
 
         final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
         Assertions.assertFalse(
-                shared.onNext(
-                        new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+                shared.onNext(new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
 
         final AtomicInteger lateCancel = new AtomicInteger(0);
         shared.registerCancelHandler(lateCancel::incrementAndGet);

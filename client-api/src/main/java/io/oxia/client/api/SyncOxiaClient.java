@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api;
 
+import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -44,7 +45,9 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Conditionally associates a value with a key if the server's versionId of the record is as
      * specified, at the instant when the put is applied. The put will not be applied if the server's
-     * versionId of the record does not match the expectation set in the call.
+     * versionId of the record does not match the expectation set in the call. If you wish the put to
+     * succeed only if the key does not already exist on the server, then pass the {@link
+     * PutOption#IfRecordDoesNotExist} value.
      *
      * @param key The key with which the value should be associated.
      * @param value The value to associate with the key.
@@ -52,9 +55,11 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @return The result of the put at the specified key.
      * @throws UnexpectedVersionIdException The versionId at the server did not that match supplied in
      *     the call.
+     * @throws KeyAlreadyExistsException The key already exists on the server and the put was
+     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
      */
     PutResult put(String key, byte[] value, Set<PutOption> options)
-            throws UnexpectedVersionIdException;
+            throws UnexpectedVersionIdException, KeyAlreadyExistsException;
 
     /**
      * Unconditionally deletes the record associated with the key if the record exists.
@@ -81,8 +86,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -94,8 +98,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -128,8 +131,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -143,8 +145,7 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -160,8 +161,8 @@ public interface SyncOxiaClient extends AutoCloseable {
      * Scan any existing records within the specified range of keys.
      *
      * <p>The returned iterable holds an active server stream and should be closed (e.g. via
-     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is
-     * only torn down when iteration runs to its natural end.
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -175,8 +176,8 @@ public interface SyncOxiaClient extends AutoCloseable {
      * Scan any existing records within the specified range of keys.
      *
      * <p>The returned iterable holds an active server stream and should be closed (e.g. via
-     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is
-     * only torn down when iteration runs to its natural end.
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.

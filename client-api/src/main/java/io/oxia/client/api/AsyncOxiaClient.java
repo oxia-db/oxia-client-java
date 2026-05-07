@@ -45,7 +45,9 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @return The result of the put at the specified key. Supplied via a future that returns the
      *     {@link PutResult}. The future will complete exceptionally with an {@link
      *     UnexpectedVersionIdException} if the versionId at the server did not that match supplied in
-     *     the call.
+     *     the call, or with a {@link io.oxia.client.api.exceptions.KeyAlreadyExistsException
+     *     KeyAlreadyExistsException} if the key already exists on the server and the put was
+     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
      */
     CompletableFuture<PutResult> put(String key, byte[] value, Set<PutOption> options);
 
@@ -88,8 +90,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -102,8 +103,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
     /**
      * Deletes any records with keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -139,8 +139,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -154,8 +153,7 @@ public interface AsyncOxiaClient extends AutoCloseable {
     /**
      * Lists any existing keys within the specified range. For more information on how keys are
      * sorted, check the relevant section in the <a
-     * href="https://github.com/streamnative/oxia/blob/main/docs/oxia-key-sorting.md">Oxia
-     * documentation</a>.
+     * href="https://oxia-db.github.io/docs/features/oxia-key-sorting">Oxia documentation</a>.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
