@@ -29,7 +29,31 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
-/** Asynchronous client for the Oxia service. */
+/**
+ * Non-blocking client for the Oxia service.
+ *
+ * <p>Each method returns immediately and reports its outcome on a {@link CompletableFuture}.
+ * Failures complete the future exceptionally; checked exceptions defined for the corresponding
+ * {@link SyncOxiaClient} method are wrapped in the future's failure rather than being thrown by the
+ * call itself.
+ *
+ * <p>Instances are created via {@link OxiaClientBuilder#asyncClient()} and are safe to share across
+ * threads. Always close the client when done.
+ *
+ * <pre>{@code
+ * AsyncOxiaClient client = OxiaClientBuilder.create("localhost:6648").asyncClient().join();
+ *
+ * client.put("k", "v".getBytes(StandardCharsets.UTF_8))
+ *         .thenCompose(p -> client.get("k"))
+ *         .thenAccept(r -> System.out.println(new String(r.value(), StandardCharsets.UTF_8)));
+ * }</pre>
+ *
+ * <p>Operation options (e.g. {@link PutOption}, {@link GetOption}) are passed as a {@link Set}.
+ * Pass an empty set or use the no-options overload when no options are needed.
+ *
+ * @see SyncOxiaClient
+ * @see OxiaClientBuilder
+ */
 public interface AsyncOxiaClient extends AutoCloseable {
 
     /**

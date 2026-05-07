@@ -15,7 +15,24 @@
  */
 package io.oxia.client.api;
 
-/** A notification from an Oxia server indicating a change to a record associated with a key. */
+/**
+ * A notification from an Oxia server indicating a change to a record associated with a key.
+ *
+ * <p>Register a callback through {@link SyncOxiaClient#notifications(java.util.function.Consumer)}
+ * or {@link AsyncOxiaClient#notifications(java.util.function.Consumer)} and dispatch on the sealed
+ * subtypes:
+ *
+ * <pre>{@code
+ * client.notifications(n -> {
+ *     switch (n) {
+ *         case Notification.KeyCreated c     -> onCreated(c.key(), c.version());
+ *         case Notification.KeyModified m    -> onModified(m.key(), m.version());
+ *         case Notification.KeyDeleted d     -> onDeleted(d.key());
+ *         case Notification.KeyRangeDelete r -> onRangeDeleted(r.startKeyInclusive(), r.endKeyExclusive());
+ *     }
+ * });
+ * }</pre>
+ */
 public sealed interface Notification
         permits Notification.KeyCreated,
                 Notification.KeyDeleted,

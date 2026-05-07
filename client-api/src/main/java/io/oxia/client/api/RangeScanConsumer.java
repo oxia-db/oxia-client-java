@@ -16,8 +16,27 @@
 package io.oxia.client.api;
 
 /**
- * Interface defining a consumer for Range Scan operations, allowing handling of chunked results,
- * errors, or completion signals for a range scan process.
+ * Callback used by {@link AsyncOxiaClient#rangeScan(String, String, RangeScanConsumer)} to deliver
+ * records, errors, and the completion signal for a streaming range scan.
+ *
+ * <p>Exactly one of {@link #onError(Throwable)} or {@link #onCompleted()} is invoked per scan, and
+ * always after the final {@link #onNext(GetResult)} call. Returning {@code false} from {@code
+ * onNext} stops iteration early; the underlying server stream is cancelled and {@link
+ * #onCompleted()} is invoked once.
+ *
+ * <pre>{@code
+ * client.rangeScan("a", "z", new RangeScanConsumer() {
+ *     public boolean onNext(GetResult result) {
+ *         process(result);
+ *         return true; // return false to abort iteration early
+ *     }
+ *     public void onError(Throwable t) { log.warn("scan failed", t); }
+ *     public void onCompleted() { log.info("scan finished"); }
+ * });
+ * }</pre>
+ *
+ * <p>For a synchronous, iterator-style alternative, see {@link SyncOxiaClient#rangeScan(String,
+ * String)} which returns a {@link CloseableIterable}.
  */
 public interface RangeScanConsumer {
 

@@ -25,7 +25,23 @@ import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
-/** Builder for {@link SyncOxiaClient} and {@link AsyncOxiaClient}. */
+/**
+ * Entry point for creating an Oxia client.
+ *
+ * <p>Obtain a builder via {@link #create(String)} with the address of an Oxia server, configure it
+ * fluently, and then call {@link #syncClient()} or {@link #asyncClient()} to produce a {@link
+ * SyncOxiaClient} or {@link AsyncOxiaClient}.
+ *
+ * <pre>{@code
+ * SyncOxiaClient client = OxiaClientBuilder.create("localhost:6648")
+ *         .namespace("my-namespace")
+ *         .requestTimeout(Duration.ofSeconds(10))
+ *         .syncClient();
+ * }</pre>
+ *
+ * <p>Most settings have defaults that work well for typical workloads — only override what you
+ * need.
+ */
 public interface OxiaClientBuilder {
 
     /**
