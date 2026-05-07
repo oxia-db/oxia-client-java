@@ -23,4 +23,3 @@ rootProject.name = "oxia-java"
 include("client-api")
 include("client")
 include("perf")
-include("perf-ycsb")
