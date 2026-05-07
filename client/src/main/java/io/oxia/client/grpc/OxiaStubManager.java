@@ -16,20 +16,26 @@
 package io.oxia.client.grpc;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.github.merlimat.slog.Logger;
 import io.oxia.client.ClientConfig;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class OxiaStubManager implements AutoCloseable {
     @VisibleForTesting final Map<Key, OxiaStub> stubs = new ConcurrentHashMap<>();
 
+    private static final Logger log = Logger.get(OxiaStubManager.class);
+
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
+    private final ScheduledExecutorService executor;
 
-    public OxiaStubManager(ClientConfig clientConfig) {
+    public OxiaStubManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
+        this.executor = executor;
     }
 
     public OxiaStub getStub(String address) {
@@ -39,13 +45,25 @@ public class OxiaStubManager implements AutoCloseable {
             modKey += maxConnectionPerNode;
         }
         return stubs.computeIfAbsent(
-                new Key(address, modKey), key -> new OxiaStub(key.address, clientConfig));
+                new Key(address, modKey),
+                key -> new OxiaStub(key.address, clientConfig, executor, stub -> removeStub(key, stub)));
     }
 
     @Override
     public void close() throws Exception {
         for (OxiaStub stub : stubs.values()) {
             stub.close();
+        }
+    }
+
+    private void removeStub(Key key, OxiaStub stub) {
+        if (!stubs.remove(key, stub)) {
+            return;
+        }
+        try {
+            stub.close();
+        } catch (Exception e) {
+            log.warn().exception(e).log("Failed to close unhealthy GRPC connection");
         }
     }
 

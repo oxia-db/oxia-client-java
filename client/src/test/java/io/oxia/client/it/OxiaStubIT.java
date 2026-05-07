@@ -21,6 +21,7 @@ import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.testcontainers.OxiaContainer;
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -41,13 +42,16 @@ class OxiaStubIT {
         OxiaClientBuilder builder = OxiaClientBuilder.create("");
         builder.maxConnectionPerNode(maxConnectionPerNode);
 
+        var executor = Executors.newSingleThreadScheduledExecutor();
         try (OxiaStubManager stubManager =
-                new OxiaStubManager(((OxiaClientBuilderImpl) builder).getClientConfig())) {
+                new OxiaStubManager(((OxiaClientBuilderImpl) builder).getClientConfig(), executor)) {
             for (int i = 0; i < 1000; i++) {
                 stubManager.getStub(oxia.getServiceAddress());
             }
 
             Assertions.assertEquals(maxConnectionPerNode, stubCount(stubManager));
+        } finally {
+            executor.shutdownNow();
         }
     }
 
