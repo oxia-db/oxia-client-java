@@ -242,11 +242,17 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 throw new IllegalArgumentException("Invalid configuration property: " + name);
             }
         }
-        // Create the authentication from the configuration.
-        try {
-            this.authentication = AuthenticationFactory.create(authPluginClassName, authParams);
-        } catch (UnsupportedAuthenticationException e) {
-            throw new IllegalArgumentException("Failed to create authentication from configuration.", e);
+        // Create authentication from configuration only when the properties actually specified
+        // it. Otherwise, leave any previously-set authentication instance alone — re-creating
+        // unconditionally would overwrite a caller's `.authentication(myAuth).loadConfig(props)`
+        // chain with `null` whenever `props` doesn't carry the auth keys.
+        if (!Strings.isNullOrEmpty(authPluginClassName)) {
+            try {
+                this.authentication = AuthenticationFactory.create(authPluginClassName, authParams);
+            } catch (UnsupportedAuthenticationException e) {
+                throw new IllegalArgumentException(
+                        "Failed to create authentication from configuration.", e);
+            }
         }
         return this;
     }
