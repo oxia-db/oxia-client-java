@@ -36,7 +36,63 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and Verify
-        run: ./gradlew build
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+
+          mkdir -p diagnostics
+
+          dump_java_state() {
+            {
+              echo "Java process list:"
+              jps -lv || true
+              echo
+
+              for pid in $(jps -q); do
+                echo "===== Thread dump for JVM ${pid} ====="
+                jcmd "${pid}" Thread.print -l || true
+                echo
+              done
+            } | tee diagnostics/java-state.txt
+          }
+
+          ./gradlew build --info --stacktrace --console=plain &
+          gradle_pid=$!
+          (
+            deadline=$((SECONDS + 15 * 60))
+            next_report=$((SECONDS + 60))
+
+            while kill -0 "${gradle_pid}" 2>/dev/null; do
+              if (( SECONDS >= deadline )); then
+                echo "::error::Build did not complete within 15 minutes. Dumping JVM state."
+                touch diagnostics/build-timeout
+                dump_java_state
+                kill "${gradle_pid}" 2>/dev/null || true
+                sleep 10
+                kill -9 "${gradle_pid}" 2>/dev/null || true
+                exit 124
+              fi
+
+              if (( SECONDS >= next_report )); then
+                echo "Build still running at $(date -Is)"
+                jps -lv || true
+                next_report=$((SECONDS + 60))
+              fi
+
+              sleep 5
+            done
+          ) &
+          watchdog_pid=$!
+
+          build_status=0
+          wait "${gradle_pid}" || build_status=$?
+          kill "${watchdog_pid}" 2>/dev/null || true
+          wait "${watchdog_pid}" 2>/dev/null || true
+
+          if [ -f diagnostics/build-timeout ]; then
+            exit 124
+          fi
+          exit "${build_status}"
 
       - name: Validate Javadoc creation
         run: ./gradlew :client-api:javadoc
@@ -47,6 +103,10 @@ jobs:
           rm -rf test-results
           mkdir test-results
           find . -type d -name "tests" -path "*/build/reports/*" -exec cp --parents -R {} test-results/ \;
+          find . -type d -name "test-results" -path "*/build/*" -exec cp --parents -R {} test-results/ \;
+          if [ -d diagnostics ]; then
+            cp --parents -R diagnostics test-results/
+          fi
           zip -r test-results.zip test-results
       - name: Upload test results
         uses: actions/upload-artifact@v4
