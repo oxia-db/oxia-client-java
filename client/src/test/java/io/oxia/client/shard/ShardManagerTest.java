@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import io.grpc.Status;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
@@ -137,12 +138,15 @@ public class ShardManagerTest {
     @DisplayName("Manager delegation")
     class ManagerTests {
         private final String namespace = "default";
+        private final String serviceAddress = "localhost:6648";
 
         @Spy
         ShardAssignmentsContainer assignments =
                 new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, DefaultNamespace);
 
         @Mock OxiaClientGrpc.OxiaClientStub async;
+
+        @Mock OxiaStubManager stubManager;
 
         @Mock OxiaStub stub;
         ShardManager manager;
@@ -156,7 +160,12 @@ public class ShardManagerTest {
 
             manager =
                     new ShardManager(
-                            executor, stub, assignments, new CompositeConsumer<>(), InstrumentProvider.NOOP);
+                            executor,
+                            stubManager,
+                            serviceAddress,
+                            assignments,
+                            new CompositeConsumer<>(),
+                            InstrumentProvider.NOOP);
         }
 
         @AfterEach
@@ -169,6 +178,7 @@ public class ShardManagerTest {
             var assignment = new ShardAssignment();
             assignment.setShard(0).setLeader("leader0");
             assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            when(stubManager.getStub(serviceAddress)).thenReturn(stub);
             when(stub.async()).thenReturn(async);
 
             doAnswer(
@@ -191,11 +201,14 @@ public class ShardManagerTest {
         void refetchesStubWhenRetryingShardAssignmentStream() {
             var refreshedStub = mock(OxiaStub.class);
             var refreshedAsync = mock(OxiaClientGrpc.OxiaClientStub.class);
-            var supplierCalls = new AtomicInteger();
+            var stubCalls = new AtomicInteger();
+            when(stubManager.getStub(serviceAddress))
+                    .thenAnswer(__ -> stubCalls.getAndIncrement() == 0 ? stub : refreshedStub);
             manager =
                     new ShardManager(
                             executor,
-                            () -> supplierCalls.getAndIncrement() == 0 ? stub : refreshedStub,
+                            stubManager,
+                            serviceAddress,
                             assignments,
                             new CompositeConsumer<>(),
                             InstrumentProvider.NOOP);
@@ -227,7 +240,7 @@ public class ShardManagerTest {
 
             verify(async).getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
             verify(refreshedAsync).getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
-            assertThat(supplierCalls).hasValue(2);
+            assertThat(stubCalls).hasValue(2);
         }
 
         @Test

@@ -30,7 +30,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
-import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
@@ -46,7 +46,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.NonNull;
 
@@ -55,7 +54,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private static final Logger LOG = Logger.get(ShardManager.class);
     private final Logger log;
     private final ScheduledExecutorService executor;
-    private final Supplier<OxiaStub> stubProvider;
+    private final OxiaStubManager stubManager;
+    private final String serviceAddress;
     private final @NonNull ShardAssignmentsContainer assignments;
     private final @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks;
 
@@ -69,21 +69,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @VisibleForTesting
     ShardManager(
             @NonNull ScheduledExecutorService executor,
-            @NonNull OxiaStub stub,
+            @NonNull OxiaStubManager stubManager,
+            @NonNull String serviceAddress,
             @NonNull ShardAssignmentsContainer assignments,
             @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks,
             @NonNull InstrumentProvider instrumentProvider) {
-        this(executor, () -> stub, assignments, callbacks, instrumentProvider);
-    }
-
-    @VisibleForTesting
-    ShardManager(
-            @NonNull ScheduledExecutorService executor,
-            @NonNull Supplier<OxiaStub> stubProvider,
-            @NonNull ShardAssignmentsContainer assignments,
-            @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks,
-            @NonNull InstrumentProvider instrumentProvider) {
-        this.stubProvider = stubProvider;
+        this.stubManager = stubManager;
+        this.serviceAddress = serviceAddress;
         this.executor = executor;
         this.assignments = assignments;
         this.callbacks = callbacks;
@@ -99,20 +91,14 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
     public ShardManager(
             ScheduledExecutorService executor,
-            @NonNull OxiaStub stub,
-            @NonNull InstrumentProvider instrumentProvider,
-            @NonNull String namespace) {
-        this(executor, () -> stub, instrumentProvider, namespace);
-    }
-
-    public ShardManager(
-            ScheduledExecutorService executor,
-            @NonNull Supplier<OxiaStub> stubProvider,
+            @NonNull OxiaStubManager stubManager,
+            @NonNull String serviceAddress,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
         this(
                 executor,
-                stubProvider,
+                stubManager,
+                serviceAddress,
                 new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace),
                 new CompositeConsumer<>(),
                 instrumentProvider);
@@ -127,7 +113,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
-        stubProvider.get().async().getShardAssignments(req, this);
+        stubManager.getStub(serviceAddress).async().getShardAssignments(req, this);
         return initialAssignmentsFuture;
     }
 
