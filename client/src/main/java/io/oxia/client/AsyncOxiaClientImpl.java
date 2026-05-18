@@ -105,7 +105,20 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout());
-        return shardManager.start().thenApply(v -> client);
+        return shardManager
+                .start()
+                .thenApply(v -> (AsyncOxiaClient) client)
+                .whenComplete(
+                        (__, error) -> {
+                            if (error == null) {
+                                return;
+                            }
+                            try {
+                                client.close();
+                            } catch (Exception closeError) {
+                                error.addSuppressed(closeError);
+                            }
+                        });
     }
 
     private final @NonNull String clientIdentifier;

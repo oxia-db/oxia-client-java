@@ -16,6 +16,7 @@
 package io.oxia.client.shard;
 
 import static com.google.common.base.Throwables.getRootCause;
+import static io.oxia.client.grpc.GrpcStatusUtils.isNamespaceNotFound;
 import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
@@ -25,12 +26,10 @@ import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
-import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
-import io.oxia.client.grpc.CustomStatusCode;
 import io.oxia.client.grpc.OxiaStub;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -131,20 +130,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
         if (error instanceof StatusRuntimeException statusError) {
             var status = statusError.getStatus();
-            if (status.getCode() == Status.Code.UNKNOWN) {
-                // Suppress unknown errors
-                final var description = status.getDescription();
-                if (description != null) {
-                    var customStatusCode = CustomStatusCode.fromDescription(description);
-                    if (customStatusCode == CustomStatusCode.ErrorNamespaceNotFound) {
-                        log.error("Namespace not found");
-                        if (!initialAssignmentsFuture.isDone()) {
-                            if (initialAssignmentsFuture.completeExceptionally(
-                                    new NamespaceNotFoundException(assignments.getNamespace()))) {
-                                close();
-                            }
-                        }
-                    }
+            if (isNamespaceNotFound(status) && !initialAssignmentsFuture.isDone()) {
+                log.error("Namespace not found");
+                if (initialAssignmentsFuture.completeExceptionally(
+                        new NamespaceNotFoundException(assignments.getNamespace()))) {
+                    close();
+                    return;
                 }
             }
         }

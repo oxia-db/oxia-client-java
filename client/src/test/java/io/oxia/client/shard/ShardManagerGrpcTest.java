@@ -35,6 +35,7 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
@@ -133,6 +134,38 @@ class ShardManagerGrpcTest {
                     .isInstanceOf(TimeoutException.class);
             assertThat(shardManager.allShardIds()).isEmpty();
         }
+    }
+
+    @Test
+    void namespaceNotFoundWithNotFoundStatusFailsInitialAssignment() {
+        responses.offer(
+                new AssignmentWrapper(
+                        null,
+                        Status.NOT_FOUND.withDescription("oxia: namespace not found").asRuntimeException(),
+                        false));
+        try (var shardManager =
+                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+            assertThatThrownBy(() -> shardManager.start().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+        }
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void namespaceNotFoundWithCustomStatusDescriptionFailsInitialAssignment() {
+        responses.offer(
+                new AssignmentWrapper(
+                        null,
+                        Status.UNKNOWN.withDescription("oxia: namespace not found").asRuntimeException(),
+                        false));
+        try (var shardManager =
+                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+            assertThatThrownBy(() -> shardManager.start().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+        }
+        assertThat(requests).hasValue(1);
     }
 
     @Test
