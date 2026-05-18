@@ -56,7 +56,7 @@ public class OxiaStub implements AutoCloseable, StreamObserver<HealthCheckRespon
     private final @NonNull HealthGrpc.HealthStub healthStub;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean healthCheckInProgress = new AtomicBoolean();
-    private volatile @Nullable ScheduledFuture<?> healthCheckTask;
+    private final @Nullable ScheduledFuture<?> healthCheckTask;
     private final @Nullable HealthCheckFailureCallback healthCheckFailureCallback;
 
     static String getAddress(String address) {
@@ -208,21 +208,23 @@ public class OxiaStub implements AutoCloseable, StreamObserver<HealthCheckRespon
             }
         } catch (InterruptedException e) {
             channel.shutdownNow();
+            log.warn("Interrupted while closing GRPC channel");
             Thread.currentThread().interrupt();
         }
     }
 
     @Override
     public void onNext(HealthCheckResponse response) {
-        if (response.getStatus() != ServingStatus.SERVING) {
-            try {
-                log.warn().attr("status", response.getStatus()).log("Connection health check failed");
-                if (healthCheckFailureCallback != null) {
-                    healthCheckFailureCallback.onFailure(this);
-                }
-            } finally {
-                healthCheckInProgress.set(false);
+        if (response.getStatus() == ServingStatus.SERVING) {
+            return;
+        }
+        try {
+            log.warn().attr("status", response.getStatus()).log("Connection health check failed");
+            if (healthCheckFailureCallback != null) {
+                healthCheckFailureCallback.onFailure(this);
             }
+        } finally {
+            healthCheckInProgress.set(false);
         }
     }
 
