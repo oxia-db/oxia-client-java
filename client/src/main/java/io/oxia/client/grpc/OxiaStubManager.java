@@ -16,12 +16,15 @@
 package io.oxia.client.grpc;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.github.merlimat.slog.Logger;
 import io.oxia.client.ClientConfig;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class OxiaStubManager implements AutoCloseable {
+    private static final Logger LOG = Logger.get(OxiaStubManager.class);
+
     @VisibleForTesting final Map<Key, OxiaStub> stubs = new ConcurrentHashMap<>();
 
     private final int maxConnectionPerNode;
@@ -38,8 +41,50 @@ public class OxiaStubManager implements AutoCloseable {
         if (modKey < 0) {
             modKey += maxConnectionPerNode;
         }
-        return stubs.computeIfAbsent(
-                new Key(address, modKey), key -> new OxiaStub(key.address, clientConfig));
+        final var key = new Key(address, modKey);
+        final var existing = stubs.get(key);
+        if (existing != null) {
+            return existing;
+        }
+
+        final var stub = newStub(key);
+        final var previous = stubs.putIfAbsent(key, stub);
+        if (previous != null) {
+            closeUnusedStub(key, stub);
+            return previous;
+        }
+
+        stub.startHealthCheck();
+        return stub;
+    }
+
+    private OxiaStub newStub(Key key) {
+        return new OxiaStub(key.address, clientConfig, stub -> removeStub(key, stub));
+    }
+
+    private void removeStub(Key key, OxiaStub stub) {
+        if (!stubs.remove(key, stub)) {
+            return;
+        }
+        try {
+            stub.close();
+        } catch (Exception e) {
+            LOG.warn()
+                    .attr("address", key.address())
+                    .exceptionMessage(e)
+                    .log("Failed to close unhealthy GRPC stub");
+        }
+    }
+
+    private void closeUnusedStub(Key key, OxiaStub stub) {
+        try {
+            stub.close();
+        } catch (Exception e) {
+            LOG.warn()
+                    .attr("address", key.address())
+                    .exceptionMessage(e)
+                    .log("Failed to close unused GRPC stub");
+        }
     }
 
     @Override
