@@ -69,7 +69,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import javax.annotation.Nullable;
 import lombok.NonNull;
 
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
@@ -106,20 +105,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout());
-        return shardManager
-                .start()
-                .thenApply(v -> (AsyncOxiaClient) client)
-                .whenComplete(
-                        (__, error) -> {
-                            if (error == null) {
-                                return;
-                            }
-                            try {
-                                client.close();
-                            } catch (Exception closeError) {
-                                error.addSuppressed(closeError);
-                            }
-                        });
+        return shardManager.start().thenApply(v -> client);
     }
 
     private final @NonNull String clientIdentifier;
@@ -853,8 +839,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     static class SharedRangeScanConsumer implements RangeScanConsumer {
         private final RangeScanConsumer delegate;
         private final List<Runnable> cancelHandlers = new ArrayList<>();
-        private final Object stateLock = new Object();
-        private final Object delegateLock = new Object();
 
         private int pendingCompletedRequests;
         private boolean completed = false;
@@ -865,102 +849,56 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             this.delegate = delegate;
         }
 
-        void registerCancelHandler(Runnable handler) {
-            boolean runImmediately;
-            synchronized (stateLock) {
-                runImmediately = completed;
-                if (!runImmediately) {
-                    cancelHandlers.add(handler);
-                }
-            }
-            if (runImmediately) {
+        synchronized void registerCancelHandler(Runnable handler) {
+            if (completed) {
                 handler.run();
+                return;
             }
+            cancelHandlers.add(handler);
         }
 
         @Override
-        public boolean onNext(GetResult result) {
-            synchronized (stateLock) {
-                if (completed) {
-                    return false;
-                }
-            }
-
-            final boolean continueScan;
-            synchronized (delegateLock) {
-                synchronized (stateLock) {
-                    if (completed) {
-                        return false;
-                    }
-                }
-                continueScan = delegate.onNext(result);
-            }
-
-            if (continueScan) {
-                synchronized (stateLock) {
-                    return !completed;
-                }
-            }
-
-            final var handlers = completeAndGetCancelHandlers();
-            if (handlers == null) {
+        public synchronized boolean onNext(GetResult result) {
+            if (completed) {
                 return false;
             }
-            for (Runnable handler : handlers) {
+            if (delegate.onNext(result)) {
+                return true;
+            }
+            completed = true;
+            for (Runnable h : cancelHandlers) {
                 try {
-                    handler.run();
+                    h.run();
                 } catch (Throwable ignored) {
                 }
             }
-            synchronized (delegateLock) {
-                delegate.onCompleted();
-            }
+            cancelHandlers.clear();
+            delegate.onCompleted();
             return false;
         }
 
-        private @Nullable List<Runnable> completeAndGetCancelHandlers() {
-            synchronized (stateLock) {
-                if (completed) {
-                    return null;
-                }
-                completed = true;
-                final var handlers = List.copyOf(cancelHandlers);
-                cancelHandlers.clear();
-                return handlers;
+        @Override
+        public synchronized void onError(Throwable throwable) {
+            if (completedException == null) {
+                completedException = throwable;
+            } else {
+                completedException.addSuppressed(throwable);
             }
+            if (completed) {
+                return;
+            }
+            completed = true;
+            delegate.onError(throwable);
         }
 
         @Override
-        public void onError(Throwable throwable) {
-            synchronized (stateLock) {
-                if (completedException == null) {
-                    completedException = throwable;
-                } else {
-                    completedException.addSuppressed(throwable);
-                }
-                if (completed) {
-                    return;
-                }
+        public synchronized void onCompleted() {
+            if (completed) {
+                return;
+            }
+            pendingCompletedRequests -= 1;
+            if (pendingCompletedRequests == 0) {
                 completed = true;
-            }
-            synchronized (delegateLock) {
-                delegate.onError(throwable);
-            }
-        }
-
-        @Override
-        public void onCompleted() {
-            synchronized (stateLock) {
-                if (completed) {
-                    return;
-                }
-                pendingCompletedRequests -= 1;
-                if (pendingCompletedRequests != 0) {
-                    return;
-                }
-                completed = true;
-            }
-            synchronized (delegateLock) {
                 delegate.onCompleted();
             }
         }

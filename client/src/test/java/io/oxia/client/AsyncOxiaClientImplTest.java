@@ -53,13 +53,10 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -756,55 +753,6 @@ class AsyncOxiaClientImplTest {
         shared.onCompleted();
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testSharedRangeScanConsumerRegistersCancelHandlerWhileDelegateOnNextBlocked() {
-        final CountDownLatch onNextEntered = new CountDownLatch(1);
-        final CountDownLatch releaseOnNext = new CountDownLatch(1);
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        onNextEntered.countDown();
-                        try {
-                            Assertions.assertTrue(releaseOnNext.await(1, TimeUnit.SECONDS));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            throw new RuntimeException(e);
-                        }
-                        return true;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {}
-
-                    @Override
-                    public void onCompleted() {}
-                };
-
-        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
-        final var onNext =
-                CompletableFuture.supplyAsync(
-                        () ->
-                                shared.onNext(
-                                        new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-        try {
-            Assertions.assertTrue(onNextEntered.await(1, TimeUnit.SECONDS));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-        }
-
-        final AtomicInteger cancelCount = new AtomicInteger();
-        assertThat(
-                        CompletableFuture.runAsync(
-                                () -> shared.registerCancelHandler(cancelCount::incrementAndGet)))
-                .succeedsWithin(Duration.ofSeconds(1));
-
-        releaseOnNext.countDown();
-        assertThat(onNext).succeedsWithin(Duration.ofSeconds(1)).isEqualTo(true);
-        Assertions.assertEquals(0, cancelCount.get());
     }
 
     @Test

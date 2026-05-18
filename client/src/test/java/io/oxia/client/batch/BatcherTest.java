@@ -185,22 +185,17 @@ class BatcherTest {
 
     @Test
     void batchMultipleOpsWhenQueueNotEmpty() throws Exception {
-        batcher.close();
-
         var callback = new CompletableFuture<GetResult>();
         Operation<?> op =
                 new GetOperation(
                         callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        queue = spy(new BatchedArrayBlockingQueue<>(100));
-        queue.put(op);
-        queue.put(op);
-        queue.put(op);
-
         when(batchFactory.getBatch(shardId)).thenReturn(batch);
         when(batch.size()).thenReturn(1, 2, 3);
         when(batch.canAdd(any())).thenReturn(true);
-        batcher = new Batcher(config, shardId, batchFactory, queue);
-
+        // Add multiple ops quickly so the batcher drains them together.
+        batcher.add(op);
+        batcher.add(op);
+        batcher.add(op);
         await().untilAsserted(() -> verify(batch, times(3)).add(op));
         // After draining all 3, queue is empty — batch is flushed.
         await().untilAsserted(() -> verify(batch).send());
