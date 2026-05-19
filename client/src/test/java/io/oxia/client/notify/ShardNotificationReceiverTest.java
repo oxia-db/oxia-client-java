@@ -27,8 +27,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.Status;
+import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.api.Notification;
@@ -86,6 +88,7 @@ class ShardNotificationReceiverTest {
 
     String serverName = InProcessServerBuilder.generateName();
     Server server;
+    ManagedChannel channel;
 
     long shardId = 1L;
     @Mock RpcProvider rpcProvider;
@@ -102,9 +105,11 @@ class ShardNotificationReceiverTest {
                         .addService(serviceImpl)
                         .build()
                         .start();
+        channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         doAnswer(
                         invocation -> {
-                            serviceImpl.getNotifications(invocation.getArgument(0), invocation.getArgument(1));
+                            OxiaClientGrpc.newStub(channel)
+                                    .getNotifications(invocation.getArgument(0), invocation.getArgument(1));
                             return null;
                         })
                 .when(rpcProvider)
@@ -113,6 +118,7 @@ class ShardNotificationReceiverTest {
 
     @AfterEach
     void afterEach() throws Exception {
+        channel.shutdownNow();
         server.shutdownNow();
     }
 

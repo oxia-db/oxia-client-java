@@ -265,6 +265,8 @@ class NotificationManagerTest {
         Server server2;
         ManagedChannel channel1;
         ManagedChannel channel2;
+        OxiaClientGrpc.OxiaClientStub stub1;
+        OxiaClientGrpc.OxiaClientStub stub2;
 
         long shardId1 = 1L;
         long shardId2 = 2L;
@@ -291,11 +293,13 @@ class NotificationManagerTest {
                             .start();
             channel1 = InProcessChannelBuilder.forName(serverName1).directExecutor().build();
             channel2 = InProcessChannelBuilder.forName(serverName2).directExecutor().build();
+            stub1 = OxiaClientGrpc.newStub(channel1);
+            stub2 = OxiaClientGrpc.newStub(channel2);
             doAnswer(
                             invocation -> {
                                 NotificationsRequest request = invocation.getArgument(0);
                                 if (request.getShard() == shardId1) {
-                                    serviceImpl1.getNotifications(request, invocation.getArgument(1));
+                                    stub1.getNotifications(request, invocation.getArgument(1));
                                     return null;
                                 }
                                 throw new IllegalStateException("illegal state");
@@ -333,9 +337,9 @@ class NotificationManagerTest {
                                 invocation -> {
                                     NotificationsRequest request = invocation.getArgument(0);
                                     if (request.getShard() == shardId2) {
-                                        serviceImpl2.getNotifications(request, invocation.getArgument(1));
+                                        stub2.getNotifications(request, invocation.getArgument(1));
                                     } else {
-                                        serviceImpl1.getNotifications(request, invocation.getArgument(1));
+                                        stub1.getNotifications(request, invocation.getArgument(1));
                                     }
                                     return null;
                                 })

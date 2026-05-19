@@ -64,6 +64,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -755,12 +756,19 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
         var observer =
                 new CancelableStreamObserver<RangeScanResponse>() {
+                    private final AtomicBoolean terminated = new AtomicBoolean();
+
                     @Override
                     public void onNext(RangeScanResponse response) {
+                        if (terminated.get()) {
+                            return;
+                        }
                         for (int i = 0; i < response.getRecordsCount(); i++) {
                             if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                cancel();
-                                consumer.onCompleted();
+                                if (terminated.compareAndSet(false, true)) {
+                                    cancel();
+                                    consumer.onCompleted();
+                                }
                                 return;
                             }
                         }
@@ -768,12 +776,16 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
                     @Override
                     public void onError(Throwable t) {
-                        consumer.onError(t);
+                        if (terminated.compareAndSet(false, true)) {
+                            consumer.onError(t);
+                        }
                     }
 
                     @Override
                     public void onCompleted() {
-                        consumer.onCompleted();
+                        if (terminated.compareAndSet(false, true)) {
+                            consumer.onCompleted();
+                        }
                     }
                 };
 

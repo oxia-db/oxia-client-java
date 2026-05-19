@@ -30,9 +30,13 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.grpc.CallCredentials;
+import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerInterceptor;
 import io.grpc.Status;
+import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
@@ -54,6 +58,7 @@ import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.NoShardAvailableException;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
+import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.WriteRequest;
@@ -66,7 +71,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -114,32 +119,6 @@ class BatchTest {
                             new OxiaClientImplBase() {
 
                                 @Override
-                                public StreamObserver<WriteRequest> writeStream(
-                                        StreamObserver<WriteResponse> responseObserver) {
-                                    ForkJoinPool.commonPool()
-                                            .submit(
-                                                    () -> {
-                                                        try {
-                                                            Thread.sleep(1000);
-                                                        } catch (InterruptedException e) {
-                                                            throw new RuntimeException(e);
-                                                        }
-                                                        writeResponses.forEach(wr -> wr.accept(responseObserver));
-                                                    });
-
-                                    return new StreamObserver<WriteRequest>() {
-                                        @Override
-                                        public void onNext(WriteRequest value) {}
-
-                                        @Override
-                                        public void onError(Throwable t) {}
-
-                                        @Override
-                                        public void onCompleted() {}
-                                    };
-                                }
-
-                                @Override
                                 public void write(
                                         WriteRequest request, StreamObserver<WriteResponse> responseObserver) {
                                     writeResponses.forEach(c -> c.accept(responseObserver));
@@ -153,6 +132,7 @@ class BatchTest {
                             }));
 
     private Server server;
+    private ManagedChannel channel;
     private final List<Consumer<StreamObserver<WriteResponse>>> writeResponses = new ArrayList<>();
     private final List<Consumer<StreamObserver<ReadResponse>>> readResponses = new ArrayList<>();
 
@@ -167,60 +147,86 @@ class BatchTest {
             serverBuilder.intercept(serverInterceptor);
         }
         server = serverBuilder.build().start();
+        channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         clientByShardId = mock(RpcProvider.class);
         lenient()
                 .when(clientByShardId.write(any(WriteRequest.class)))
                 .thenAnswer(
                         invocation -> {
                             var future = new CompletableFuture<WriteResponse>();
-                            serviceImpl.write(
-                                    invocation.getArgument(0),
-                                    new StreamObserver<>() {
-                                        @Override
-                                        public void onNext(WriteResponse response) {
-                                            future.complete(response);
-                                        }
+                            stub()
+                                    .write(
+                                            invocation.getArgument(0),
+                                            new StreamObserver<>() {
+                                                @Override
+                                                public void onNext(WriteResponse response) {
+                                                    future.complete(response);
+                                                }
 
-                                        @Override
-                                        public void onError(Throwable error) {
-                                            future.completeExceptionally(OxiaStatusException.toException(error));
-                                        }
+                                                @Override
+                                                public void onError(Throwable error) {
+                                                    future.completeExceptionally(OxiaStatusException.toException(error));
+                                                }
 
-                                        @Override
-                                        public void onCompleted() {}
-                                    });
+                                                @Override
+                                                public void onCompleted() {}
+                                            });
                             return future;
                         });
         lenient()
                 .doAnswer(
                         invocation -> {
                             StreamObserver<ReadResponse> observer = invocation.getArgument(1);
-                            serviceImpl.read(
-                                    invocation.getArgument(0),
-                                    new StreamObserver<>() {
-                                        @Override
-                                        public void onNext(ReadResponse response) {
-                                            observer.onNext(response);
-                                        }
+                            stub()
+                                    .read(
+                                            invocation.getArgument(0),
+                                            new StreamObserver<>() {
+                                                @Override
+                                                public void onNext(ReadResponse response) {
+                                                    observer.onNext(response);
+                                                }
 
-                                        @Override
-                                        public void onError(Throwable error) {
-                                            observer.onError(OxiaStatusException.toException(error));
-                                        }
+                                                @Override
+                                                public void onError(Throwable error) {
+                                                    observer.onError(OxiaStatusException.toException(error));
+                                                }
 
-                                        @Override
-                                        public void onCompleted() {
-                                            observer.onCompleted();
-                                        }
-                                    });
+                                                @Override
+                                                public void onCompleted() {
+                                                    observer.onCompleted();
+                                                }
+                                            });
                             return null;
                         })
                 .when(clientByShardId)
                 .read(any(ReadRequest.class), any(StreamObserver.class));
     }
 
+    private OxiaClientGrpc.OxiaClientStub stub() {
+        var stub = OxiaClientGrpc.newStub(channel);
+        if (authentication == null) {
+            return stub;
+        }
+        return stub.withCallCredentials(
+                new CallCredentials() {
+                    @Override
+                    public void applyRequestMetadata(
+                            RequestInfo requestInfo, Executor appExecutor, MetadataApplier applier) {
+                        Metadata metadata = new Metadata();
+                        authentication
+                                .generateCredentials()
+                                .forEach(
+                                        (key, value) ->
+                                                metadata.put(
+                                                        Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
+                        applier.apply(metadata);
+                    }
+                });
+    }
+
     @AfterEach
     void tearDown() throws Exception {
+        channel.shutdownNow();
         server.shutdownNow();
     }
 
