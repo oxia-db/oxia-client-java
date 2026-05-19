@@ -743,7 +743,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
     }
 
-    private Runnable internalShardRangeScan(
+    private Cancelable internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
@@ -798,7 +798,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     static class SharedRangeScanConsumer implements RangeScanConsumer {
         private final RangeScanConsumer delegate;
-        private final List<Runnable> cancelHandlers = new ArrayList<>();
+        private final List<Cancelable> cancelHandlers = new ArrayList<>();
 
         private int pendingCompletedRequests;
         private boolean completed = false;
@@ -809,9 +809,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             this.delegate = delegate;
         }
 
-        synchronized void registerCancelHandler(Runnable handler) {
+        synchronized void registerCancelHandler(Cancelable handler) {
             if (completed) {
-                handler.run();
+                handler.cancel();
                 return;
             }
             cancelHandlers.add(handler);
@@ -826,9 +826,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 return true;
             }
             completed = true;
-            for (Runnable h : cancelHandlers) {
+            for (Cancelable h : cancelHandlers) {
                 try {
-                    h.run();
+                    h.cancel();
                 } catch (Throwable ignored) {
                 }
             }
@@ -862,6 +862,10 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 delegate.onCompleted();
             }
         }
+    }
+
+    interface Cancelable {
+        void cancel();
     }
 
     @Override
