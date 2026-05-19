@@ -27,8 +27,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.Status;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
@@ -40,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -135,12 +138,15 @@ public class ShardManagerTest {
     @DisplayName("Manager delegation")
     class ManagerTests {
         private final String namespace = "default";
+        private final String serviceAddress = "localhost:6648";
 
         @Spy
         ShardAssignmentsContainer assignments =
                 new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, DefaultNamespace);
 
         @Mock OxiaClientGrpc.OxiaClientStub async;
+
+        @Mock OxiaStubManager stubManager;
 
         @Mock OxiaStub stub;
         ShardManager manager;
@@ -154,7 +160,12 @@ public class ShardManagerTest {
 
             manager =
                     new ShardManager(
-                            executor, stub, assignments, new CompositeConsumer<>(), InstrumentProvider.NOOP);
+                            executor,
+                            stubManager,
+                            serviceAddress,
+                            assignments,
+                            new CompositeConsumer<>(),
+                            InstrumentProvider.NOOP);
         }
 
         @AfterEach
@@ -167,6 +178,7 @@ public class ShardManagerTest {
             var assignment = new ShardAssignment();
             assignment.setShard(0).setLeader("leader0");
             assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            when(stubManager.getStub(serviceAddress)).thenReturn(stub);
             when(stub.async()).thenReturn(async);
 
             doAnswer(
@@ -183,6 +195,52 @@ public class ShardManagerTest {
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
 
             assertThat(manager.leader(0)).isEqualTo("leader0");
+        }
+
+        @Test
+        void refetchesStubWhenRetryingShardAssignmentStream() {
+            var refreshedStub = mock(OxiaStub.class);
+            var refreshedAsync = mock(OxiaClientGrpc.OxiaClientStub.class);
+            var stubCalls = new AtomicInteger();
+            when(stubManager.getStub(serviceAddress))
+                    .thenAnswer(__ -> stubCalls.getAndIncrement() == 0 ? stub : refreshedStub);
+            manager =
+                    new ShardManager(
+                            executor,
+                            stubManager,
+                            serviceAddress,
+                            assignments,
+                            new CompositeConsumer<>(),
+                            InstrumentProvider.NOOP);
+
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            when(stub.async()).thenReturn(async);
+            when(refreshedStub.async()).thenReturn(refreshedAsync);
+
+            doAnswer(
+                            invocation -> {
+                                manager.onError(Status.UNAVAILABLE.asException());
+                                return null;
+                            })
+                    .when(async)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+            doAnswer(
+                            invocation -> {
+                                var sa = new ShardAssignments();
+                                sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+                                manager.onNext(sa);
+                                return null;
+                            })
+                    .when(refreshedAsync)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+
+            verify(async).getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+            verify(refreshedAsync).getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+            assertThat(stubCalls).hasValue(2);
         }
 
         @Test

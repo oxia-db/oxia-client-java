@@ -20,6 +20,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.when;
 
 import io.grpc.Server;
 import io.grpc.Status;
@@ -27,6 +28,7 @@ import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
@@ -35,6 +37,7 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
@@ -86,7 +89,8 @@ class ShardManagerGrpcTest {
     String serverName = InProcessServerBuilder.generateName();
     Server server;
 
-    @Mock OxiaStub stub;
+    OxiaStub stub;
+    @Mock OxiaStubManager stubManager;
 
     ScheduledExecutorService executor;
 
@@ -102,7 +106,8 @@ class ShardManagerGrpcTest {
                         .build()
                         .start();
 
-        stub = new OxiaStub(InProcessChannelBuilder.forName(serverName).directExecutor().build());
+        stub = new OxiaStub(InProcessChannelBuilder.forName(serverName).directExecutor().build(), null);
+        when(stubManager.getStub(serverName)).thenReturn(stub);
     }
 
     @AfterEach
@@ -116,9 +121,10 @@ class ShardManagerGrpcTest {
     void start() {
         var assignments = new ShardAssignments();
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
-        responses.offer(new AssignmentWrapper(assignments, null, false));
+        assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");
@@ -128,11 +134,54 @@ class ShardManagerGrpcTest {
     @Test
     void neverStarts() {
         try (var shardManager =
-                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().get(1, SECONDS))
                     .isInstanceOf(TimeoutException.class);
             assertThat(shardManager.allShardIds()).isEmpty();
         }
+    }
+
+    @Test
+    void namespaceNotFoundWithNotFoundStatusFailsInitialAssignment() {
+        assertThat(
+                        responses.offer(
+                                new AssignmentWrapper(
+                                        null,
+                                        Status.NOT_FOUND
+                                                .withDescription("oxia: namespace not found")
+                                                .asRuntimeException(),
+                                        false)))
+                .isTrue();
+        try (var shardManager =
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
+            assertThatThrownBy(() -> shardManager.start().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+        }
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void namespaceNotFoundWithCustomStatusDescriptionFailsInitialAssignment() {
+        assertThat(
+                        responses.offer(
+                                new AssignmentWrapper(
+                                        null,
+                                        Status.UNKNOWN
+                                                .withDescription("oxia: namespace not found")
+                                                .asRuntimeException(),
+                                        false)))
+                .isTrue();
+        try (var shardManager =
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
+            assertThatThrownBy(() -> shardManager.start().join())
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+        }
+        assertThat(requests).hasValue(1);
     }
 
     @Test
@@ -143,10 +192,11 @@ class ShardManagerGrpcTest {
         var ns1 = assignments1.putNamespaces(DefaultNamespace);
         ns1.addAssignment().copyFrom(assignment(1, 0, 1));
         ns1.addAssignment().copyFrom(assignment(2, 2, 3));
-        responses.offer(new AssignmentWrapper(assignments0, null, false));
-        responses.offer(new AssignmentWrapper(assignments1, null, false));
+        assertThat(responses.offer(new AssignmentWrapper(assignments0, null, false))).isTrue();
+        assertThat(responses.offer(new AssignmentWrapper(assignments1, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
             shardManager.start().join();
             await()
                     .untilAsserted(
@@ -160,12 +210,15 @@ class ShardManagerGrpcTest {
 
     @Test
     public void recoveryFromError() {
-        responses.offer(new AssignmentWrapper(null, Status.UNAVAILABLE.asException(), false));
+        assertThat(
+                        responses.offer(new AssignmentWrapper(null, Status.UNAVAILABLE.asException(), false)))
+                .isTrue();
         var assignments = new ShardAssignments();
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
-        responses.offer(new AssignmentWrapper(assignments, null, false));
+        assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");
@@ -175,12 +228,13 @@ class ShardManagerGrpcTest {
 
     @Test
     public void recoveryFromEndOfStream() {
-        responses.offer(new AssignmentWrapper(null, null, true));
+        assertThat(responses.offer(new AssignmentWrapper(null, null, true))).isTrue();
         var assignments = new ShardAssignments();
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
-        responses.offer(new AssignmentWrapper(assignments, null, false));
+        assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, stub, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(
+                        executor, stubManager, serverName, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");

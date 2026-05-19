@@ -76,12 +76,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
         ScheduledExecutorService executor =
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client"));
-        var stubManager = new OxiaStubManager(config);
+        var stubManager = new OxiaStubManager(config, executor);
 
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
-        var serviceAddrStub = stubManager.getStub(config.serviceAddress());
         var shardManager =
-                new ShardManager(executor, serviceAddrStub, instrumentProvider, config.namespace());
+                new ShardManager(
+                        executor, stubManager, config.serviceAddress(), instrumentProvider, config.namespace());
         var notificationManager =
                 new NotificationManager(executor, stubManager, shardManager, instrumentProvider);
         final var stubProvider = new OxiaStubProvider(config.namespace(), stubManager, shardManager);

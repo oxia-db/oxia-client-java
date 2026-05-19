@@ -298,8 +298,8 @@ class NotificationManagerTest {
                             .start();
             channel1 = InProcessChannelBuilder.forName(serverName1).directExecutor().build();
             channel2 = InProcessChannelBuilder.forName(serverName2).directExecutor().build();
-            stub1 = new OxiaStub(channel1);
-            stub2 = new OxiaStub(channel2);
+            stub1 = new OxiaStub(channel1, null);
+            stub2 = new OxiaStub(channel2, null);
             when(stubManager.getStub("leader1")).thenReturn(stub1);
             when(stubManager.getStub("leader2")).thenThrow(new IllegalStateException("illegal state"));
         }
