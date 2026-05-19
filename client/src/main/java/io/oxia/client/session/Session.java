@@ -179,7 +179,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
             heartbeatFuture.cancel(true);
             var closeRequest = new CloseSessionRequest();
             closeRequest.setShard(shardId).setSessionId(sessionId);
-            future = rpcProvider.closeSession(closeRequest).thenApply(__ -> null);
+            future = rpcProvider.closeSession(closeRequest).thenRun(() -> {});
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }

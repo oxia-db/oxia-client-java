@@ -85,9 +85,9 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                         }
                     };
         }
-        var healthStub = HealthGrpc.newStub(channel);
+        var baseHealthStub = HealthGrpc.newStub(channel);
         this.healthStub =
-                credentials != null ? healthStub.withCallCredentials(credentials) : healthStub;
+                credentials != null ? baseHealthStub.withCallCredentials(credentials) : baseHealthStub;
         var asyncStub =
                 OxiaClientGrpc.newStub(channel)
                         .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
