@@ -21,8 +21,8 @@ buildscript {
     configurations.classpath {
         resolutionStrategy {
             force("org.codehaus.plexus:plexus-utils:4.0.3")
-            force("org.apache.logging.log4j:log4j-core:2.25.4")
-            force("org.apache.logging.log4j:log4j-api:2.25.4")
+            force("org.apache.logging.log4j:log4j-core:2.26.0")
+            force("org.apache.logging.log4j:log4j-api:2.26.0")
         }
     }
 }
