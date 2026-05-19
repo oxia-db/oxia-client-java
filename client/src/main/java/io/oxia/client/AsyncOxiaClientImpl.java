@@ -64,7 +64,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -641,19 +640,19 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 request,
                 new CancelableStreamObserver<>() {
                     @Override
-                    public void onNext(ListResponse response) {
+                    protected void onNextValue(@NonNull ListResponse response) {
                         for (int i = 0; i < response.getKeysCount(); i++) {
                             result.add(response.getKeyAt(i));
                         }
                     }
 
                     @Override
-                    public void onError(Throwable t) {
+                    protected void onErrorValue(@NonNull Throwable t) {
                         future.completeExceptionally(t);
                     }
 
                     @Override
-                    public void onCompleted() {
+                    protected void onCompletedValue() {
                         future.complete(result);
                     }
                 });
@@ -756,36 +755,26 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
         var observer =
                 new CancelableStreamObserver<RangeScanResponse>() {
-                    private final AtomicBoolean terminated = new AtomicBoolean();
 
                     @Override
-                    public void onNext(RangeScanResponse response) {
-                        if (terminated.get()) {
-                            return;
-                        }
+                    protected void onNextValue(@NonNull RangeScanResponse response) {
                         for (int i = 0; i < response.getRecordsCount(); i++) {
                             if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                if (terminated.compareAndSet(false, true)) {
-                                    cancel();
-                                    consumer.onCompleted();
-                                }
+                                cancel();
+                                consumer.onCompleted();
                                 return;
                             }
                         }
                     }
 
                     @Override
-                    public void onError(Throwable t) {
-                        if (terminated.compareAndSet(false, true)) {
-                            consumer.onError(t);
-                        }
+                    protected void onErrorValue(@NonNull Throwable t) {
+                        consumer.onError(t);
                     }
 
                     @Override
-                    public void onCompleted() {
-                        if (terminated.compareAndSet(false, true)) {
-                            consumer.onCompleted();
-                        }
+                    protected void onCompletedValue() {
+                        consumer.onCompleted();
                     }
                 };
 

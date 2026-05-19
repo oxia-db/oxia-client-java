@@ -31,8 +31,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
 
-public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdatesResponse>
-        implements Closeable {
+public class SequenceUpdates implements Closeable {
 
     private static final Logger log = Logger.get(SequenceUpdates.class);
 
@@ -46,6 +45,7 @@ public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdates
     private final Function<Void, Boolean> isClientClosed;
 
     private boolean closed = false;
+    private CancelableStreamObserver<?> stream;
 
     SequenceUpdates(
             @NonNull String key,
@@ -81,23 +81,46 @@ public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdates
         var request = new GetSequenceUpdatesRequest();
         request.setShard(shardId).setKey(key);
 
-        rpcProvider.getSequenceUpdates(request, this);
+        var observer =
+                new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
+                    @Override
+                    protected void onNextValue(@NonNull GetSequenceUpdatesResponse value) {
+                        handleUpdate(value);
+                    }
+
+                    @Override
+                    protected void onErrorValue(@NonNull Throwable t) {
+                        handleError(t);
+                    }
+
+                    @Override
+                    protected void onCompletedValue() {
+                        handleCompleted();
+                    }
+                };
+
+        stream = observer;
+        rpcProvider.getSequenceUpdates(request, observer);
     }
 
     @Override
-    public synchronized void close() throws IOException {
-        closed = true;
-        cancel();
+    public void close() throws IOException {
+        final CancelableStreamObserver<?> currentStream;
+        synchronized (this) {
+            closed = true;
+            currentStream = stream;
+        }
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
     }
 
-    @Override
-    public void onNext(GetSequenceUpdatesResponse value) {
+    private void handleUpdate(@NonNull GetSequenceUpdatesResponse value) {
         listener.accept(value.getHighestSequenceKey());
         counterSequenceUpdatesReceived.increment();
     }
 
-    @Override
-    public synchronized void onError(Throwable t) {
+    private synchronized void handleError(@NonNull Throwable t) {
         if (closed || isClientClosed.apply(null)) {
             return;
         }
@@ -105,8 +128,7 @@ public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdates
         createStream();
     }
 
-    @Override
-    public synchronized void onCompleted() {
+    private synchronized void handleCompleted() {
         createStream();
     }
 }

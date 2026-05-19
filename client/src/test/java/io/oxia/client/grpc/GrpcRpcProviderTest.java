@@ -26,6 +26,7 @@ import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.NonNull;
 import org.junit.jupiter.api.Test;
 
 class GrpcRpcProviderTest {
@@ -50,15 +51,15 @@ class GrpcRpcProviderTest {
                     request,
                     new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(GetSequenceUpdatesResponse value) {}
+                        protected void onNextValue(@NonNull GetSequenceUpdatesResponse value) {}
 
                         @Override
-                        public void onError(Throwable throwable) {
+                        protected void onErrorValue(@NonNull Throwable throwable) {
                             error.set(throwable);
                         }
 
                         @Override
-                        public void onCompleted() {}
+                        protected void onCompletedValue() {}
                     });
 
             await()

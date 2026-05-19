@@ -17,44 +17,64 @@ package io.oxia.client.grpc.observer;
 
 import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import lombok.NonNull;
 
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private static final String CANCELED = "canceled";
 
-    private final Lock lock = new ReentrantLock();
-    private ClientCallStreamObserver<?> requestStream;
-    private boolean canceled;
+    private final AtomicBoolean canceled = new AtomicBoolean();
+    private final AtomicReference<ClientCallStreamObserver<?>> requestStream =
+            new AtomicReference<>();
 
     public void cancel() {
-        ClientCallStreamObserver<?> stream;
-        lock.lock();
-        try {
-            if (canceled) {
-                return;
-            }
-            canceled = true;
-            stream = requestStream;
-        } finally {
-            lock.unlock();
+        if (!canceled.compareAndSet(false, true)) {
+            return;
         }
+        final var stream = requestStream.getAndSet(null);
         if (stream != null) {
             stream.cancel(CANCELED, null);
         }
     }
 
+    protected boolean isCanceled() {
+        return canceled.get();
+    }
+
     void setRequestStream(ClientCallStreamObserver<?> requestStream) {
-        boolean shouldCancel;
-        lock.lock();
-        try {
-            this.requestStream = requestStream;
-            shouldCancel = canceled;
-        } finally {
-            lock.unlock();
+        if (!this.requestStream.compareAndSet(null, requestStream)) {
+            throw new IllegalStateException("Request stream was already initialized");
         }
-        if (shouldCancel) {
+        if (canceled.get() && this.requestStream.compareAndSet(requestStream, null)) {
             requestStream.cancel(CANCELED, null);
         }
     }
+
+    @Override
+    public final void onNext(@NonNull T value) {
+        if (!isCanceled()) {
+            onNextValue(value);
+        }
+    }
+
+    @Override
+    public final void onError(@NonNull Throwable t) {
+        if (!isCanceled()) {
+            onErrorValue(t);
+        }
+    }
+
+    @Override
+    public final void onCompleted() {
+        if (!isCanceled()) {
+            onCompletedValue();
+        }
+    }
+
+    protected abstract void onNextValue(@NonNull T value);
+
+    protected abstract void onErrorValue(@NonNull Throwable t);
+
+    protected abstract void onCompletedValue();
 }
