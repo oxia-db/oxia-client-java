@@ -19,16 +19,15 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
+import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
@@ -49,7 +48,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SessionTest {
 
-    OxiaStubProvider stubProvider;
+    RpcProvider rpcProvider;
     ClientConfig config;
     long shardId = 1L;
     long sessionId = 2L;
@@ -57,7 +56,7 @@ class SessionTest {
     String clientId = "client";
 
     private Server server;
-    private OxiaStub stub;
+    private ManagedChannel channel;
     private TestService service;
     private ScheduledExecutorService executor;
 
@@ -92,19 +91,54 @@ class SessionTest {
                         .addService(service)
                         .build()
                         .start();
-        stub = new OxiaStub(InProcessChannelBuilder.forName(serverName).directExecutor().build(), null);
+        channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        var async = OxiaClientGrpc.newStub(channel);
 
-        stubProvider = mock(OxiaStubProvider.class);
-        lenient().when(stubProvider.getStubForShard(anyLong())).thenReturn(stub);
+        rpcProvider = mock(RpcProvider.class);
+        lenient()
+                .doAnswer(
+                        invocation -> {
+                            async.keepAlive(invocation.getArgument(0), invocation.getArgument(1));
+                            return null;
+                        })
+                .when(rpcProvider)
+                .keepAlive(any(SessionHeartbeat.class), any(StreamObserver.class));
+        lenient()
+                .when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenAnswer(
+                        invocation -> {
+                            var future = new CompletableFuture<CloseSessionResponse>();
+                            async.closeSession(
+                                    invocation.getArgument(0),
+                                    new StreamObserver<>() {
+                                        CloseSessionResponse response;
+
+                                        @Override
+                                        public void onNext(CloseSessionResponse response) {
+                                            this.response = response;
+                                        }
+
+                                        @Override
+                                        public void onError(Throwable throwable) {
+                                            future.completeExceptionally(throwable);
+                                        }
+
+                                        @Override
+                                        public void onCompleted() {
+                                            future.complete(response);
+                                        }
+                                    });
+                            return future;
+                        });
     }
 
     @AfterEach
     public void stopServer() throws Exception {
         server.shutdown();
-        stub.close();
+        channel.shutdownNow();
 
         server = null;
-        stub = null;
+        channel = null;
         executor.shutdownNow();
     }
 
@@ -113,7 +147,7 @@ class SessionTest {
         var session =
                 new Session(
                         executor,
-                        stubProvider,
+                        rpcProvider,
                         config,
                         shardId,
                         sessionId,
@@ -125,9 +159,9 @@ class SessionTest {
 
     @Test
     public void nonCallbackListener() {
-        final OxiaStubProvider mockProvider = mock(OxiaStubProvider.class);
+        final RpcProvider mockProvider = mock(RpcProvider.class);
         final SessionNotificationListener listener = spy(SessionNotificationListener.class);
-        when(mockProvider.getStubForShard(anyLong()))
+        when(mockProvider.closeSession(any(CloseSessionRequest.class)))
                 .thenThrow(new IllegalStateException("wrong states"));
         var session =
                 new Session(
@@ -146,7 +180,7 @@ class SessionTest {
         var session =
                 new Session(
                         executor,
-                        stubProvider,
+                        rpcProvider,
                         config,
                         shardId,
                         sessionId,

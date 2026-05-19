@@ -24,7 +24,7 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
@@ -44,7 +44,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
 
     private final @NonNull Logger log;
 
-    private final @NonNull OxiaStubProvider stubProvider;
+    private final @NonNull RpcProvider rpcProvider;
     private final @NonNull Duration sessionTimeout;
     private final @NonNull Duration heartbeatInterval;
 
@@ -73,13 +73,13 @@ public class Session implements StreamObserver<KeepAliveResponse> {
 
     Session(
             @NonNull ScheduledExecutorService executor,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ClientConfig config,
             long shardId,
             long sessionId,
-            InstrumentProvider instrumentProvider,
-            SessionNotificationListener listener) {
-        this.stubProvider = stubProvider;
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull SessionNotificationListener listener) {
+        this.rpcProvider = rpcProvider;
         this.sessionTimeout = config.sessionTimeout();
         this.heartbeatInterval =
                 Duration.ofMillis(
@@ -147,7 +147,7 @@ public class Session implements StreamObserver<KeepAliveResponse> {
             return;
         }
 
-        stubProvider.getStubForShard(shardId).async().keepAlive(heartbeat, this);
+        rpcProvider.keepAlive(heartbeat, this);
     }
 
     @Override
@@ -177,12 +177,9 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         try {
             sessionsClosed.increment();
             heartbeatFuture.cancel(true);
-            final var stub = stubProvider.getStubForShard(shardId);
             var closeRequest = new CloseSessionRequest();
             closeRequest.setShard(shardId).setSessionId(sessionId);
-            future =
-                    stub.closeSession(closeRequest)
-                            .thenApply(__ -> null); // we are not using the response so far
+            future = rpcProvider.closeSession(closeRequest).thenRun(() -> {});
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }

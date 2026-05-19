@@ -21,11 +21,13 @@ import static io.oxia.proto.NotificationType.KEY_MODIFIED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.Status;
 import io.grpc.inprocess.InProcessChannelBuilder;
@@ -35,8 +37,7 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
@@ -87,11 +88,10 @@ class ShardNotificationReceiverTest {
 
     String serverName = InProcessServerBuilder.generateName();
     Server server;
+    ManagedChannel channel;
 
     long shardId = 1L;
-    String leader = "address";
-    @Mock OxiaStub stub;
-    @Mock OxiaStubManager stubManager;
+    @Mock RpcProvider rpcProvider;
     @Mock Consumer<Notification> notificationCallback;
     @Mock NotificationManager notificationManager;
 
@@ -105,14 +105,20 @@ class ShardNotificationReceiverTest {
                         .addService(serviceImpl)
                         .build()
                         .start();
-        stub = new OxiaStub(InProcessChannelBuilder.forName(serverName).directExecutor().build(), null);
-        stubManager = mock(OxiaStubManager.class);
-        when(stubManager.getStub(any())).thenReturn(stub);
+        channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        doAnswer(
+                        invocation -> {
+                            OxiaClientGrpc.newStub(channel)
+                                    .getNotifications(invocation.getArgument(0), invocation.getArgument(1));
+                            return null;
+                        })
+                .when(rpcProvider)
+                .getNotifications(any(), any());
     }
 
     @AfterEach
     void afterEach() throws Exception {
-        stub.close();
+        channel.shutdownNow();
         server.shutdownNow();
     }
 
@@ -129,8 +135,7 @@ class ShardNotificationReceiverTest {
         responses.put(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stubManager,
-                        leader,
+                        rpcProvider,
                         shardId,
                         notificationCallback,
                         notificationManager,
@@ -150,8 +155,7 @@ class ShardNotificationReceiverTest {
         //        responses.offer(Flux.never());
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stubManager,
-                        leader,
+                        rpcProvider,
                         shardId,
                         notificationCallback,
                         notificationManager,
@@ -178,8 +182,7 @@ class ShardNotificationReceiverTest {
         responses.offer(new NotificationWrapper(notifications, null, false));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stubManager,
-                        leader,
+                        rpcProvider,
                         shardId,
                         notificationCallback,
                         notificationManager,
@@ -202,8 +205,7 @@ class ShardNotificationReceiverTest {
         responses.put(new NotificationWrapper(notifications, null, true));
         try (var notificationReceiver =
                 new ShardNotificationReceiver(
-                        stubManager,
-                        leader,
+                        rpcProvider,
                         shardId,
                         notificationCallback,
                         notificationManager,

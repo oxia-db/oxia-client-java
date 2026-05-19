@@ -36,7 +36,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and Verify
-        run: ./gradlew build
+        run: ./gradlew build --info
 
       - name: Validate Javadoc creation
         run: ./gradlew :client-api:javadoc

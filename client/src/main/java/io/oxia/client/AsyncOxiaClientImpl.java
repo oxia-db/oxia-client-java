@@ -16,9 +16,6 @@
 package io.oxia.client;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
-import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientResponseObserver;
-import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.api.AsyncOxiaClient;
@@ -38,8 +35,8 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
-import io.oxia.client.grpc.OxiaStubManager;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
@@ -68,6 +65,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
 
@@ -76,29 +74,29 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
         ScheduledExecutorService executor =
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client"));
-        var stubManager = new OxiaStubManager(config, executor);
-
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
+        var shardManagerRef = new AtomicReference<ShardManager>();
+        var rpcProvider =
+                RpcProvider.create(config, executor, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(
-                        executor, stubManager, config.serviceAddress(), instrumentProvider, config.namespace());
+                new ShardManager(executor, rpcProvider, instrumentProvider, config.namespace());
+        shardManagerRef.set(shardManager);
         var notificationManager =
-                new NotificationManager(executor, stubManager, shardManager, instrumentProvider);
-        final var stubProvider = new OxiaStubProvider(config.namespace(), stubManager, shardManager);
+                new NotificationManager(executor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
         var readBatchManager =
-                BatchManager.newReadBatchManager(config, stubProvider, instrumentProvider);
-        var sessionManager = new SessionManager(executor, config, stubProvider, instrumentProvider);
+                BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
+        var sessionManager = new SessionManager(executor, config, rpcProvider, instrumentProvider);
         shardManager.addCallback(sessionManager);
         var writeBatchManager =
-                BatchManager.newWriteBatchManager(config, stubProvider, sessionManager, instrumentProvider);
+                BatchManager.newWriteBatchManager(config, rpcProvider, sessionManager, instrumentProvider);
 
         var client =
                 new AsyncOxiaClientImpl(
                         config.clientIdentifier(),
                         executor,
                         instrumentProvider,
-                        stubManager,
+                        rpcProvider,
                         shardManager,
                         notificationManager,
                         readBatchManager,
@@ -110,7 +108,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private final @NonNull String clientIdentifier;
     private final @NonNull InstrumentProvider instrumentProvider;
-    private final @NonNull OxiaStubManager stubManager;
+    private final @NonNull RpcProvider rpcProvider;
     private final @NonNull ShardManager shardManager;
     private final @NonNull NotificationManager notificationManager;
     private final @NonNull BatchManager readBatchManager;
@@ -146,7 +144,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull String clientIdentifier,
             @NonNull ScheduledExecutorService scheduledExecutor,
             @NonNull InstrumentProvider instrumentProvider,
-            @NonNull OxiaStubManager stubManager,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull NotificationManager notificationManager,
             @NonNull BatchManager readBatchManager,
@@ -155,7 +153,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Duration requestTimeout) {
         this.clientIdentifier = clientIdentifier;
         this.instrumentProvider = instrumentProvider;
-        this.stubManager = stubManager;
+        this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
         this.notificationManager = notificationManager;
         this.readBatchManager = readBatchManager;
@@ -632,35 +630,32 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName) {
-        var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader);
         var request = new ListRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         CompletableFuture<List<String>> future = new CompletableFuture<>();
         List<String> result = new ArrayList<>();
-        stub.async()
-                .list(
-                        request,
-                        new StreamObserver<ListResponse>() {
-                            @Override
-                            public void onNext(ListResponse response) {
-                                for (int i = 0; i < response.getKeysCount(); i++) {
-                                    result.add(response.getKeyAt(i));
-                                }
-                            }
+        rpcProvider.list(
+                request,
+                new CancelableStreamObserver<>() {
+                    @Override
+                    protected void onNextValue(@NonNull ListResponse response) {
+                        for (int i = 0; i < response.getKeysCount(); i++) {
+                            result.add(response.getKeyAt(i));
+                        }
+                    }
 
-                            @Override
-                            public void onError(Throwable t) {
-                                future.completeExceptionally(t);
-                            }
+                    @Override
+                    protected void onErrorValue(@NonNull Throwable t) {
+                        future.completeExceptionally(t);
+                    }
 
-                            @Override
-                            public void onCompleted() {
-                                future.complete(result);
-                            }
-                        });
+                    @Override
+                    protected void onCompletedValue() {
+                        future.complete(result);
+                    }
+                });
         return future;
     }
 
@@ -679,7 +674,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 key,
                 partitionKey.get(),
                 listener,
-                this.stubManager,
+                this.rpcProvider,
                 this.shardManager,
                 this.instrumentProvider,
                 x -> closed);
@@ -738,7 +733,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
-                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer, null);
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
             } else {
                 internalRangeScanMultiShards(
                         startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
@@ -748,45 +743,24 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
     }
 
-    private void internalShardRangeScan(
+    private Cancelable internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer,
-            Consumer<Runnable> cancelRegistrar) {
-        var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader);
+            RangeScanConsumer consumer) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         var observer =
-                new ClientResponseObserver<RangeScanRequest, RangeScanResponse>() {
-                    ClientCallStreamObserver<RangeScanRequest> requestStream;
-                    volatile boolean cancelled = false;
+                new CancelableStreamObserver<RangeScanResponse>() {
 
                     @Override
-                    public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
-                        this.requestStream = requestStream;
-                    }
-
-                    void cancelStream() {
-                        if (cancelled) {
-                            return;
-                        }
-                        cancelled = true;
-                        requestStream.cancel("Range scan cancelled", null);
-                    }
-
-                    @Override
-                    public void onNext(RangeScanResponse response) {
-                        if (cancelled) {
-                            return;
-                        }
+                    protected void onNextValue(@NonNull RangeScanResponse response) {
                         for (int i = 0; i < response.getRecordsCount(); i++) {
                             if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                cancelStream();
+                                cancel();
                                 consumer.onCompleted();
                                 return;
                             }
@@ -794,27 +768,18 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                     }
 
                     @Override
-                    public void onError(Throwable t) {
-                        if (cancelled) {
-                            return;
-                        }
+                    protected void onErrorValue(@NonNull Throwable t) {
                         consumer.onError(t);
                     }
 
                     @Override
-                    public void onCompleted() {
-                        if (cancelled) {
-                            return;
-                        }
+                    protected void onCompletedValue() {
                         consumer.onCompleted();
                     }
                 };
 
-        stub.async().rangeScan(request, observer);
-
-        if (cancelRegistrar != null) {
-            cancelRegistrar.accept(observer::cancelStream);
-        }
+        rpcProvider.rangeScan(request, observer);
+        return observer::cancel;
     }
 
     private void internalRangeScanMultiShards(
@@ -826,19 +791,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         final SharedRangeScanConsumer multiShardConsumer =
                 new SharedRangeScanConsumer(shardIds.size(), consumer);
         for (long shardId : shardIds) {
-            internalShardRangeScan(
-                    shardId,
-                    startKeyInclusive,
-                    endKeyExclusive,
-                    secondaryIndexName,
-                    multiShardConsumer,
-                    multiShardConsumer::registerCancelHandler);
+            multiShardConsumer.registerCancelHandler(
+                    internalShardRangeScan(
+                            shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
         }
     }
 
     static class SharedRangeScanConsumer implements RangeScanConsumer {
         private final RangeScanConsumer delegate;
-        private final List<Runnable> cancelHandlers = new ArrayList<>();
+        private final List<Cancelable> cancelHandlers = new ArrayList<>();
 
         private int pendingCompletedRequests;
         private boolean completed = false;
@@ -849,9 +810,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             this.delegate = delegate;
         }
 
-        synchronized void registerCancelHandler(Runnable handler) {
+        synchronized void registerCancelHandler(Cancelable handler) {
             if (completed) {
-                handler.run();
+                handler.cancel();
                 return;
             }
             cancelHandlers.add(handler);
@@ -866,9 +827,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 return true;
             }
             completed = true;
-            for (Runnable h : cancelHandlers) {
+            for (Cancelable h : cancelHandlers) {
                 try {
-                    h.run();
+                    h.cancel();
                 } catch (Throwable ignored) {
                 }
             }
@@ -915,7 +876,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         sessionManager.close();
         notificationManager.close();
         shardManager.close();
-        stubManager.close();
+        rpcProvider.close();
         scheduledExecutor.shutdownNow();
     }
 

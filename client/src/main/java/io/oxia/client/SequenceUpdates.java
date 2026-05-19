@@ -16,24 +16,22 @@
 package io.oxia.client;
 
 import io.github.merlimat.slog.Logger;
-import io.grpc.ClientCall;
-import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
-import io.oxia.proto.OxiaClientGrpc;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
 
-public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpdatesResponse> {
+public class SequenceUpdates implements Closeable {
 
     private static final Logger log = Logger.get(SequenceUpdates.class);
 
@@ -41,26 +39,26 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
     private final String partitionKey;
 
     private final Consumer<String> listener;
-    private final OxiaStubManager stubManager;
+    private final RpcProvider rpcProvider;
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
     private final Function<Void, Boolean> isClientClosed;
 
     private boolean closed = false;
-    private ClientCall<GetSequenceUpdatesRequest, GetSequenceUpdatesResponse> call;
+    private CancelableStreamObserver<?> stream;
 
     SequenceUpdates(
             @NonNull String key,
             @NonNull String partitionKey,
             @NonNull Consumer<String> listener,
-            @NonNull OxiaStubManager stubManager,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
             Function<Void, Boolean> isClientClosed) {
         this.key = key;
         this.partitionKey = partitionKey;
         this.listener = listener;
-        this.stubManager = stubManager;
+        this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
         this.isClientClosed = isClientClosed;
 
@@ -80,32 +78,49 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         }
 
         long shardId = shardManager.getShardForKey(partitionKey);
-        var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader).async();
-
         var request = new GetSequenceUpdatesRequest();
         request.setShard(shardId).setKey(key);
 
-        this.call =
-                stub.getChannel()
-                        .newCall(OxiaClientGrpc.getGetSequenceUpdatesMethod(), stub.getCallOptions());
-        io.grpc.stub.ClientCalls.asyncServerStreamingCall(call, request, this);
+        var observer =
+                new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
+                    @Override
+                    protected void onNextValue(@NonNull GetSequenceUpdatesResponse value) {
+                        handleUpdate(value);
+                    }
+
+                    @Override
+                    protected void onErrorValue(@NonNull Throwable t) {
+                        handleError(t);
+                    }
+
+                    @Override
+                    protected void onCompletedValue() {
+                        handleCompleted();
+                    }
+                };
+
+        stream = observer;
+        rpcProvider.getSequenceUpdates(request, observer);
     }
 
     @Override
-    public synchronized void close() throws IOException {
-        closed = true;
-        call.cancel("closing streaming", null);
+    public void close() throws IOException {
+        final CancelableStreamObserver<?> currentStream;
+        synchronized (this) {
+            closed = true;
+            currentStream = stream;
+        }
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
     }
 
-    @Override
-    public void onNext(GetSequenceUpdatesResponse value) {
+    private void handleUpdate(@NonNull GetSequenceUpdatesResponse value) {
         listener.accept(value.getHighestSequenceKey());
         counterSequenceUpdatesReceived.increment();
     }
 
-    @Override
-    public synchronized void onError(Throwable t) {
+    private synchronized void handleError(@NonNull Throwable t) {
         if (closed || isClientClosed.apply(null)) {
             return;
         }
@@ -113,8 +128,7 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         createStream();
     }
 
-    @Override
-    public synchronized void onCompleted() {
+    private synchronized void handleCompleted() {
         createStream();
     }
 }

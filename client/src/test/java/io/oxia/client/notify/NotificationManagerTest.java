@@ -21,7 +21,8 @@ import static io.oxia.proto.NotificationType.KEY_MODIFIED;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -39,8 +40,7 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
 import io.oxia.client.shard.Shard;
@@ -112,8 +112,8 @@ class NotificationManagerTest {
 
             manager.registerCallback(n -> {});
 
-            verify(receiverFactory).newReceiver(1L, "leader1", manager, OptionalLong.empty());
-            verify(receiverFactory).newReceiver(2L, "leader2", manager, OptionalLong.empty());
+            verify(receiverFactory).newReceiver(1L, manager, OptionalLong.empty());
+            verify(receiverFactory).newReceiver(2L, manager, OptionalLong.empty());
         }
 
         @Test
@@ -128,10 +128,8 @@ class NotificationManagerTest {
 
         @Test
         void acceptRemoveShard() {
-            when(receiverFactory.newReceiver(1L, "leader1", manager, OptionalLong.empty()))
-                    .thenReturn(receiver1);
-            when(receiverFactory.newReceiver(2L, "leader2", manager, OptionalLong.empty()))
-                    .thenReturn(receiver2);
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
             when(shardManager.allShards())
                     .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
             lenient().when(shardManager.leader(1L)).thenReturn("leader1");
@@ -149,10 +147,10 @@ class NotificationManagerTest {
         @Test
         void acceptAddShard() {
             lenient()
-                    .when(receiverFactory.newReceiver(1L, "leader1", manager, OptionalLong.empty()))
+                    .when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty()))
                     .thenReturn(receiver1);
             lenient()
-                    .when(receiverFactory.newReceiver(2L, "leader2", manager, OptionalLong.empty()))
+                    .when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty()))
                     .thenReturn(receiver2);
             lenient().when(shardManager.allShardIds()).thenReturn(Set.of(1L, 2L));
             lenient().when(shardManager.leader(1L)).thenReturn("leader1");
@@ -160,8 +158,7 @@ class NotificationManagerTest {
 
             manager.registerCallback(n -> {});
 
-            when(receiverFactory.newReceiver(3L, "leader3", manager, OptionalLong.empty()))
-                    .thenReturn(receiver3);
+            when(receiverFactory.newReceiver(3L, manager, OptionalLong.empty())).thenReturn(receiver3);
 
             var changes =
                     new ShardAssignmentChanges(Set.of(new Shard(3L, "leader3", r)), Set.of(), Set.of());
@@ -171,7 +168,7 @@ class NotificationManagerTest {
         @Test
         void acceptReassignShard() {
             lenient()
-                    .when(receiverFactory.newReceiver(2, "leader2", manager, OptionalLong.empty()))
+                    .when(receiverFactory.newReceiver(2, manager, OptionalLong.empty()))
                     .thenReturn(receiver2);
             when(shardManager.allShards())
                     .thenReturn(
@@ -184,7 +181,7 @@ class NotificationManagerTest {
             manager.registerCallback(n -> {});
 
             var shard2offset = 1000L;
-            when(receiverFactory.newReceiver(2L, "leader3", manager, OptionalLong.of(shard2offset)))
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.of(shard2offset)))
                     .thenReturn(receiver3);
             when(receiver2.getOffset()).thenReturn(OptionalLong.of(shard2offset));
 
@@ -202,10 +199,8 @@ class NotificationManagerTest {
 
         @Test
         void close() throws Exception {
-            when(receiverFactory.newReceiver(1L, "leader1", manager, OptionalLong.empty()))
-                    .thenReturn(receiver1);
-            when(receiverFactory.newReceiver(2L, "leader2", manager, OptionalLong.empty()))
-                    .thenReturn(receiver2);
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
             when(shardManager.allShards())
                     .thenReturn(
                             Set.of(
@@ -270,12 +265,12 @@ class NotificationManagerTest {
         Server server2;
         ManagedChannel channel1;
         ManagedChannel channel2;
+        OxiaClientGrpc.OxiaClientStub stub1;
+        OxiaClientGrpc.OxiaClientStub stub2;
 
         long shardId1 = 1L;
         long shardId2 = 2L;
-        OxiaStub stub1;
-        OxiaStub stub2;
-        @Mock OxiaStubManager stubManager;
+        @Mock RpcProvider rpcProvider;
         @Mock ShardManager shardManager;
         @Mock ShardAssignmentsContainer assignments;
         @Mock Consumer<Notification> notificationCallback;
@@ -298,10 +293,19 @@ class NotificationManagerTest {
                             .start();
             channel1 = InProcessChannelBuilder.forName(serverName1).directExecutor().build();
             channel2 = InProcessChannelBuilder.forName(serverName2).directExecutor().build();
-            stub1 = new OxiaStub(channel1, null);
-            stub2 = new OxiaStub(channel2, null);
-            when(stubManager.getStub("leader1")).thenReturn(stub1);
-            when(stubManager.getStub("leader2")).thenThrow(new IllegalStateException("illegal state"));
+            stub1 = OxiaClientGrpc.newStub(channel1);
+            stub2 = OxiaClientGrpc.newStub(channel2);
+            doAnswer(
+                            invocation -> {
+                                NotificationsRequest request = invocation.getArgument(0);
+                                if (request.getShard() == shardId1) {
+                                    stub1.getNotifications(request, invocation.getArgument(1));
+                                    return null;
+                                }
+                                throw new IllegalStateException("illegal state");
+                            })
+                    .when(rpcProvider)
+                    .getNotifications(any(), any());
         }
 
         @Test
@@ -321,7 +325,7 @@ class NotificationManagerTest {
             @Cleanup("shutdownNow")
             var executor = Executors.newSingleThreadScheduledExecutor();
             try (var manager =
-                    new NotificationManager(executor, stubManager, shardManager, InstrumentProvider.NOOP)) {
+                    new NotificationManager(executor, rpcProvider, shardManager, InstrumentProvider.NOOP)) {
                 manager.registerCallback(notificationCallback);
                 var changes =
                         new ShardAssignmentChanges(
@@ -329,7 +333,18 @@ class NotificationManagerTest {
                                 Set.of(),
                                 Set.of());
                 manager.accept(changes);
-                doReturn(stub2).when(stubManager).getStub("leader2");
+                doAnswer(
+                                invocation -> {
+                                    NotificationsRequest request = invocation.getArgument(0);
+                                    if (request.getShard() == shardId2) {
+                                        stub2.getNotifications(request, invocation.getArgument(1));
+                                    } else {
+                                        stub1.getNotifications(request, invocation.getArgument(1));
+                                    }
+                                    return null;
+                                })
+                        .when(rpcProvider)
+                        .getNotifications(any(), any());
                 await()
                         .untilAsserted(
                                 () -> {

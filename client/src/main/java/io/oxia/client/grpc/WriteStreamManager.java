@@ -17,24 +17,28 @@ package io.oxia.client.grpc;
 
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
+import io.oxia.proto.OxiaClientGrpc;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongFunction;
 
-public final class OxiaWriteStreamManager {
-    private final Map<Long, WriteStreamWrapper> writeStreams;
-    private final OxiaStubProvider provider;
-
-    public OxiaWriteStreamManager(OxiaStubProvider provider) {
-        this.provider = provider;
-        this.writeStreams = new ConcurrentHashMap<>();
-    }
-
+final class WriteStreamManager {
     private static final Metadata.Key<String> NAMESPACE_KEY =
             Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SHARD_ID_KEY =
             Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
 
-    public WriteStreamWrapper getWriteStream(long shardId) {
+    private final Map<Long, WriteStreamWrapper> writeStreams;
+    private final String namespace;
+    private final LongFunction<OxiaClientGrpc.OxiaClientStub> stubProvider;
+
+    WriteStreamManager(String namespace, LongFunction<OxiaClientGrpc.OxiaClientStub> stubProvider) {
+        this.namespace = namespace;
+        this.stubProvider = stubProvider;
+        this.writeStreams = new ConcurrentHashMap<>();
+    }
+
+    WriteStreamWrapper getWriteStream(long shardId) {
         WriteStreamWrapper wrapper = null;
         for (int i = 0; i < 2; i++) {
             wrapper = writeStreams.get(shardId); // lock free first
@@ -44,12 +48,12 @@ public final class OxiaWriteStreamManager {
                                 shardId,
                                 (__) -> {
                                     Metadata headers = new Metadata();
-                                    headers.put(NAMESPACE_KEY, provider.getNamespace());
-                                    headers.put(SHARD_ID_KEY, String.format("%d", shardId));
-                                    final var asyncStub = provider.getStubForShard(shardId).async();
+                                    headers.put(NAMESPACE_KEY, namespace);
+                                    headers.put(SHARD_ID_KEY, Long.toString(shardId));
                                     return new WriteStreamWrapper(
-                                            asyncStub.withInterceptors(
-                                                    MetadataUtils.newAttachHeadersInterceptor(headers)),
+                                            stubProvider
+                                                    .apply(shardId)
+                                                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers)),
                                             shardId);
                                 });
             }

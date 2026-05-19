@@ -17,12 +17,10 @@ package io.oxia.client.session;
 
 import static lombok.AccessLevel.PACKAGE;
 
-import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.CreateSessionRequest;
-import io.oxia.proto.CreateSessionResponse;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import lombok.NonNull;
@@ -35,46 +33,29 @@ public class SessionFactory {
 
     @NonNull final SessionNotificationListener listener;
 
-    @NonNull final OxiaStubProvider stubProvider;
+    @NonNull final RpcProvider rpcProvider;
 
     @NonNull final InstrumentProvider instrumentProvider;
 
     @NonNull
     CompletableFuture<Session> create(long shardId) {
-        var stub = stubProvider.getStubForShard(shardId);
         var request = new CreateSessionRequest();
         request
                 .setSessionTimeoutMs((int) config.sessionTimeout().toMillis())
                 .setShard(shardId)
                 .setClientIdentity(config.clientIdentifier());
 
-        CompletableFuture<Session> future = new CompletableFuture<>();
-        stub.async()
-                .createSession(
-                        request,
-                        new StreamObserver<>() {
-                            @Override
-                            public void onNext(CreateSessionResponse response) {
-                                future.complete(
-                                        new Session(
-                                                executor,
-                                                stubProvider,
-                                                config,
-                                                shardId,
-                                                response.getSessionId(),
-                                                instrumentProvider,
-                                                listener));
-                            }
-
-                            @Override
-                            public void onError(Throwable t) {
-                                future.completeExceptionally(t);
-                            }
-
-                            @Override
-                            public void onCompleted() {}
-                        });
-
-        return future;
+        return rpcProvider
+                .createSession(request)
+                .thenApply(
+                        response ->
+                                new Session(
+                                        executor,
+                                        rpcProvider,
+                                        config,
+                                        shardId,
+                                        response.getSessionId(),
+                                        instrumentProvider,
+                                        listener));
     }
 }

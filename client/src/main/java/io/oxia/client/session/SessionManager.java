@@ -17,7 +17,7 @@ package io.oxia.client.session;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import java.util.HashMap;
@@ -40,9 +40,9 @@ public class SessionManager
     public SessionManager(
             @NonNull ScheduledExecutorService executor,
             @NonNull ClientConfig config,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider) {
-        this.factory = new SessionFactory(executor, config, this, stubProvider, instrumentProvider);
+        this.factory = new SessionFactory(executor, config, this, rpcProvider, instrumentProvider);
     }
 
     SessionManager(SessionFactory factory) {

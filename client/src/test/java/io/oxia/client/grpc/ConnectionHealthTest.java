@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-class OxiaStubHealthTest {
+class ConnectionHealthTest {
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
     @AfterEach
@@ -109,13 +109,13 @@ class OxiaStubHealthTest {
                         .connectionKeepAliveTimeout(healthPingTimeout);
         var clientConfig = ((OxiaClientBuilderImpl) builder).getClientConfig();
         return new Target(
-                server, new OxiaStub(address, clientConfig, executor, healthCheckFailureCallback));
+                server, new Connection(address, clientConfig, executor, healthCheckFailureCallback));
     }
 
-    private record Target(Server server, OxiaStub stub) implements AutoCloseable {
+    private record Target(Server server, Connection connection) implements AutoCloseable {
         @Override
         public void close() throws Exception {
-            stub.close();
+            connection.close();
             server.shutdownNow();
         }
     }

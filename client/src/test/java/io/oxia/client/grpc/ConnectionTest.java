@@ -20,31 +20,31 @@ import io.grpc.TlsChannelCredentials;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class OxiaStubTest {
+class ConnectionTest {
 
     @Test
     public void testAddressTrim() {
         final var tlsAddress = "tls://localhost:6648";
-        Assertions.assertEquals("localhost:6648", OxiaStub.getAddress(tlsAddress));
+        Assertions.assertEquals("localhost:6648", Connection.getAddress(tlsAddress));
 
         final var planTxtAddress = "localhost:6648";
-        Assertions.assertEquals("localhost:6648", OxiaStub.getAddress(planTxtAddress));
+        Assertions.assertEquals("localhost:6648", Connection.getAddress(planTxtAddress));
     }
 
     @Test
     public void testTlsCredential() {
         final var tlsAddress = "tls://localhost:6648";
-        var channelCredential = OxiaStub.getChannelCredential(tlsAddress, false);
+        var channelCredential = Connection.getChannelCredential(tlsAddress, false);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
 
-        channelCredential = OxiaStub.getChannelCredential(tlsAddress, true);
+        channelCredential = Connection.getChannelCredential(tlsAddress, true);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
 
         final var planTxtAddress = "localhost:6648";
-        channelCredential = OxiaStub.getChannelCredential(planTxtAddress, false);
+        channelCredential = Connection.getChannelCredential(planTxtAddress, false);
         Assertions.assertInstanceOf(InsecureChannelCredentials.class, channelCredential);
 
-        channelCredential = OxiaStub.getChannelCredential(planTxtAddress, true);
+        channelCredential = Connection.getChannelCredential(planTxtAddress, true);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
     }
 }

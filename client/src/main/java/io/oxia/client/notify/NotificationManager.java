@@ -18,7 +18,7 @@ package io.oxia.client.notify;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
@@ -51,12 +51,12 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
 
     public NotificationManager(
             @NonNull ScheduledExecutorService executor,
-            @NonNull OxiaStubManager stubManager,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider) {
         this(
                 executor,
-                new ShardNotificationReceiver.Factory(stubManager),
+                new ShardNotificationReceiver.Factory(rpcProvider),
                 shardManager,
                 instrumentProvider);
     }
@@ -121,10 +121,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                 .forEach(
                         s ->
                                 shardReceivers.computeIfAbsent(
-                                        s.id(),
-                                        id ->
-                                                receiverFactory.newReceiver(
-                                                        s.id(), s.leader(), this, OptionalLong.empty())));
+                                        s.id(), id -> receiverFactory.newReceiver(s.id(), this, OptionalLong.empty())));
         changes
                 .reassigned()
                 .forEach(
@@ -134,7 +131,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                             var offset =
                                     receiver.map(ShardNotificationReceiver::getOffset).orElse(OptionalLong.empty());
                             shardReceivers.computeIfAbsent(
-                                    s.id(), id -> receiverFactory.newReceiver(s.id(), s.leader(), this, offset));
+                                    s.id(), id -> receiverFactory.newReceiver(s.id(), this, offset));
                         });
     }
 

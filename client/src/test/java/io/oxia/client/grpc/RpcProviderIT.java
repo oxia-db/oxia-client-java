@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.it;
+package io.oxia.client.grpc;
 
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
-import io.oxia.client.grpc.OxiaStubManager;
 import io.oxia.testcontainers.OxiaContainer;
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -30,11 +29,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @Testcontainers
-class OxiaStubIT {
+class RpcProviderIT {
     @Container
     private static final OxiaContainer oxia =
             new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
-                    .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(OxiaStubIT.class)));
+                    .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(RpcProviderIT.class)));
 
     @Test
     void testMaxConnectionPerNode() throws Exception {
@@ -43,21 +42,22 @@ class OxiaStubIT {
         builder.maxConnectionPerNode(maxConnectionPerNode);
 
         var executor = Executors.newSingleThreadScheduledExecutor();
-        try (OxiaStubManager stubManager =
-                new OxiaStubManager(((OxiaClientBuilderImpl) builder).getClientConfig(), executor)) {
+        try (ConnectionManager connectionManager =
+                new ConnectionManager(((OxiaClientBuilderImpl) builder).getClientConfig(), executor)) {
             for (int i = 0; i < 1000; i++) {
-                stubManager.getStub(oxia.getServiceAddress());
+                connectionManager.getConnection(oxia.getServiceAddress());
             }
 
-            Assertions.assertEquals(maxConnectionPerNode, stubCount(stubManager));
+            Assertions.assertEquals(maxConnectionPerNode, connectionCount(connectionManager));
         } finally {
             executor.shutdownNow();
         }
     }
 
-    private static int stubCount(OxiaStubManager stubManager) throws ReflectiveOperationException {
-        Field field = OxiaStubManager.class.getDeclaredField("stubs");
+    private static int connectionCount(ConnectionManager connectionManager)
+            throws ReflectiveOperationException {
+        Field field = ConnectionManager.class.getDeclaredField("connections");
         field.setAccessible(true);
-        return ((Map<?, ?>) field.get(stubManager)).size();
+        return ((Map<?, ?>) field.get(connectionManager)).size();
     }
 }

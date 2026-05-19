@@ -26,7 +26,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 
-public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
+final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
 
     private final Logger log;
 
@@ -36,7 +36,7 @@ public final class WriteStreamWrapper implements StreamObserver<WriteResponse> {
     private volatile boolean completed;
     private volatile Throwable completedException;
 
-    public WriteStreamWrapper(OxiaClientGrpc.OxiaClientStub stub, long shardId) {
+    WriteStreamWrapper(OxiaClientGrpc.OxiaClientStub stub, long shardId) {
         this.log = Logger.get(WriteStreamWrapper.class).with().attr("shard", shardId).build();
         this.pendingWrites = new ArrayDeque<>();
         this.completed = false;

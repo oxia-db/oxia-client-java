@@ -23,45 +23,50 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 
-public class OxiaStubManager implements AutoCloseable {
-    @VisibleForTesting final Map<Key, OxiaStub> stubs = new ConcurrentHashMap<>();
+class ConnectionManager implements AutoCloseable {
+    private static final Logger log = Logger.get(ConnectionManager.class);
 
-    private static final Logger log = Logger.get(OxiaStubManager.class);
+    @VisibleForTesting final Map<Key, Connection> connections = new ConcurrentHashMap<>();
 
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
     private final ScheduledExecutorService executor;
 
-    public OxiaStubManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
+    ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
         this.executor = executor;
     }
 
-    public OxiaStub getStub(String address) {
+    Connection getConnection(String address) {
         final var random = ThreadLocalRandom.current().nextInt();
         var modKey = random % maxConnectionPerNode;
         if (modKey < 0) {
             modKey += maxConnectionPerNode;
         }
-        return stubs.computeIfAbsent(
+        return connections.computeIfAbsent(
                 new Key(address, modKey),
-                key -> new OxiaStub(key.address, clientConfig, executor, stub -> removeStub(key, stub)));
+                key ->
+                        new Connection(
+                                key.address,
+                                clientConfig,
+                                executor,
+                                connection -> removeConnection(key, connection)));
     }
 
     @Override
     public void close() throws Exception {
-        for (OxiaStub stub : stubs.values()) {
-            stub.close();
+        for (Connection connection : connections.values()) {
+            connection.close();
         }
     }
 
-    private void removeStub(Key key, OxiaStub stub) {
-        if (!stubs.remove(key, stub)) {
+    private void removeConnection(Key key, Connection connection) {
+        if (!connections.remove(key, connection)) {
             return;
         }
         try {
-            stub.close();
+            connection.close();
         } catch (Exception e) {
             log.warn().exception(e).log("Failed to close unhealthy GRPC connection");
         }
