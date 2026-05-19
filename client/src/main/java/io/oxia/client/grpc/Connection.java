@@ -16,16 +16,17 @@
 package io.oxia.client.grpc;
 
 import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
-import static io.oxia.client.grpc.ConnectionUtils.getAddress;
-import static io.oxia.client.grpc.ConnectionUtils.getChannelCredential;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import io.github.merlimat.slog.Logger;
 import io.grpc.CallCredentials;
+import io.grpc.ChannelCredentials;
 import io.grpc.Grpc;
+import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.Status;
+import io.grpc.TlsChannelCredentials;
 import io.grpc.health.v1.HealthCheckRequest;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
@@ -42,6 +43,7 @@ import javax.annotation.Nullable;
 import lombok.NonNull;
 
 class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
+    private static final String TLS_SCHEMA = "tls://";
     private static final Logger log = Logger.get(Connection.class);
 
     private final ManagedChannel channel;
@@ -120,6 +122,19 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     @NonNull
     OxiaClientGrpc.OxiaClientStub stub() {
         return asyncStub;
+    }
+
+    static String getAddress(String address) {
+        if (address.startsWith(TLS_SCHEMA)) {
+            return address.substring(TLS_SCHEMA.length());
+        }
+        return address;
+    }
+
+    static ChannelCredentials getChannelCredential(String address, boolean tlsEnabled) {
+        return tlsEnabled || address.startsWith(TLS_SCHEMA)
+                ? TlsChannelCredentials.newBuilder().build()
+                : InsecureChannelCredentials.create();
     }
 
     @Override

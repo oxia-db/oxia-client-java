@@ -25,26 +25,26 @@ class ConnectionTest {
     @Test
     public void testAddressTrim() {
         final var tlsAddress = "tls://localhost:6648";
-        Assertions.assertEquals("localhost:6648", ConnectionUtils.getAddress(tlsAddress));
+        Assertions.assertEquals("localhost:6648", Connection.getAddress(tlsAddress));
 
         final var planTxtAddress = "localhost:6648";
-        Assertions.assertEquals("localhost:6648", ConnectionUtils.getAddress(planTxtAddress));
+        Assertions.assertEquals("localhost:6648", Connection.getAddress(planTxtAddress));
     }
 
     @Test
     public void testTlsCredential() {
         final var tlsAddress = "tls://localhost:6648";
-        var channelCredential = ConnectionUtils.getChannelCredential(tlsAddress, false);
+        var channelCredential = Connection.getChannelCredential(tlsAddress, false);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
 
-        channelCredential = ConnectionUtils.getChannelCredential(tlsAddress, true);
+        channelCredential = Connection.getChannelCredential(tlsAddress, true);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
 
         final var planTxtAddress = "localhost:6648";
-        channelCredential = ConnectionUtils.getChannelCredential(planTxtAddress, false);
+        channelCredential = Connection.getChannelCredential(planTxtAddress, false);
         Assertions.assertInstanceOf(InsecureChannelCredentials.class, channelCredential);
 
-        channelCredential = ConnectionUtils.getChannelCredential(planTxtAddress, true);
+        channelCredential = Connection.getChannelCredential(planTxtAddress, true);
         Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
     }
 }

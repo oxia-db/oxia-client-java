@@ -15,10 +15,11 @@
  */
 package io.oxia.client.grpc;
 
-import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
+import io.oxia.client.grpc.observer.ManagedClientResponseObserver;
+import io.oxia.client.grpc.observer.ManagedStreamObserver;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
@@ -74,7 +75,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(clientConfig.serviceAddress())
                     .stub()
-                    .getShardAssignments(request, withOxiaErrors(observer));
+                    .getShardAssignments(request, new ManagedStreamObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -87,7 +88,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .getNotifications(request, withOxiaErrors(observer));
+                    .getNotifications(request, new ManagedStreamObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -134,7 +135,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(heartbeat.getShard()))
                     .stub()
-                    .keepAlive(heartbeat, withOxiaErrors(observer));
+                    .keepAlive(heartbeat, new ManagedStreamObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -180,7 +181,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .read(request, withOxiaErrors(observer));
+                    .read(request, new ManagedStreamObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -208,7 +209,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .list(request, withCancelableOxiaErrors(observer));
+                    .list(request, new ManagedClientResponseObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -222,7 +223,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .rangeScan(request, withCancelableOxiaErrors(observer));
+                    .rangeScan(request, new ManagedClientResponseObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -236,7 +237,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .getSequenceUpdates(request, withCancelableOxiaErrors(observer));
+                    .getSequenceUpdates(request, new ManagedClientResponseObserver<>(observer));
         } catch (Throwable error) {
             final var translated = OxiaStatusException.toException(error);
             executor.execute(() -> observer.onError(translated));
@@ -246,49 +247,5 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void close() throws Exception {
         connectionManager.close();
-    }
-
-    private static <T> StreamObserver<T> withOxiaErrors(StreamObserver<T> observer) {
-        return new StreamObserver<>() {
-            @Override
-            public void onNext(@NonNull T value) {
-                observer.onNext(value);
-            }
-
-            @Override
-            public void onError(@NonNull Throwable error) {
-                observer.onError(OxiaStatusException.toException(error));
-            }
-
-            @Override
-            public void onCompleted() {
-                observer.onCompleted();
-            }
-        };
-    }
-
-    private static <ReqT, RespT> ClientResponseObserver<ReqT, RespT> withCancelableOxiaErrors(
-            CancelableStreamObserver<RespT> observer) {
-        return new ClientResponseObserver<>() {
-            @Override
-            public void beforeStart(@NonNull ClientCallStreamObserver<ReqT> requestStream) {
-                observer.setRequestStream(requestStream);
-            }
-
-            @Override
-            public void onNext(@NonNull RespT value) {
-                observer.onNext(value);
-            }
-
-            @Override
-            public void onError(@NonNull Throwable error) {
-                observer.onError(OxiaStatusException.toException(error));
-            }
-
-            @Override
-            public void onCompleted() {
-                observer.onCompleted();
-            }
-        };
     }
 }

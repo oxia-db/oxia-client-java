@@ -17,8 +17,8 @@ package io.oxia.client;
 
 import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
-import io.oxia.client.grpc.CancelableStreamObserver;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;

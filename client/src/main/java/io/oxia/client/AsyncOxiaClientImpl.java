@@ -35,8 +35,8 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
-import io.oxia.client.grpc.CancelableStreamObserver;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
@@ -862,10 +862,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 delegate.onCompleted();
             }
         }
-    }
-
-    interface Cancelable {
-        void cancel();
     }
 
     @Override

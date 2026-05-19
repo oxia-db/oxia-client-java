@@ -24,9 +24,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 
 class ConnectionManager implements AutoCloseable {
-    @VisibleForTesting final Map<Key, Connection> connections = new ConcurrentHashMap<>();
-
     private static final Logger log = Logger.get(ConnectionManager.class);
+
+    @VisibleForTesting final Map<Key, Connection> connections = new ConcurrentHashMap<>();
 
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;

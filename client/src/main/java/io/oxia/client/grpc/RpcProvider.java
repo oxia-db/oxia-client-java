@@ -17,6 +17,7 @@ package io.oxia.client.grpc;
 
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;

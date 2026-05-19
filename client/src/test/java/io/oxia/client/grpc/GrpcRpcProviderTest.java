@@ -20,6 +20,7 @@ import static org.awaitility.Awaitility.await;
 
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.shard.NoShardAvailableException;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
