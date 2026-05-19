@@ -763,7 +763,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             return;
                         }
                         cancelled = true;
-                        cancel("Range scan cancelled", null);
+                        cancel();
                     }
 
                     @Override

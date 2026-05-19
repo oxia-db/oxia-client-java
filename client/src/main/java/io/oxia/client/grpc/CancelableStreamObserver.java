@@ -16,37 +16,43 @@
 package io.oxia.client.grpc;
 
 import io.grpc.stub.StreamObserver;
-import java.util.function.BiConsumer;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
-    private final Object lock = new Object();
-    private BiConsumer<String, Throwable> cancelHandler;
+    private final Lock lock = new ReentrantLock();
+    private Runnable cancelHandler;
     private boolean canceled;
-    private CancelRequest cancelRequest;
 
-    public void cancel(String message, Throwable cause) {
-        BiConsumer<String, Throwable> handler;
-        synchronized (lock) {
+    public void cancel() {
+        Runnable handler;
+        lock.lock();
+        try {
+            if (canceled) {
+                return;
+            }
             canceled = true;
-            cancelRequest = new CancelRequest(message, cause);
             if (cancelHandler == null) {
                 return;
             }
             handler = cancelHandler;
+        } finally {
+            lock.unlock();
         }
-        handler.accept(message, cause);
+        handler.run();
     }
 
-    void setCancelHandler(BiConsumer<String, Throwable> cancelHandler) {
-        CancelRequest cancel;
-        synchronized (lock) {
+    void setCancelHandler(Runnable cancelHandler) {
+        boolean shouldCancel;
+        lock.lock();
+        try {
             this.cancelHandler = cancelHandler;
-            cancel = canceled ? cancelRequest : null;
+            shouldCancel = canceled;
+        } finally {
+            lock.unlock();
         }
-        if (cancel != null) {
-            cancelHandler.accept(cancel.message(), cancel.cause());
+        if (shouldCancel) {
+            cancelHandler.run();
         }
     }
-
-    private record CancelRequest(String message, Throwable cause) {}
 }

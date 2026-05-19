@@ -87,7 +87,7 @@ public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdates
     @Override
     public synchronized void close() throws IOException {
         closed = true;
-        cancel("closing streaming", null);
+        cancel();
     }
 
     @Override
