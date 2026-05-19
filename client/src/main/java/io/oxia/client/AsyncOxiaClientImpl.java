@@ -72,21 +72,23 @@ import lombok.NonNull;
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
-        ScheduledExecutorService executor =
-                Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client"));
+        final ScheduledExecutorService asyncExecutor =
+                Executors.newScheduledThreadPool(
+                        Runtime.getRuntime().availableProcessors(),
+                        new DefaultThreadFactory("oxia-client-async"));
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
         var shardManagerRef = new AtomicReference<ShardManager>();
         var rpcProvider =
-                RpcProvider.create(config, executor, shardId -> shardManagerRef.get().leader(shardId));
+                RpcProvider.create(config, asyncExecutor, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(executor, rpcProvider, instrumentProvider, config.namespace());
+                new ShardManager(asyncExecutor, rpcProvider, instrumentProvider, config.namespace());
         shardManagerRef.set(shardManager);
         var notificationManager =
-                new NotificationManager(executor, rpcProvider, shardManager, instrumentProvider);
+                new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
         var readBatchManager =
                 BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
-        var sessionManager = new SessionManager(executor, config, rpcProvider, instrumentProvider);
+        var sessionManager = new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
         shardManager.addCallback(sessionManager);
         var writeBatchManager =
                 BatchManager.newWriteBatchManager(config, rpcProvider, sessionManager, instrumentProvider);
@@ -94,7 +96,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var client =
                 new AsyncOxiaClientImpl(
                         config.clientIdentifier(),
-                        executor,
+                        asyncExecutor,
                         instrumentProvider,
                         rpcProvider,
                         shardManager,

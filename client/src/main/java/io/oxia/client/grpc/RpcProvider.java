@@ -59,8 +59,7 @@ public interface RpcProvider extends AutoCloseable {
 
     CompletableFuture<CreateSessionResponse> createSession(@NonNull CreateSessionRequest request);
 
-    void keepAlive(
-            @NonNull SessionHeartbeat heartbeat, @NonNull StreamObserver<KeepAliveResponse> observer);
+    CompletableFuture<KeepAliveResponse> keepAlive(@NonNull SessionHeartbeat heartbeat);
 
     CompletableFuture<CloseSessionResponse> closeSession(@NonNull CloseSessionRequest request);
 

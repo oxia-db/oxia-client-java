@@ -15,10 +15,14 @@
  */
 package io.oxia.client.grpc;
 
+import dev.failsafe.Failsafe;
+import dev.failsafe.RetryPolicy;
+import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.grpc.observer.ManagedClientResponseObserver;
+import io.oxia.client.grpc.observer.ManagedObservers;
 import io.oxia.client.grpc.observer.ManagedStreamObserver;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
@@ -43,10 +47,13 @@ import io.oxia.proto.WriteResponse;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
 import lombok.NonNull;
 
 final class GrpcRpcProvider implements RpcProvider {
+    private static final Logger log = Logger.get(GrpcRpcProvider.class);
+
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService executor;
@@ -97,82 +104,63 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public CompletableFuture<CreateSessionResponse> createSession(
             @NonNull CreateSessionRequest request) {
-        final CompletableFuture<CreateSessionResponse> future = new CompletableFuture<>();
-        try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .createSession(
-                            request,
-                            new StreamObserver<>() {
-                                private CreateSessionResponse response;
-
-                                @Override
-                                public void onNext(@NonNull CreateSessionResponse response) {
-                                    this.response = response;
-                                }
-
-                                @Override
-                                public void onError(@NonNull Throwable error) {
-                                    future.completeExceptionally(OxiaStatusException.toException(error));
-                                }
-
-                                @Override
-                                public void onCompleted() {
-                                    future.complete(response);
-                                }
-                            });
-        } catch (Throwable error) {
-            future.completeExceptionally(OxiaStatusException.toException(error));
-        }
-        return future;
+        final var hint = new AtomicReference<OxiaStatusException>();
+        return Failsafe.with(getRetryPolicy(hint))
+                .with(executor)
+                .getStageAsync(
+                        () -> {
+                            final var future = new CompletableFuture<CreateSessionResponse>();
+                            try {
+                                connectionManager
+                                        .getConnection(getLeader(request.getShard(), hint))
+                                        .stub()
+                                        .createSession(request, ManagedObservers.toCompletableFuture(future));
+                            } catch (Throwable error) {
+                                future.completeExceptionally(OxiaStatusException.toException(error));
+                            }
+                            return future;
+                        });
     }
 
     @Override
-    public void keepAlive(
-            @NonNull SessionHeartbeat heartbeat, @NonNull StreamObserver<KeepAliveResponse> observer) {
-        try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(heartbeat.getShard()))
-                    .stub()
-                    .keepAlive(heartbeat, new ManagedStreamObserver<>(observer));
-        } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
-        }
+    public CompletableFuture<KeepAliveResponse> keepAlive(@NonNull SessionHeartbeat heartbeat) {
+        final var hint = new AtomicReference<OxiaStatusException>();
+        return Failsafe.with(getRetryPolicy(hint))
+                .with(executor)
+                .getStageAsync(
+                        () -> {
+                            final var future = new CompletableFuture<KeepAliveResponse>();
+                            try {
+                                connectionManager
+                                        .getConnection(getLeader(heartbeat.getShard(), hint))
+                                        .stub()
+                                        .keepAlive(heartbeat, ManagedObservers.toCompletableFuture(future));
+                            } catch (Throwable error) {
+                                future.completeExceptionally(OxiaStatusException.toException(error));
+                            }
+                            return future;
+                        });
     }
 
     @Override
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
-        final CompletableFuture<CloseSessionResponse> future = new CompletableFuture<>();
-        try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .closeSession(
-                            request,
-                            new StreamObserver<>() {
-                                private CloseSessionResponse response;
-
-                                @Override
-                                public void onNext(@NonNull CloseSessionResponse response) {
-                                    this.response = response;
-                                }
-
-                                @Override
-                                public void onError(@NonNull Throwable error) {
-                                    future.completeExceptionally(OxiaStatusException.toException(error));
-                                }
-
-                                @Override
-                                public void onCompleted() {
-                                    future.complete(response);
-                                }
-                            });
-        } catch (Throwable error) {
-            future.completeExceptionally(OxiaStatusException.toException(error));
-        }
-        return future;
+        final var hint = new AtomicReference<OxiaStatusException>();
+        return Failsafe.with(getRetryPolicy(hint))
+                .with(executor)
+                .getStageAsync(
+                        () -> {
+                            final var future = new CompletableFuture<CloseSessionResponse>();
+                            try {
+                                connectionManager
+                                        .getConnection(getLeader(request.getShard(), hint))
+                                        .stub()
+                                        .closeSession(request, ManagedObservers.toCompletableFuture(future));
+                            } catch (Throwable error) {
+                                future.completeExceptionally(OxiaStatusException.toException(error));
+                            }
+                            return future;
+                        });
     }
 
     @Override
@@ -250,5 +238,37 @@ final class GrpcRpcProvider implements RpcProvider {
         } finally {
             connectionManager.close();
         }
+    }
+
+    private String getLeader(long shardId, @NonNull AtomicReference<OxiaStatusException> hint) {
+        final var retryHint = hint.get();
+        return retryHint == null
+                ? shardLeaderProvider.apply(shardId)
+                : retryHint.getLeaderHint(shardId).orElseGet(() -> shardLeaderProvider.apply(shardId));
+    }
+
+    private <T> RetryPolicy<T> getRetryPolicy(@NonNull AtomicReference<OxiaStatusException> hint) {
+        return RetryPolicy.<T>builder()
+                .handleIf(
+                        error -> {
+                            final var translated = OxiaStatusException.toException(error);
+                            if (translated instanceof OxiaStatusException oxiaError) {
+                                hint.set(oxiaError);
+                            }
+                            return OxiaStatusException.isRetryable(translated);
+                        })
+                .withBackoff(
+                        clientConfig.connectionBackoffMinDelay(), clientConfig.connectionBackoffMaxDelay())
+                .onRetryScheduled(
+                        event ->
+                                log.warn()
+                                        .exceptionMessage(OxiaStatusException.toException(event.getLastException()))
+                                        .log(
+                                                "Retrying RPC operation after "
+                                                        + event.getDelay()
+                                                        + ". attempt="
+                                                        + (event.getAttemptCount() + 1)))
+                .withMaxAttempts(-1)
+                .build();
     }
 }

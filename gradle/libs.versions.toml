@@ -18,6 +18,7 @@ byte-buddy = "1.15.10"
 commons-compress = "1.26.0"
 commons-lang3 = "3.19.0"
 caffeine = "3.1.4"
+failsafe = "3.3.2"
 protobuf-java = "4.34.0"
 proto-google-common-protos = "2.59.2"
 jackson = "2.21.1"
@@ -67,6 +68,7 @@ netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
 
 # Client dependencies
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+failsafe = { module = "dev.failsafe:failsafe", version.ref = "failsafe" }
 jakarta-annotation-api = { module = "jakarta.annotation:jakarta.annotation-api", version.ref = "jakarta-annotation" }
 zero-allocation-hashing = { module = "net.openhft:zero-allocation-hashing", version.ref = "zero-allocation-hashing" }
 
