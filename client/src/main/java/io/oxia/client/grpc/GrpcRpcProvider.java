@@ -51,7 +51,7 @@ final class GrpcRpcProvider implements RpcProvider {
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService executor;
     private final LongFunction<String> shardLeaderProvider;
-    private final WriteStreamManager writeStreamManager;
+    private final ManagedWriteStream managedWriteStream;
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -61,8 +61,8 @@ final class GrpcRpcProvider implements RpcProvider {
         this.executor = executor;
         this.connectionManager = new ConnectionManager(clientConfig, executor);
         this.shardLeaderProvider = shardLeaderProvider;
-        this.writeStreamManager =
-                new WriteStreamManager(
+        this.managedWriteStream =
+                new ManagedWriteStream(
                         clientConfig.namespace(),
                         shardId -> connectionManager.getConnection(shardLeaderProvider.apply(shardId)).stub());
     }
@@ -190,9 +190,8 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public CompletableFuture<WriteResponse> write(@NonNull WriteRequest request) {
         try {
-            return writeStreamManager
-                    .getWriteStream(request.getShard())
-                    .send(request)
+            return managedWriteStream
+                    .write(request)
                     .exceptionally(
                             error -> {
                                 throw new CompletionException(OxiaStatusException.toException(error));
@@ -246,6 +245,10 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public void close() throws Exception {
-        connectionManager.close();
+        try {
+            managedWriteStream.close();
+        } finally {
+            connectionManager.close();
+        }
     }
 }
