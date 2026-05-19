@@ -74,14 +74,14 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                         @Override
                         public void applyRequestMetadata(
                                 RequestInfo requestInfo, Executor appExecutor, MetadataApplier applier) {
-                            Metadata credentials = new Metadata();
+                            Metadata metadata = new Metadata();
                             authentication
                                     .generateCredentials()
                                     .forEach(
                                             (key, value) ->
-                                                    credentials.put(
+                                                    metadata.put(
                                                             Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
-                            applier.apply(credentials);
+                            applier.apply(metadata);
                         }
                     };
         }
