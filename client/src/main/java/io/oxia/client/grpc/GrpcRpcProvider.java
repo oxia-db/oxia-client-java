@@ -46,8 +46,6 @@ import java.util.function.LongFunction;
 import lombok.NonNull;
 
 final class GrpcRpcProvider implements RpcProvider {
-    private static final String CANCELED = "canceled";
-
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService executor;
@@ -274,7 +272,7 @@ final class GrpcRpcProvider implements RpcProvider {
         return new ClientResponseObserver<>() {
             @Override
             public void beforeStart(@NonNull ClientCallStreamObserver<ReqT> requestStream) {
-                observer.setCancelHandler(() -> requestStream.cancel(CANCELED, null));
+                observer.setRequestStream(requestStream);
             }
 
             @Override

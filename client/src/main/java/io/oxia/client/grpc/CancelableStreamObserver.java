@@ -15,44 +15,46 @@
  */
 package io.oxia.client.grpc;
 
+import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
+    private static final String CANCELED = "canceled";
+
     private final Lock lock = new ReentrantLock();
-    private Runnable cancelHandler;
+    private ClientCallStreamObserver<?> requestStream;
     private boolean canceled;
 
     public void cancel() {
-        Runnable handler;
+        ClientCallStreamObserver<?> stream;
         lock.lock();
         try {
             if (canceled) {
                 return;
             }
             canceled = true;
-            if (cancelHandler == null) {
-                return;
-            }
-            handler = cancelHandler;
+            stream = requestStream;
         } finally {
             lock.unlock();
         }
-        handler.run();
+        if (stream != null) {
+            stream.cancel(CANCELED, null);
+        }
     }
 
-    void setCancelHandler(Runnable cancelHandler) {
+    void setRequestStream(ClientCallStreamObserver<?> requestStream) {
         boolean shouldCancel;
         lock.lock();
         try {
-            this.cancelHandler = cancelHandler;
+            this.requestStream = requestStream;
             shouldCancel = canceled;
         } finally {
             lock.unlock();
         }
         if (shouldCancel) {
-            cancelHandler.run();
+            requestStream.cancel(CANCELED, null);
         }
     }
 }
