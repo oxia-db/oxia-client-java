@@ -98,11 +98,12 @@ public class OxiaStatusException extends RuntimeException {
             statusCode =
                     switch (grpcStatus.getMessage()) {
                         case "oxia: server not initialized yet" -> OxiaStatusCode.NOT_INITIALIZED;
-                        case "oxia: operation was cancelled", "oxia: resource is already closed" ->
+                        case "oxia: operation was cancelled",
+                                "oxia: resource is already closed",
+                                "oxia: leader is already connected" ->
                                 OxiaStatusCode.ABORTED;
                         case "oxia: invalid term" -> OxiaStatusCode.INVALID_TERM;
                         case "oxia: invalid status" -> OxiaStatusCode.INVALID_STATUS;
-                        case "oxia: leader is already connected" -> OxiaStatusCode.ABORTED;
                         case "oxia: session not found" -> OxiaStatusCode.SESSION_NOT_FOUND;
                         case "oxia: invalid session timeout" -> OxiaStatusCode.INVALID_SESSION_TIMEOUT;
                         case "oxia: namespace not found" -> OxiaStatusCode.NAMESPACE_NOT_FOUND;
