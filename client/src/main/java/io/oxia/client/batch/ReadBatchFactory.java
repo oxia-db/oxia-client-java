@@ -17,7 +17,7 @@ package io.oxia.client.batch;
 
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
 import lombok.Getter;
@@ -28,10 +28,10 @@ class ReadBatchFactory extends BatchFactory {
     @Getter private final LatencyHistogram readRequestLatencyHistogram;
 
     public ReadBatchFactory(
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ClientConfig config,
             @NonNull InstrumentProvider instrumentProvider) {
-        super(stubProvider, config);
+        super(rpcProvider, config);
 
         readRequestLatencyHistogram =
                 instrumentProvider.newLatencyHistogram(
@@ -42,6 +42,6 @@ class ReadBatchFactory extends BatchFactory {
 
     @Override
     public Batch getBatch(long shardId) {
-        return new ReadBatch(this, stubProvider, shardId);
+        return new ReadBatch(this, rpcProvider, shardId);
     }
 }

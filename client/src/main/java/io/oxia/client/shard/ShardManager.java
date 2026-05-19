@@ -16,7 +16,7 @@
 package io.oxia.client.shard;
 
 import static com.google.common.base.Throwables.getRootCause;
-import static io.oxia.client.grpc.GrpcStatusUtils.isNamespaceNotFound;
+import static io.oxia.client.grpc.OxiaStatusException.isNamespaceNotFound;
 import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
@@ -26,11 +26,10 @@ import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
@@ -54,8 +53,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private static final Logger LOG = Logger.get(ShardManager.class);
     private final Logger log;
     private final ScheduledExecutorService executor;
-    private final OxiaStubManager stubManager;
-    private final String serviceAddress;
+    private final RpcProvider rpcProvider;
     private final @NonNull ShardAssignmentsContainer assignments;
     private final @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks;
 
@@ -69,13 +67,11 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @VisibleForTesting
     ShardManager(
             @NonNull ScheduledExecutorService executor,
-            @NonNull OxiaStubManager stubManager,
-            @NonNull String serviceAddress,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ShardAssignmentsContainer assignments,
             @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks,
             @NonNull InstrumentProvider instrumentProvider) {
-        this.stubManager = stubManager;
-        this.serviceAddress = serviceAddress;
+        this.rpcProvider = rpcProvider;
         this.executor = executor;
         this.assignments = assignments;
         this.callbacks = callbacks;
@@ -90,15 +86,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     }
 
     public ShardManager(
-            ScheduledExecutorService executor,
-            @NonNull OxiaStubManager stubManager,
-            @NonNull String serviceAddress,
+            @NonNull ScheduledExecutorService executor,
+            @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
         this(
                 executor,
-                stubManager,
-                serviceAddress,
+                rpcProvider,
                 new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace),
                 new CompositeConsumer<>(),
                 instrumentProvider);
@@ -113,7 +107,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
-        stubManager.getStub(serviceAddress).async().getShardAssignments(req, this);
+        rpcProvider.getShardAssignments(req, this);
         return initialAssignmentsFuture;
     }
 
@@ -133,15 +127,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        if (error instanceof StatusRuntimeException statusError) {
-            var status = statusError.getStatus();
-            if (isNamespaceNotFound(status) && !initialAssignmentsFuture.isDone()) {
-                log.error("Namespace not found");
-                if (initialAssignmentsFuture.completeExceptionally(
-                        new NamespaceNotFoundException(assignments.getNamespace()))) {
-                    close();
-                    return;
-                }
+        if (isNamespaceNotFound(error) && !initialAssignmentsFuture.isDone()) {
+            log.error("Namespace not found");
+            if (initialAssignmentsFuture.completeExceptionally(
+                    new NamespaceNotFoundException(assignments.getNamespace()))) {
+                close();
+                return;
             }
         }
         log.warn().exception(getRootCause(error)).log("Failed receiving shard assignments");

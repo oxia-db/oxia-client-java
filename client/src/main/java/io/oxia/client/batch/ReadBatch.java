@@ -17,7 +17,7 @@ package io.oxia.client.batch;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.grpc.stub.StreamObserver;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
@@ -35,8 +35,8 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
     private int responseIndex = 0;
     long startSendTimeNanos;
 
-    ReadBatch(ReadBatchFactory factory, OxiaStubProvider stubProvider, long shardId) {
-        super(stubProvider, shardId);
+    ReadBatch(ReadBatchFactory factory, RpcProvider rpcProvider, long shardId) {
+        super(rpcProvider, shardId);
         this.factory = factory;
     }
 
@@ -60,7 +60,7 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
     public void send() {
         startSendTimeNanos = System.nanoTime();
         try {
-            getStub().async().read(toProto(), this);
+            rpcProvider.read(toProto(), this);
         } catch (Throwable t) {
             onError(t);
         }

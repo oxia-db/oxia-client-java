@@ -19,7 +19,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
@@ -135,22 +135,22 @@ public class Batcher implements AutoCloseable {
 
     static @NonNull Function<Long, Batcher> newReadBatcherFactory(
             @NonNull ClientConfig config,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             InstrumentProvider instrumentProvider) {
         return s ->
-                new Batcher(config, s, new ReadBatchFactory(stubProvider, config, instrumentProvider));
+                new Batcher(config, s, new ReadBatchFactory(rpcProvider, config, instrumentProvider));
     }
 
     static @NonNull Function<Long, Batcher> newWriteBatcherFactory(
             @NonNull ClientConfig config,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
             InstrumentProvider instrumentProvider) {
         return s ->
                 new Batcher(
                         config,
                         s,
-                        new WriteBatchFactory(stubProvider, sessionManager, config, instrumentProvider));
+                        new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider));
     }
 
     @Override

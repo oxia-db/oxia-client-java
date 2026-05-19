@@ -15,28 +15,18 @@
  */
 package io.oxia.client.batch;
 
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubProvider;
-import io.oxia.client.grpc.WriteStreamWrapper;
+import io.oxia.client.grpc.RpcProvider;
 import lombok.Getter;
 import lombok.NonNull;
 
 abstract class BatchBase {
-    private final @NonNull OxiaStubProvider stubProvider;
+    protected final @NonNull RpcProvider rpcProvider;
     @Getter private final long shardId;
 
     @Getter private final long startTimeNanos = System.nanoTime();
 
-    BatchBase(OxiaStubProvider stubProvider, long shardId) {
-        this.stubProvider = stubProvider;
+    BatchBase(@NonNull RpcProvider rpcProvider, long shardId) {
+        this.rpcProvider = rpcProvider;
         this.shardId = shardId;
-    }
-
-    protected OxiaStub getStub() {
-        return stubProvider.getStubForShard(shardId);
-    }
-
-    protected WriteStreamWrapper getWriteStream() {
-        return stubProvider.getWriteStreamForShard(shardId);
     }
 }

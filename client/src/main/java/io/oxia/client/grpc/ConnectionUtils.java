@@ -1,0 +1,39 @@
+/*
+ * Copyright © 2026 The Oxia Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.oxia.client.grpc;
+
+import io.grpc.ChannelCredentials;
+import io.grpc.InsecureChannelCredentials;
+import io.grpc.TlsChannelCredentials;
+
+final class ConnectionUtils {
+    private static final String TLS_SCHEMA = "tls://";
+
+    private ConnectionUtils() {}
+
+    static String getAddress(String address) {
+        if (address.startsWith(TLS_SCHEMA)) {
+            return address.substring(TLS_SCHEMA.length());
+        }
+        return address;
+    }
+
+    static ChannelCredentials getChannelCredential(String address, boolean tlsEnabled) {
+        return tlsEnabled || address.startsWith(TLS_SCHEMA)
+                ? TlsChannelCredentials.newBuilder().build()
+                : InsecureChannelCredentials.create();
+    }
+}

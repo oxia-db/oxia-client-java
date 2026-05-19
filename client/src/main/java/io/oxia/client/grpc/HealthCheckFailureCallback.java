@@ -16,5 +16,5 @@
 package io.oxia.client.grpc;
 
 interface HealthCheckFailureCallback {
-    void onFailure(OxiaStub stub);
+    void onFailure(Connection connection);
 }

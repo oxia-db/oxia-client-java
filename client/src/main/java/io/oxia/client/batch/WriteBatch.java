@@ -18,7 +18,7 @@ package io.oxia.client.batch;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.session.SessionManager;
 import io.oxia.proto.WriteRequest;
 import java.util.ArrayList;
@@ -45,11 +45,11 @@ final class WriteBatch extends BatchBase implements Batch {
 
     WriteBatch(
             @NonNull WriteBatchFactory factory,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
             long shardId,
             int maxBatchSize) {
-        super(stubProvider, shardId);
+        super(rpcProvider, shardId);
         this.factory = factory;
         this.sessionManager = sessionManager;
         this.byteSize = 0;
@@ -95,8 +95,8 @@ final class WriteBatch extends BatchBase implements Batch {
     public void send() {
         startSendTimeNanos = System.nanoTime();
         try {
-            getWriteStream()
-                    .send(toProto())
+            rpcProvider
+                    .write(toProto())
                     .thenAccept(
                             response -> {
                                 factory.writeRequestLatencyHistogram.recordSuccess(

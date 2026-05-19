@@ -19,14 +19,13 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.ClientCall;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
-import io.oxia.proto.OxiaClientGrpc;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.function.Consumer;
@@ -41,7 +40,7 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
     private final String partitionKey;
 
     private final Consumer<String> listener;
-    private final OxiaStubManager stubManager;
+    private final RpcProvider rpcProvider;
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
     private final Function<Void, Boolean> isClientClosed;
@@ -53,14 +52,14 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
             @NonNull String key,
             @NonNull String partitionKey,
             @NonNull Consumer<String> listener,
-            @NonNull OxiaStubManager stubManager,
+            @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
             Function<Void, Boolean> isClientClosed) {
         this.key = key;
         this.partitionKey = partitionKey;
         this.listener = listener;
-        this.stubManager = stubManager;
+        this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
         this.isClientClosed = isClientClosed;
 
@@ -80,16 +79,10 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         }
 
         long shardId = shardManager.getShardForKey(partitionKey);
-        var leader = shardManager.leader(shardId);
-        var stub = stubManager.getStub(leader).async();
-
         var request = new GetSequenceUpdatesRequest();
         request.setShard(shardId).setKey(key);
 
-        this.call =
-                stub.getChannel()
-                        .newCall(OxiaClientGrpc.getGetSequenceUpdatesMethod(), stub.getCallOptions());
-        io.grpc.stub.ClientCalls.asyncServerStreamingCall(call, request, this);
+        this.call = rpcProvider.getSequenceUpdates(request, this);
     }
 
     @Override

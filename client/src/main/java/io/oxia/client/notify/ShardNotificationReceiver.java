@@ -24,8 +24,7 @@ import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
@@ -41,8 +40,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     private final Logger log;
 
-    private final OxiaStubManager manager;
-    private final String leader;
+    private final RpcProvider rpcProvider;
     private final NotificationManager notificationManager;
 
     @Getter(PACKAGE)
@@ -57,14 +55,12 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     private final Backoff backoff = new Backoff();
 
     ShardNotificationReceiver(
-            @NonNull OxiaStubManager stubManager,
-            @NonNull String leader,
+            @NonNull RpcProvider rpcProvider,
             long shardId,
             @NonNull Consumer<Notification> callback,
-            NotificationManager notificationManager,
+            @NonNull NotificationManager notificationManager,
             @NonNull OptionalLong offset) {
-        this.manager = stubManager;
-        this.leader = leader;
+        this.rpcProvider = rpcProvider;
         this.notificationManager = notificationManager;
         this.shardId = shardId;
         this.callback = callback;
@@ -79,8 +75,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         request.setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
         try {
-            final OxiaStub stub = manager.getStub(leader);
-            stub.async().getNotifications(request, this);
+            rpcProvider.getNotifications(request, this);
         } catch (Throwable ex) {
             onError(ex);
         }
@@ -151,7 +146,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     @RequiredArgsConstructor(access = PACKAGE)
     static class Factory {
-        private final @NonNull OxiaStubManager stubManager;
+        private final @NonNull RpcProvider rpcProvider;
 
         @Getter
         private final @NonNull CompositeConsumer<Notification> callback = new CompositeConsumer<>();
@@ -159,11 +154,10 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         @NonNull
         ShardNotificationReceiver newReceiver(
                 long shardId,
-                @NonNull String leader,
                 @NonNull NotificationManager notificationManager,
                 @NonNull OptionalLong offset) {
             return new ShardNotificationReceiver(
-                    stubManager, leader, shardId, callback, notificationManager, offset);
+                    rpcProvider, shardId, callback, notificationManager, offset);
         }
     }
 
