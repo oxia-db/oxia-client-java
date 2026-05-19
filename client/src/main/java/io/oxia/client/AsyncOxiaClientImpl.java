@@ -733,7 +733,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
-                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer, null);
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
             } else {
                 internalRangeScanMultiShards(
                         startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
@@ -743,37 +743,23 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
     }
 
-    private void internalShardRangeScan(
+    private Runnable internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer,
-            Consumer<Runnable> cancelRegistrar) {
+            RangeScanConsumer consumer) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         var observer =
                 new CancelableStreamObserver<RangeScanResponse>() {
-                    volatile boolean cancelled = false;
-
-                    void cancelStream() {
-                        if (cancelled) {
-                            return;
-                        }
-                        cancelled = true;
-                        cancel();
-                    }
-
                     @Override
                     public void onNext(RangeScanResponse response) {
-                        if (cancelled) {
-                            return;
-                        }
                         for (int i = 0; i < response.getRecordsCount(); i++) {
                             if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                cancelStream();
+                                cancel();
                                 consumer.onCompleted();
                                 return;
                             }
@@ -782,26 +768,17 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
                     @Override
                     public void onError(Throwable t) {
-                        if (cancelled) {
-                            return;
-                        }
                         consumer.onError(t);
                     }
 
                     @Override
                     public void onCompleted() {
-                        if (cancelled) {
-                            return;
-                        }
                         consumer.onCompleted();
                     }
                 };
 
         rpcProvider.rangeScan(request, observer);
-
-        if (cancelRegistrar != null) {
-            cancelRegistrar.accept(observer::cancelStream);
-        }
+        return observer::cancel;
     }
 
     private void internalRangeScanMultiShards(
@@ -813,13 +790,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         final SharedRangeScanConsumer multiShardConsumer =
                 new SharedRangeScanConsumer(shardIds.size(), consumer);
         for (long shardId : shardIds) {
-            internalShardRangeScan(
-                    shardId,
-                    startKeyInclusive,
-                    endKeyExclusive,
-                    secondaryIndexName,
-                    multiShardConsumer,
-                    multiShardConsumer::registerCancelHandler);
+            multiShardConsumer.registerCancelHandler(
+                    internalShardRangeScan(
+                            shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
         }
     }
 
