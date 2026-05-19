@@ -28,7 +28,6 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.grpc.stub.StreamObserver;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
@@ -40,6 +39,7 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.CancelableStreamObserver;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.notify.NotificationManager;
@@ -527,7 +527,7 @@ class AsyncOxiaClientImplTest {
         doAnswer(
                         i -> {
                             var request = (ListRequest) i.getArgument(0);
-                            var so = (StreamObserver<ListResponse>) i.getArgument(1);
+                            var so = (CancelableStreamObserver<ListResponse>) i.getArgument(1);
                             var shardId = request.getShard();
                             so.onNext(listResponse(shardId, "a", "b"));
                             so.onNext(listResponse(shardId, "c", "d"));
@@ -535,7 +535,7 @@ class AsyncOxiaClientImplTest {
                             return null;
                         })
                 .when(rpcProvider)
-                .list(any(ListRequest.class), any(StreamObserver.class));
+                .list(any(ListRequest.class), any(CancelableStreamObserver.class));
     }
 
     private ListResponse listResponse(long shardId, String first, String second) {

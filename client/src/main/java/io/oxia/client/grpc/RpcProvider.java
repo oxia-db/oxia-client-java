@@ -15,8 +15,6 @@
  */
 package io.oxia.client.grpc;
 
-import io.grpc.ClientCall;
-import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.proto.CloseSessionRequest;
@@ -69,13 +67,13 @@ public interface RpcProvider extends AutoCloseable {
 
     CompletableFuture<WriteResponse> write(@NonNull WriteRequest request);
 
-    void list(@NonNull ListRequest request, @NonNull StreamObserver<ListResponse> observer);
+    void list(@NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer);
 
     void rangeScan(
             @NonNull RangeScanRequest request,
-            @NonNull ClientResponseObserver<RangeScanRequest, RangeScanResponse> observer);
+            @NonNull CancelableStreamObserver<RangeScanResponse> observer);
 
-    ClientCall<GetSequenceUpdatesRequest, GetSequenceUpdatesResponse> getSequenceUpdates(
+    void getSequenceUpdates(
             @NonNull GetSequenceUpdatesRequest request,
-            @NonNull StreamObserver<GetSequenceUpdatesResponse> observer);
+            @NonNull CancelableStreamObserver<GetSequenceUpdatesResponse> observer);
 }

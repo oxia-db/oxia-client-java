@@ -16,9 +16,8 @@
 package io.oxia.client;
 
 import io.github.merlimat.slog.Logger;
-import io.grpc.ClientCall;
-import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
+import io.oxia.client.grpc.CancelableStreamObserver;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -32,7 +31,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
 
-public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpdatesResponse> {
+public class SequenceUpdates extends CancelableStreamObserver<GetSequenceUpdatesResponse>
+        implements Closeable {
 
     private static final Logger log = Logger.get(SequenceUpdates.class);
 
@@ -46,7 +46,6 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
     private final Function<Void, Boolean> isClientClosed;
 
     private boolean closed = false;
-    private ClientCall<GetSequenceUpdatesRequest, GetSequenceUpdatesResponse> call;
 
     SequenceUpdates(
             @NonNull String key,
@@ -82,13 +81,13 @@ public class SequenceUpdates implements Closeable, StreamObserver<GetSequenceUpd
         var request = new GetSequenceUpdatesRequest();
         request.setShard(shardId).setKey(key);
 
-        this.call = rpcProvider.getSequenceUpdates(request, this);
+        rpcProvider.getSequenceUpdates(request, this);
     }
 
     @Override
     public synchronized void close() throws IOException {
         closed = true;
-        call.cancel("closing streaming", null);
+        cancel("closing streaming", null);
     }
 
     @Override

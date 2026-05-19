@@ -15,9 +15,7 @@
  */
 package io.oxia.client.grpc;
 
-import io.grpc.ClientCall;
 import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientCalls;
 import io.grpc.stub.ClientResponseObserver;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
@@ -32,7 +30,6 @@ import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
-import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.RangeScanRequest;
 import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
@@ -51,6 +48,7 @@ import lombok.NonNull;
 final class GrpcRpcProvider implements RpcProvider {
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
+    private final ScheduledExecutorService executor;
     private final LongFunction<String> shardLeaderProvider;
     private final WriteStreamManager writeStreamManager;
 
@@ -59,6 +57,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull ScheduledExecutorService executor,
             @NonNull LongFunction<String> shardLeaderProvider) {
         this.clientConfig = clientConfig;
+        this.executor = executor;
         this.connectionManager = new ConnectionManager(clientConfig, executor);
         this.shardLeaderProvider = shardLeaderProvider;
         this.writeStreamManager =
@@ -203,12 +202,13 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public void list(@NonNull ListRequest request, @NonNull StreamObserver<ListResponse> observer) {
+    public void list(
+            @NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer) {
         try {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .list(request, withOxiaErrors(observer));
+                    .list(request, withCancelableOxiaErrors(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -217,28 +217,30 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void rangeScan(
             @NonNull RangeScanRequest request,
-            @NonNull ClientResponseObserver<RangeScanRequest, RangeScanResponse> observer) {
+            @NonNull CancelableStreamObserver<RangeScanResponse> observer) {
         try {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
-                    .rangeScan(request, withOxiaErrors(observer));
+                    .rangeScan(request, withCancelableOxiaErrors(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
     }
 
     @Override
-    public ClientCall<GetSequenceUpdatesRequest, GetSequenceUpdatesResponse> getSequenceUpdates(
+    public void getSequenceUpdates(
             @NonNull GetSequenceUpdatesRequest request,
-            @NonNull StreamObserver<GetSequenceUpdatesResponse> observer) {
-        final var stub =
-                connectionManager.getConnection(shardLeaderProvider.apply(request.getShard())).stub();
-        final var call =
-                stub.getChannel()
-                        .newCall(OxiaClientGrpc.getGetSequenceUpdatesMethod(), stub.getCallOptions());
-        ClientCalls.asyncServerStreamingCall(call, request, withOxiaErrors(observer));
-        return call;
+            @NonNull CancelableStreamObserver<GetSequenceUpdatesResponse> observer) {
+        try {
+            connectionManager
+                    .getConnection(shardLeaderProvider.apply(request.getShard()))
+                    .stub()
+                    .getSequenceUpdates(request, withCancelableOxiaErrors(observer));
+        } catch (Throwable error) {
+            final var translated = OxiaStatusException.toException(error);
+            executor.execute(() -> observer.onError(translated));
+        }
     }
 
     @Override
@@ -265,12 +267,12 @@ final class GrpcRpcProvider implements RpcProvider {
         };
     }
 
-    private static <ReqT, RespT> ClientResponseObserver<ReqT, RespT> withOxiaErrors(
-            ClientResponseObserver<ReqT, RespT> observer) {
+    private static <ReqT, RespT> ClientResponseObserver<ReqT, RespT> withCancelableOxiaErrors(
+            CancelableStreamObserver<RespT> observer) {
         return new ClientResponseObserver<>() {
             @Override
             public void beforeStart(@NonNull ClientCallStreamObserver<ReqT> requestStream) {
-                observer.beforeStart(requestStream);
+                observer.setCancelHandler(requestStream::cancel);
             }
 
             @Override

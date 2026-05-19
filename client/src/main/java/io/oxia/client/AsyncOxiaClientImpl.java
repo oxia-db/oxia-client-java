@@ -16,9 +16,6 @@
 package io.oxia.client;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
-import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientResponseObserver;
-import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.api.AsyncOxiaClient;
@@ -38,6 +35,7 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.CancelableStreamObserver;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -640,7 +638,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         List<String> result = new ArrayList<>();
         rpcProvider.list(
                 request,
-                new StreamObserver<ListResponse>() {
+                new CancelableStreamObserver<>() {
                     @Override
                     public void onNext(ListResponse response) {
                         for (int i = 0; i < response.getKeysCount(); i++) {
@@ -757,21 +755,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
 
         var observer =
-                new ClientResponseObserver<RangeScanRequest, RangeScanResponse>() {
-                    ClientCallStreamObserver<RangeScanRequest> requestStream;
+                new CancelableStreamObserver<RangeScanResponse>() {
                     volatile boolean cancelled = false;
-
-                    @Override
-                    public void beforeStart(ClientCallStreamObserver<RangeScanRequest> requestStream) {
-                        this.requestStream = requestStream;
-                    }
 
                     void cancelStream() {
                         if (cancelled) {
                             return;
                         }
                         cancelled = true;
-                        requestStream.cancel("Range scan cancelled", null);
+                        cancel("Range scan cancelled", null);
                     }
 
                     @Override
