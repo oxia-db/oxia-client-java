@@ -118,6 +118,9 @@ public class Session {
 
     private void keepAlive() {
         try {
+            if (closed.get()) {
+                return;
+            }
             Duration diff = Duration.between(lastSuccessfulResponse, Instant.now());
             if (diff.toMillis() > sessionTimeout.toMillis()) {
                 sessionsExpired.increment();
