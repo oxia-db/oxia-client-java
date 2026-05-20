@@ -144,6 +144,7 @@ class SessionManagerTest {
 
         manager.close();
 
+        assertThat(manager.getSession(shardId)).isCompletedExceptionally();
         verify(rpcProvider, atLeastOnce()).closeSession(any(CloseSessionRequest.class));
     }
 
