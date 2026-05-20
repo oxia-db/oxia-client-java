@@ -36,6 +36,8 @@ import io.oxia.proto.CreateSessionResponse;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import io.oxia.proto.KeepAliveResponse;
+import io.oxia.proto.NotificationBatch;
+import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
@@ -195,6 +197,77 @@ class GrpcRpcProviderTest {
             assertThat(response.getSessionId()).isEqualTo(1);
             assertThat(firstServerRequests.get()).isNotNull();
             assertThat(leaderServerRequests.get()).isNotNull();
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void getNotificationsRetriesWithLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicReference<NotificationsRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(new NotificationBatch().setOffset(1));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var firstServerRequests = new AtomicReference<NotificationsRequest>();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        firstServerRequests.set(request);
+                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
+            var request = new NotificationsRequest();
+            request.setShard(1);
+            var notification = new AtomicReference<NotificationBatch>();
+
+            provider.getNotifications(
+                    request,
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(NotificationBatch value) {
+                            notification.set(value);
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {}
+
+                        @Override
+                        public void onCompleted() {}
+                    });
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(notification.get()).isNotNull();
+                                assertThat(notification.get().getOffset()).isEqualTo(1);
+                                assertThat(firstServerRequests.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                            });
         } finally {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();

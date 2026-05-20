@@ -113,13 +113,33 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void getNotifications(
             @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer) {
+        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+        final var hint = new AtomicReference<OxiaStatusException>();
         try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .getNotifications(request, new ManagedStreamObserver<>(observer));
+            Failsafe.with(getRetryPolicy("get notifications", hint))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(getLeader(request.getShard(), hint))
+                                            .stub()
+                                            .getNotifications(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.toException(error));
         }
     }
 
