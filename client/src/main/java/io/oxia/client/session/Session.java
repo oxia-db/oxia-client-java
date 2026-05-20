@@ -147,6 +147,10 @@ public class Session {
         }
     }
 
+    public boolean isClosed() {
+        return closed.get();
+    }
+
     public CompletableFuture<Void> close() {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);
@@ -162,7 +166,11 @@ public class Session {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }
         return future.whenComplete(
-                (__, ignore) -> {
+                (__, error) -> {
+                    if (error != null) {
+                        log.warn().exceptionMessage(error).log("Session closed failed.");
+                        return;
+                    }
                     log.info("Session closed");
                 });
     }

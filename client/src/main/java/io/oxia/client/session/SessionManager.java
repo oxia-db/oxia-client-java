@@ -24,6 +24,9 @@ import io.oxia.proto.CreateSessionRequest;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import lombok.NonNull;
 
@@ -36,6 +39,9 @@ public class SessionManager
     private final InstrumentProvider instrumentProvider;
     private final RpcProvider rpcProvider;
 
+    private final ReadWriteLock closedLock;
+    private boolean closed;
+
     public SessionManager(
             @NonNull ScheduledExecutorService asyncExecutor,
             @NonNull ClientConfig config,
@@ -46,33 +52,84 @@ public class SessionManager
         this.clientConfig = config;
         this.instrumentProvider = instrumentProvider;
         this.rpcProvider = rpcProvider;
+        this.closedLock = new ReentrantReadWriteLock();
+        this.closed = false;
     }
 
     @NonNull
     public CompletableFuture<Session> getSession(long shardId) {
-        return sessions.compute(
-                shardId,
-                (key, existing) -> {
-                    if (existing != null && !existing.isCompletedExceptionally()) {
-                        return existing;
+        final Lock rLock = closedLock.readLock();
+        try {
+            rLock.lock();
+            if (closed) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("Session manager is closed"));
+            }
+            return sessions.compute(
+                    shardId,
+                    (key, existing) -> {
+                        if (existing != null && !existing.isCompletedExceptionally()) {
+                            if (!existing.isDone()) {
+                                return existing;
+                            }
+                            final Session session = existing.join();
+                            if (!session.isClosed()) { // ignore closed session
+                                return existing;
+                            }
+                        }
+                        return createSession(shardId);
+                    });
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    @Override
+    public void onSessionExpired(Session targetSession) {
+        sessions.compute(
+                targetSession.getShardId(),
+                (shard, existFuture) -> {
+                    if (existFuture != null
+                            && existFuture.isDone()
+                            && !existFuture.isCompletedExceptionally()) {
+                        final Session existSession = existFuture.join();
+                        if (existSession.getSessionId() == targetSession.getSessionId()) {
+                            existSession.close();
+                            return null;
+                        }
                     }
-                    return createSession(shardId);
+                    return existFuture;
                 });
     }
 
     @Override
-    public void onSessionExpired(Session session) {
-        closeSessionQuietly(sessions.remove(session.getShardId()));
-    }
-
-    @Override
     public void close() throws Exception {
-        sessions.values().stream().map(this::closeSessionQuietly).forEach(CompletableFuture::join);
+        final Lock wLock = closedLock.writeLock();
+        try {
+            wLock.lock();
+            if (closed) {
+                return;
+            }
+            closed = true;
+            // async close session without wait
+            sessions.values().forEach(sf -> sf.thenCompose(Session::close));
+            sessions.clear();
+        } finally {
+            wLock.unlock();
+        }
     }
 
     @Override
     public void accept(@NonNull ShardAssignmentChanges changes) {
-        changes.removed().forEach(s -> closeSessionQuietly(sessions.remove(s.id())));
+        changes
+                .removed()
+                .forEach(
+                        s -> {
+                            final CompletableFuture<Session> sessionFuture = sessions.remove(s.id());
+                            if (sessionFuture != null) {
+                                sessionFuture.thenCompose(Session::close);
+                            }
+                        });
     }
 
     private CompletableFuture<Session> createSession(long shardId) {
@@ -93,14 +150,5 @@ public class SessionManager
                                         response.getSessionId(),
                                         instrumentProvider,
                                         this));
-    }
-
-    private CompletableFuture<Void> closeSessionQuietly(CompletableFuture<Session> sessionFuture) {
-        if (sessionFuture == null) {
-            return CompletableFuture.completedFuture(null);
-        }
-        final CompletableFuture<Void> future =
-                sessionFuture.thenCompose(Session::close).thenApply(__ -> null);
-        return future.exceptionally(ex -> null);
     }
 }
