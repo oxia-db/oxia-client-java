@@ -84,7 +84,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class OxiaClientIT {
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME)
+            new OxiaContainer(OxiaImages.OXIA)
                     .withShards(10)
                     .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(OxiaClientIT.class)));
 

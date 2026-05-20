@@ -39,6 +39,8 @@ class OxiaStatusExceptionTest {
         assertThat(oxiaError.getMetadata())
                 .containsEntry("shard", "1")
                 .containsEntry("leader", "server-1");
+        assertThat(oxiaError.getLeaderHint(1)).contains("server-1");
+        assertThat(oxiaError.getLeaderHint(2)).isEmpty();
         assertThat(oxiaError).hasMessage("oxia: namespace not found");
         assertThat(OxiaStatusException.isNamespaceNotFound(error)).isTrue();
         assertThat(oxiaError.isRetryable()).isFalse();

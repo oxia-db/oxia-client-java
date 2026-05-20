@@ -22,6 +22,7 @@ dependencies {
     api(project(":client-api"))
 
     implementation(libs.caffeine)
+    implementation(libs.failsafe)
     implementation(libs.netty.buffer)
     implementation(libs.grpc.netty.shaded)
     implementation(libs.grpc.protobuf)

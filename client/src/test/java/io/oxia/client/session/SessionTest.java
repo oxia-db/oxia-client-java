@@ -28,6 +28,7 @@ import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.ManagedObservers;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
@@ -96,13 +97,14 @@ class SessionTest {
 
         rpcProvider = mock(RpcProvider.class);
         lenient()
-                .doAnswer(
+                .when(rpcProvider.keepAlive(any(SessionHeartbeat.class)))
+                .thenAnswer(
                         invocation -> {
-                            async.keepAlive(invocation.getArgument(0), invocation.getArgument(1));
-                            return null;
-                        })
-                .when(rpcProvider)
-                .keepAlive(any(SessionHeartbeat.class), any(StreamObserver.class));
+                            var future = new CompletableFuture<KeepAliveResponse>();
+                            async.keepAlive(
+                                    invocation.getArgument(0), ManagedObservers.toCompletableFuture(future));
+                            return future;
+                        });
         lenient()
                 .when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
                 .thenAnswer(

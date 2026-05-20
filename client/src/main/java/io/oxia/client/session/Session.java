@@ -21,15 +21,14 @@ import static lombok.AccessLevel.PUBLIC;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import io.github.merlimat.slog.Logger;
-import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
 import java.time.Instant;
@@ -40,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.Getter;
 import lombok.NonNull;
 
-public class Session implements StreamObserver<KeepAliveResponse> {
+public class Session {
 
     private final @NonNull Logger log;
 
@@ -55,20 +54,12 @@ public class Session implements StreamObserver<KeepAliveResponse> {
     @Getter(PUBLIC)
     private final long sessionId;
 
-    private final String clientIdentifier;
-
     private final @NonNull SessionHeartbeat heartbeat;
-
     private final @NonNull SessionNotificationListener listener;
-
-    private volatile boolean closed;
-
-    private Counter sessionsOpened;
-    private Counter sessionsExpired;
-    private Counter sessionsClosed;
-
+    private final Counter sessionsOpened;
+    private final Counter sessionsExpired;
+    private final Counter sessionsClosed;
     private final ScheduledFuture<?> heartbeatFuture;
-
     private volatile Instant lastSuccessfullResponse;
 
     Session(
@@ -86,7 +77,6 @@ public class Session implements StreamObserver<KeepAliveResponse> {
                         Math.max(config.sessionTimeout().toMillis() / 10, Duration.ofSeconds(2).toMillis()));
         this.shardId = shardId;
         this.sessionId = sessionId;
-        this.clientIdentifier = config.clientIdentifier();
         this.heartbeat = new SessionHeartbeat();
         this.heartbeat.setShard(shardId).setSessionId(sessionId);
         this.listener = listener;
@@ -124,52 +114,41 @@ public class Session implements StreamObserver<KeepAliveResponse> {
         this.lastSuccessfullResponse = Instant.now();
         this.heartbeatFuture =
                 executor.scheduleAtFixedRate(
-                        () -> {
-                            // we should catch exception to avoid the schedule future complete
-                            try {
-                                sendKeepAlive();
-                            } catch (Throwable ex) {
-                                log.warn()
-                                        .exception(Throwables.getRootCause(ex))
-                                        .log("receive error when send keep-alive request");
-                            }
-                        },
+                        this::sendKeepAlive,
                         heartbeatInterval.toMillis(),
                         heartbeatInterval.toMillis(),
                         TimeUnit.MILLISECONDS);
     }
 
     private void sendKeepAlive() {
-        Duration diff = Duration.between(lastSuccessfullResponse, Instant.now());
+        try {
+            Duration diff = Duration.between(lastSuccessfullResponse, Instant.now());
+            if (diff.toMillis() > sessionTimeout.toMillis()) {
+                sessionsExpired.increment();
+                log.warn("Session expired");
+                close();
+                return;
+            }
 
-        if (diff.toMillis() > sessionTimeout.toMillis()) {
-            handleSessionExpired();
-            return;
+            rpcProvider
+                    .keepAlive(heartbeat)
+                    .thenRun(
+                            () -> {
+                                lastSuccessfullResponse = Instant.now();
+                                log.debug("Received keep-alive response");
+                            })
+                    .exceptionally(
+                            error -> {
+                                log.warn()
+                                        .exceptionMessage(OxiaStatusException.toException(error))
+                                        .log("Error during session keep-alive");
+                                return null;
+                            });
+        } catch (Throwable ex) {
+            log.warn()
+                    .exception(Throwables.getRootCause(ex))
+                    .log("receive error when send keep-alive request");
         }
-
-        rpcProvider.keepAlive(heartbeat, this);
-    }
-
-    @Override
-    public void onNext(KeepAliveResponse value) {
-        lastSuccessfullResponse = Instant.now();
-        log.debug("Received keep-alive response");
-    }
-
-    @Override
-    public void onError(Throwable t) {
-        log.warn().exceptionMessage(t).log("Error during session keep-alive");
-    }
-
-    @Override
-    public void onCompleted() {
-        // Nothing to do
-    }
-
-    private void handleSessionExpired() {
-        sessionsExpired.increment();
-        log.warn("Session expired");
-        close();
     }
 
     public CompletableFuture<Void> close() {

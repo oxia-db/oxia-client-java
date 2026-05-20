@@ -17,6 +17,7 @@ package io.oxia.client.grpc;
 
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.it.OxiaImages;
 import io.oxia.testcontainers.OxiaContainer;
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -32,7 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class RpcProviderIT {
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
+            new OxiaContainer(OxiaImages.OXIA, 4, true)
                     .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(RpcProviderIT.class)));
 
     @Test

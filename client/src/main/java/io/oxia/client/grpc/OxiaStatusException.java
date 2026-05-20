@@ -22,6 +22,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.rpc.ErrorInfo;
 import io.grpc.protobuf.StatusProto;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import lombok.Getter;
@@ -57,6 +58,13 @@ public class OxiaStatusException extends RuntimeException {
                     true;
             default -> false;
         };
+    }
+
+    public @NonNull Optional<String> getLeaderHint(long shardId) {
+        if (!Long.toString(shardId).equals(metadata.get("shard"))) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(metadata.get("leader")).filter(leader -> !leader.isEmpty());
     }
 
     public static @NonNull Throwable toException(@NonNull Throwable error) {
