@@ -15,22 +15,28 @@
  */
 package io.oxia.client.session;
 
+import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
 import io.oxia.client.shard.Shard;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+import io.oxia.proto.CloseSessionRequest;
+import io.oxia.proto.CloseSessionResponse;
+import io.oxia.proto.CreateSessionRequest;
+import io.oxia.proto.CreateSessionResponse;
+import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.AfterEach;
@@ -43,15 +49,33 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SessionManagerTest {
 
-    @Mock SessionFactory factory;
-    @Mock Session session;
+    @Mock RpcProvider rpcProvider;
     SessionManager manager;
     ScheduledExecutorService executor;
+    ClientConfig config;
 
     @BeforeEach
     void setup() {
         executor = Executors.newSingleThreadScheduledExecutor();
-        manager = new SessionManager(factory);
+        config =
+                new ClientConfig(
+                        "address",
+                        Duration.ofSeconds(1),
+                        Duration.ofMillis(1),
+                        1,
+                        1024,
+                        Duration.ofSeconds(10),
+                        "client",
+                        null,
+                        DefaultNamespace,
+                        null,
+                        false,
+                        Duration.ofMillis(10),
+                        Duration.ofMillis(100),
+                        Duration.ofSeconds(10),
+                        Duration.ofSeconds(3),
+                        1);
+        manager = new SessionManager(executor, config, rpcProvider, InstrumentProvider.NOOP);
     }
 
     @AfterEach
@@ -62,87 +86,82 @@ class SessionManagerTest {
     @Test
     void newSession() {
         var shardId = 1L;
-        when(factory.create(shardId)).thenReturn(CompletableFuture.completedFuture(session));
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
+        var session = manager.getSession(shardId).join();
+
         assertThat(manager.getSession(shardId).join()).isSameAs(session);
-        verify(factory).create(shardId);
+        assertThat(session.getSessionId()).isEqualTo(10L);
+        verify(rpcProvider).createSession(any(CreateSessionRequest.class));
     }
 
     @Test
     void existingSession() {
         var shardId = 1L;
-        when(factory.create(shardId)).thenReturn(CompletableFuture.completedFuture(session));
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
         var session1 = manager.getSession(shardId);
-        verify(factory, times(1)).create(shardId);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
 
         var session2 = manager.getSession(shardId);
         assertThat(session2).isSameAs(session1);
-        verifyNoMoreInteractions(factory, session);
+        verifyNoMoreInteractions(rpcProvider);
     }
 
     @Test
     void existingSessionWithFailure() {
         var shardId = 1L;
         // first failed
-        when(factory.create(shardId))
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("failed")));
         var session1 = manager.getSession(shardId);
         assertThat(session1).isCompletedExceptionally();
-        verify(factory, times(1)).create(shardId);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
 
         // second should be success
-        when(factory.create(shardId)).thenReturn(CompletableFuture.completedFuture(session));
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
         var session2 = manager.getSession(shardId);
-        assertThat(session2).isCompletedWithValue(session);
-        verify(factory, times(2)).create(shardId);
+        assertThat(session2.join().getSessionId()).isEqualTo(10L);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
 
         // third should be cache
         var session3 = manager.getSession(shardId);
         assertThat(session3).isSameAs(session2);
-        verify(factory, times(2)).create(shardId);
-        verifyNoMoreInteractions(factory, session);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
     }
 
     @Test
     void close() throws Exception {
         var shardId = 5L;
-        when(session.getShardId()).thenReturn(shardId);
-        when(factory.create(shardId)).thenReturn(CompletableFuture.completedFuture(session));
-        doAnswer(
-                        invocation -> {
-                            manager.onSessionClosed(session);
-                            return CompletableFuture.completedFuture(null);
-                        })
-                .when(session)
-                .close();
-        manager.getSession(shardId);
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+        manager.getSession(shardId).join();
 
-        assertThat(manager.sessions()).containsEntry(shardId, session);
         manager.close();
-        await()
-                .untilAsserted(
-                        () -> {
-                            verify(session).close();
-                            assertThat(manager.sessions()).doesNotContainKey(shardId);
-                        });
 
-        assertThatThrownBy(() -> manager.getSession(shardId).join())
-                .isInstanceOf(CompletionException.class);
+        assertThat(manager.getSession(shardId)).isCompletedExceptionally();
+        verify(rpcProvider, atLeastOnce()).closeSession(any(CloseSessionRequest.class));
     }
 
     @Test
     void accept() throws Exception {
-        Session session21 = mock(Session.class);
-        Session session22 = mock(Session.class);
         var shardId1 = 1L;
         var shardId2 = 2L;
-        when(factory.create(shardId1)).thenReturn(CompletableFuture.completedFuture(session));
-        when(factory.create(shardId2))
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(
-                        CompletableFuture.completedFuture(session21),
-                        CompletableFuture.completedFuture(session22));
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)),
+                        CompletableFuture.completedFuture(createSessionResponse(30L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
 
-        assertThat(manager.getSession(shardId1).join()).isSameAs(session);
-        assertThat(manager.getSession(shardId2).join()).isSameAs(session21);
+        var session1 = manager.getSession(shardId1).join();
+        var session2 = manager.getSession(shardId2).join();
 
         manager.accept(
                 new ShardAssignmentChanges(
@@ -150,29 +169,30 @@ class SessionManagerTest {
                         Set.of(new Shard(shardId1, "leader1", new HashRange(1, 2))),
                         Set.of(new Shard(shardId2, "leader3", new HashRange(3, 4)))));
 
-        assertThat(manager.sessions()).doesNotContainKey(shardId1);
+        assertThat(manager.getSession(shardId1).join()).isNotSameAs(session1);
         // Session here shouldn't have changed after the reassignment
-        assertThat(manager.getSession(shardId2).join()).isSameAs(session21);
-        verify(session).close();
+        assertThat(manager.getSession(shardId2).join()).isSameAs(session2);
+        verify(rpcProvider, atLeastOnce()).closeSession(any(CloseSessionRequest.class));
     }
 
     @Test
-    void testSessionClosed() throws Exception {
+    void testSessionExpired() throws Exception {
         var shardId = 1L;
-        when(session.getShardId()).thenReturn(shardId);
-        doAnswer(
-                        invocation -> {
-                            manager.onSessionClosed(session);
-                            return null;
-                        })
-                .when(session)
-                .close();
-        when(factory.create(shardId)).thenReturn(CompletableFuture.completedFuture(session));
-        manager.getSession(shardId);
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
 
-        assertThat(manager.sessions()).containsEntry(shardId, session);
+        var session = manager.getSession(shardId).join();
 
-        session.close();
-        assertThat(manager.sessions()).doesNotContainKey(shardId);
+        manager.onSessionExpired(session);
+        assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    private static CreateSessionResponse createSessionResponse(long sessionId) {
+        return new CreateSessionResponse().setSessionId(sessionId);
     }
 }

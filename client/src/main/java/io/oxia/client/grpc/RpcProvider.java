@@ -38,6 +38,7 @@ import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.LongFunction;
@@ -59,7 +60,8 @@ public interface RpcProvider extends AutoCloseable {
 
     CompletableFuture<CreateSessionResponse> createSession(@NonNull CreateSessionRequest request);
 
-    CompletableFuture<KeepAliveResponse> keepAlive(@NonNull SessionHeartbeat heartbeat);
+    CompletableFuture<KeepAliveResponse> keepAlive(
+            @NonNull SessionHeartbeat heartbeat, @NonNull Duration timeout);
 
     CompletableFuture<CloseSessionResponse> closeSession(@NonNull CloseSessionRequest request);
 

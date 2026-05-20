@@ -263,12 +263,4 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
         callbacks.add(callback);
     }
-
-    private boolean isErrorRetryable(@NonNull Throwable ex) {
-        if (ex instanceof NamespaceNotFoundException nsNotFoundError) {
-            return nsNotFoundError.isRetryable();
-        }
-        // Allow the rest of the errors to retry.
-        return true;
-    }
 }

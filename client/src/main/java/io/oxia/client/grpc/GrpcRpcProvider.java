@@ -17,6 +17,7 @@ package io.oxia.client.grpc;
 
 import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
+import dev.failsafe.Timeout;
 import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
@@ -44,9 +45,11 @@ import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
 import lombok.NonNull;
@@ -123,9 +126,10 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public CompletableFuture<KeepAliveResponse> keepAlive(@NonNull SessionHeartbeat heartbeat) {
+    public CompletableFuture<KeepAliveResponse> keepAlive(
+            @NonNull SessionHeartbeat heartbeat, @NonNull Duration timeout) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy(hint))
+        return Failsafe.with(Timeout.of(timeout), getRetryPolicy(hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -134,6 +138,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                 connectionManager
                                         .getConnection(getLeader(heartbeat.getShard(), hint))
                                         .stub()
+                                        .withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                                         .keepAlive(heartbeat, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
                                 future.completeExceptionally(OxiaStatusException.toException(error));

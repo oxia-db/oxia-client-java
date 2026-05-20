@@ -15,10 +15,6 @@
  */
 package io.oxia.client.session;
 
-import static lombok.AccessLevel.PACKAGE;
-import static lombok.AccessLevel.PUBLIC;
-
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
@@ -36,31 +32,30 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.Getter;
 import lombok.NonNull;
 
 public class Session {
+    private final Logger log;
+    @Getter private final long shardId;
+    @Getter private final long sessionId;
 
-    private final @NonNull Logger log;
+    private final RpcProvider rpcProvider;
+    private final Duration sessionTimeout;
 
-    private final @NonNull RpcProvider rpcProvider;
-    private final @NonNull Duration sessionTimeout;
-    private final @NonNull Duration heartbeatInterval;
+    private final SessionHeartbeat heartbeat;
+    private final Duration heartbeatInterval;
+    private final SessionNotificationListener listener;
 
-    @Getter(PACKAGE)
-    @VisibleForTesting
-    private final long shardId;
+    private final ScheduledFuture<?> heartbeatFuture;
+    private volatile Instant lastSuccessfulResponse;
 
-    @Getter(PUBLIC)
-    private final long sessionId;
-
-    private final @NonNull SessionHeartbeat heartbeat;
-    private final @NonNull SessionNotificationListener listener;
     private final Counter sessionsOpened;
     private final Counter sessionsExpired;
     private final Counter sessionsClosed;
-    private final ScheduledFuture<?> heartbeatFuture;
-    private volatile Instant lastSuccessfullResponse;
+
+    private final AtomicBoolean closed;
 
     Session(
             @NonNull ScheduledExecutorService executor,
@@ -111,30 +106,34 @@ public class Session {
 
         sessionsOpened.increment();
 
-        this.lastSuccessfullResponse = Instant.now();
+        this.lastSuccessfulResponse = Instant.now();
+        this.closed = new AtomicBoolean(false);
         this.heartbeatFuture =
                 executor.scheduleAtFixedRate(
-                        this::sendKeepAlive,
+                        this::keepAlive,
                         heartbeatInterval.toMillis(),
                         heartbeatInterval.toMillis(),
                         TimeUnit.MILLISECONDS);
     }
 
-    private void sendKeepAlive() {
+    private void keepAlive() {
         try {
-            Duration diff = Duration.between(lastSuccessfullResponse, Instant.now());
+            if (closed.get()) {
+                return;
+            }
+            Duration diff = Duration.between(lastSuccessfulResponse, Instant.now());
             if (diff.toMillis() > sessionTimeout.toMillis()) {
                 sessionsExpired.increment();
                 log.warn("Session expired");
-                close();
+                listener.onSessionExpired(Session.this);
                 return;
             }
 
             rpcProvider
-                    .keepAlive(heartbeat)
+                    .keepAlive(heartbeat, heartbeatInterval)
                     .thenRun(
                             () -> {
-                                lastSuccessfullResponse = Instant.now();
+                                lastSuccessfulResponse = Instant.now();
                                 log.debug("Received keep-alive response");
                             })
                     .exceptionally(
@@ -151,7 +150,14 @@ public class Session {
         }
     }
 
+    public boolean isClosed() {
+        return closed.get();
+    }
+
     public CompletableFuture<Void> close() {
+        if (!closed.compareAndSet(false, true)) {
+            return CompletableFuture.completedFuture(null);
+        }
         CompletableFuture<Void> future;
         try {
             sessionsClosed.increment();
@@ -163,8 +169,11 @@ public class Session {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }
         return future.whenComplete(
-                (__, ignore) -> {
-                    listener.onSessionClosed(Session.this);
+                (__, error) -> {
+                    if (error != null) {
+                        log.warn().exceptionMessage(error).log("Session closed failed.");
+                        return;
+                    }
                     log.info("Session closed");
                 });
     }

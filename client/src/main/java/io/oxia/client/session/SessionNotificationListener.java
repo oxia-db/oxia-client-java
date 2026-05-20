@@ -16,5 +16,5 @@
 package io.oxia.client.session;
 
 public interface SessionNotificationListener {
-    void onSessionClosed(Session session);
+    void onSessionExpired(Session session);
 }

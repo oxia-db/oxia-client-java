@@ -86,7 +86,7 @@ class GrpcRpcProviderTest {
             var request = new SessionHeartbeat();
             request.setShard(1);
 
-            provider.keepAlive(request).get(5, TimeUnit.SECONDS);
+            provider.keepAlive(request, Duration.ofSeconds(5)).get(5, TimeUnit.SECONDS);
 
             assertThat(firstServerRequests.get()).isNotNull();
             assertThat(leaderServerRequests.get()).isNotNull();
