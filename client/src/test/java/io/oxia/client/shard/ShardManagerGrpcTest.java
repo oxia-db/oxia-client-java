@@ -92,11 +92,11 @@ class ShardManagerGrpcTest {
     ManagedChannel channel;
     @Mock RpcProvider rpcProvider;
 
-    ScheduledExecutorService executor;
+    ScheduledExecutorService asyncExecutor;
 
     @BeforeEach
     void beforeEach() throws Exception {
-        executor = Executors.newSingleThreadScheduledExecutor();
+        asyncExecutor = Executors.newSingleThreadScheduledExecutor();
         requests.set(0);
         responses.clear();
         server =
@@ -123,7 +123,7 @@ class ShardManagerGrpcTest {
     void afterEach() throws Exception {
         channel.shutdownNow();
         server.shutdownNow();
-        executor.shutdownNow();
+        asyncExecutor.shutdownNow();
     }
 
     @Test
@@ -132,7 +132,7 @@ class ShardManagerGrpcTest {
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");
@@ -142,7 +142,7 @@ class ShardManagerGrpcTest {
     @Test
     void neverStarts() {
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().get(1, SECONDS))
                     .isInstanceOf(TimeoutException.class);
             assertThat(shardManager.allShardIds()).isEmpty();
@@ -161,7 +161,7 @@ class ShardManagerGrpcTest {
                                         false)))
                 .isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().join())
                     .isInstanceOf(CompletionException.class)
                     .hasCauseInstanceOf(NamespaceNotFoundException.class);
@@ -181,7 +181,7 @@ class ShardManagerGrpcTest {
                                         false)))
                 .isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().join())
                     .isInstanceOf(CompletionException.class)
                     .hasCauseInstanceOf(NamespaceNotFoundException.class);
@@ -200,7 +200,7 @@ class ShardManagerGrpcTest {
         assertThat(responses.offer(new AssignmentWrapper(assignments0, null, false))).isTrue();
         assertThat(responses.offer(new AssignmentWrapper(assignments1, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             shardManager.start().join();
             await()
                     .untilAsserted(
@@ -221,7 +221,7 @@ class ShardManagerGrpcTest {
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");
@@ -236,7 +236,7 @@ class ShardManagerGrpcTest {
         assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
         assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
         try (var shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
             assertThat(shardManager.leader(0)).isEqualTo("leader0");

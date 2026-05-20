@@ -50,32 +50,31 @@ import lombok.NonNull;
 
 public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignments> {
 
-    private static final Logger LOG = Logger.get(ShardManager.class);
     private final Logger log;
-    private final ScheduledExecutorService executor;
+    private final ScheduledExecutorService asyncExecutor;
     private final RpcProvider rpcProvider;
-    private final @NonNull ShardAssignmentsContainer assignments;
-    private final @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks;
+    private final ShardAssignmentsContainer assignments;
+    private final CompositeConsumer<ShardAssignmentChanges> callbacks;
+
+    private final Backoff backoff = new Backoff();
+    private final CompletableFuture<Void> initialAssignmentsFuture;
+
+    private volatile boolean closed;
 
     private final Counter shardAssignmentsEvents;
 
-    private final Backoff backoff = new Backoff();
-    private volatile boolean closed;
-
-    private final CompletableFuture<Void> initialAssignmentsFuture = new CompletableFuture<>();
-
-    @VisibleForTesting
-    ShardManager(
-            @NonNull ScheduledExecutorService executor,
+    public ShardManager(
+            @NonNull ScheduledExecutorService asyncExecutor,
             @NonNull RpcProvider rpcProvider,
-            @NonNull ShardAssignmentsContainer assignments,
-            @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks,
-            @NonNull InstrumentProvider instrumentProvider) {
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull String namespace) {
         this.rpcProvider = rpcProvider;
-        this.executor = executor;
-        this.assignments = assignments;
-        this.callbacks = callbacks;
-        this.log = LOG.with().attr("namespace", assignments.getNamespace()).build();
+        this.asyncExecutor = asyncExecutor;
+        this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
+        this.callbacks = new CompositeConsumer<>();
+        this.initialAssignmentsFuture = new CompletableFuture<>();
+        this.log =
+                Logger.get(ShardManager.class).with().attr("namespace", assignments.getNamespace()).build();
 
         this.shardAssignmentsEvents =
                 instrumentProvider.newCounter(
@@ -83,19 +82,6 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                         Unit.None,
                         "The total count of received shard assignment events",
                         Attributes.empty());
-    }
-
-    public ShardManager(
-            @NonNull ScheduledExecutorService executor,
-            @NonNull RpcProvider rpcProvider,
-            @NonNull InstrumentProvider instrumentProvider,
-            @NonNull String namespace) {
-        this(
-                executor,
-                rpcProvider,
-                new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace),
-                new CompositeConsumer<>(),
-                instrumentProvider);
     }
 
     @Override
@@ -135,8 +121,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 return;
             }
         }
-        log.warn().exception(getRootCause(error)).log("Failed receiving shard assignments");
-        executor.schedule(
+        log.warn().exceptionMessage(getRootCause(error)).log("Failed receiving shard assignments");
+        asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
                         log.info("Retry creating stream for shard assignments");
@@ -154,7 +140,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         }
 
         log.warn("Stream closed while receiving shard assignments");
-        executor.schedule(
+        asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
                         log.info("Retry creating stream for shard assignments after stream closed");
@@ -193,18 +179,16 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     static Map<Long, Shard> recomputeShardHashBoundaries(
             Map<Long, Shard> assignments, Set<Shard> updates) {
         var toDelete = new ArrayList<>();
-        updates.forEach(
-                update ->
-                        update
-                                .findOverlapping(assignments.values())
-                                .forEach(
-                                        existing -> {
-                                            LOG.info()
-                                                    .attr("existing", existing)
-                                                    .attr("update", update)
-                                                    .log("Deleting shard as it overlaps");
-                                            toDelete.add(existing.id());
-                                        }));
+        var log = Logger.get(ShardManager.class);
+        for (var update : updates) {
+            for (var existing : update.findOverlapping(assignments.values())) {
+                log.info()
+                        .attr("existing", existing)
+                        .attr("update", update)
+                        .log("Deleting shard as it overlaps");
+                toDelete.add(existing.id());
+            }
+        }
 
         return unmodifiableMap(
                 Stream.concat(

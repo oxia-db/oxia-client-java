@@ -81,13 +81,32 @@ final class GrpcRpcProvider implements RpcProvider {
     public void getShardAssignments(
             @NonNull ShardAssignmentsRequest request,
             @NonNull StreamObserver<ShardAssignments> observer) {
+        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         try {
-            connectionManager
-                    .getConnection(clientConfig.serviceAddress())
-                    .stub()
-                    .getShardAssignments(request, new ManagedStreamObserver<>(observer));
+            Failsafe.with(getRetryPolicy(null))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(clientConfig.serviceAddress())
+                                            .stub()
+                                            .getShardAssignments(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.toException(error));
         }
     }
 
@@ -252,12 +271,12 @@ final class GrpcRpcProvider implements RpcProvider {
                 : retryHint.getLeaderHint(shardId).orElseGet(() -> shardLeaderProvider.apply(shardId));
     }
 
-    private <T> RetryPolicy<T> getRetryPolicy(@NonNull AtomicReference<OxiaStatusException> hint) {
+    private <T> RetryPolicy<T> getRetryPolicy(AtomicReference<OxiaStatusException> hint) {
         return RetryPolicy.<T>builder()
                 .handleIf(
                         error -> {
                             final var translated = OxiaStatusException.toException(error);
-                            if (translated instanceof OxiaStatusException oxiaError) {
+                            if (hint != null && translated instanceof OxiaStatusException oxiaError) {
                                 hint.set(oxiaError);
                             }
                             return OxiaStatusException.isRetryable(translated);

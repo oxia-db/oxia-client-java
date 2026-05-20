@@ -18,6 +18,7 @@ package io.oxia.client.grpc.observer;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.NonNull;
 
 public final class ManagedObservers {
@@ -42,5 +43,76 @@ public final class ManagedObservers {
                 future.complete(response);
             }
         };
+    }
+
+    public static <T> GuardedStreamObserver<T> toGuardedStreamObserver(
+            @NonNull StreamObserver<T> streamObserver) {
+        return new GuardedStreamObserver<>(streamObserver);
+    }
+
+    public static <T> BarrierStreamObserver<T> toBarrierStreamObserver(
+            @NonNull StreamObserver<T> streamObserver, @NonNull CompletableFuture<Void> barrierFuture) {
+        return new BarrierStreamObserver<>(streamObserver, barrierFuture);
+    }
+
+    public static final class GuardedStreamObserver<T> implements StreamObserver<T> {
+        private final StreamObserver<T> streamObserver;
+        private final AtomicBoolean terminated = new AtomicBoolean();
+
+        private GuardedStreamObserver(@NonNull StreamObserver<T> streamObserver) {
+            this.streamObserver = streamObserver;
+        }
+
+        @Override
+        public void onNext(@NonNull T response) {
+            streamObserver.onNext(response);
+        }
+
+        @Override
+        public void onError(@NonNull Throwable error) {
+            if (terminated.compareAndSet(false, true)) {
+                streamObserver.onError(OxiaStatusException.toException(error));
+            }
+        }
+
+        @Override
+        public void onCompleted() {
+            if (terminated.compareAndSet(false, true)) {
+                streamObserver.onCompleted();
+            }
+        }
+    }
+
+    public static final class BarrierStreamObserver<T> implements StreamObserver<T> {
+        private final StreamObserver<T> streamObserver;
+        private final CompletableFuture<Void> barrierFuture;
+
+        private BarrierStreamObserver(
+                @NonNull StreamObserver<T> streamObserver, @NonNull CompletableFuture<Void> barrierFuture) {
+            this.streamObserver = streamObserver;
+            this.barrierFuture = barrierFuture;
+        }
+
+        @Override
+        public void onNext(@NonNull T response) {
+            barrierFuture.complete(null);
+            streamObserver.onNext(response);
+        }
+
+        @Override
+        public void onError(@NonNull Throwable error) {
+            final var translated = OxiaStatusException.toException(error);
+            if (!barrierFuture.isDone()) {
+                barrierFuture.completeExceptionally(translated);
+                return;
+            }
+            streamObserver.onError(translated);
+        }
+
+        @Override
+        public void onCompleted() {
+            barrierFuture.complete(null);
+            streamObserver.onCompleted();
+        }
     }
 }
