@@ -158,6 +158,41 @@ class OxiaStatusExceptionTest {
     }
 
     @Test
+    void mapsGrpcUnavailableToRetryableResourceUnavailable() {
+        var error =
+                OxiaStatusException.toException(
+                        Status.UNAVAILABLE.withDescription("connection unavailable").asRuntimeException());
+
+        assertThat(error).isInstanceOf(OxiaStatusException.class);
+        assertThat(((OxiaStatusException) error).getStatusCode())
+                .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+        assertThat(OxiaStatusException.isRetryable(error)).isTrue();
+    }
+
+    @Test
+    void mapsGrpcAbortedToRetryableAborted() {
+        var error =
+                OxiaStatusException.toException(
+                        Status.ABORTED.withDescription("operation aborted").asRuntimeException());
+
+        assertThat(error).isInstanceOf(OxiaStatusException.class);
+        assertThat(((OxiaStatusException) error).getStatusCode()).isEqualTo(OxiaStatusCode.ABORTED);
+        assertThat(OxiaStatusException.isRetryable(error)).isTrue();
+    }
+
+    @Test
+    void doesNotTreatGrpcDeadlineExceededAsRetryable() {
+        var error = Status.DEADLINE_EXCEEDED.withDescription("deadline exceeded").asRuntimeException();
+
+        var translated = OxiaStatusException.toException(error);
+
+        assertThat(translated).isInstanceOf(OxiaStatusException.class);
+        assertThat(((OxiaStatusException) translated).getStatusCode())
+                .isEqualTo(OxiaStatusCode.UNKNOWN);
+        assertThat(OxiaStatusException.isRetryable(error)).isFalse();
+    }
+
+    @Test
     void returnsNonGrpcError() {
         var error = new IllegalStateException("failed");
 
