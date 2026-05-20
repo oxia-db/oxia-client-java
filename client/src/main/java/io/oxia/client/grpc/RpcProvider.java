@@ -46,9 +46,9 @@ import lombok.NonNull;
 public interface RpcProvider extends AutoCloseable {
     static RpcProvider create(
             @NonNull ClientConfig clientConfig,
-            @NonNull ScheduledExecutorService executor,
+            @NonNull ScheduledExecutorService asyncExecutor,
             @NonNull LongFunction<String> shardLeaderProvider) {
-        return new GrpcRpcProvider(clientConfig, executor, shardLeaderProvider);
+        return new GrpcRpcProvider(clientConfig, asyncExecutor, shardLeaderProvider);
     }
 
     void getShardAssignments(

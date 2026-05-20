@@ -56,17 +56,17 @@ final class GrpcRpcProvider implements RpcProvider {
 
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
-    private final ScheduledExecutorService executor;
+    private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
     private final ManagedWriteStream managedWriteStream;
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
-            @NonNull ScheduledExecutorService executor,
+            @NonNull ScheduledExecutorService asyncExecutor,
             @NonNull LongFunction<String> shardLeaderProvider) {
         this.clientConfig = clientConfig;
-        this.executor = executor;
-        this.connectionManager = new ConnectionManager(clientConfig, executor);
+        this.asyncExecutor = asyncExecutor;
+        this.connectionManager = new ConnectionManager(clientConfig, asyncExecutor);
         this.shardLeaderProvider = shardLeaderProvider;
         this.managedWriteStream =
                 new ManagedWriteStream(
@@ -106,7 +106,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull CreateSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
         return Failsafe.with(getRetryPolicy(hint))
-                .with(executor)
+                .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
                             final var future = new CompletableFuture<CreateSessionResponse>();
@@ -126,7 +126,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<KeepAliveResponse> keepAlive(@NonNull SessionHeartbeat heartbeat) {
         final var hint = new AtomicReference<OxiaStatusException>();
         return Failsafe.with(getRetryPolicy(hint))
-                .with(executor)
+                .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
                             final var future = new CompletableFuture<KeepAliveResponse>();
@@ -147,7 +147,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull CloseSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
         return Failsafe.with(getRetryPolicy(hint))
-                .with(executor)
+                .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
                             final var future = new CompletableFuture<CloseSessionResponse>();
@@ -227,7 +227,7 @@ final class GrpcRpcProvider implements RpcProvider {
                     .getSequenceUpdates(request, new ManagedClientResponseObserver<>(observer));
         } catch (Throwable error) {
             final var translated = OxiaStatusException.toException(error);
-            executor.execute(() -> observer.onError(translated));
+            asyncExecutor.execute(() -> observer.onError(translated));
         }
     }
 
