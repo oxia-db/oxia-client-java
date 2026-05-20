@@ -97,7 +97,7 @@ class SessionTest {
 
         rpcProvider = mock(RpcProvider.class);
         lenient()
-                .when(rpcProvider.keepAlive(any(SessionHeartbeat.class)))
+                .when(rpcProvider.keepAlive(any(SessionHeartbeat.class), any(Duration.class)))
                 .thenAnswer(
                         invocation -> {
                             var future = new CompletableFuture<KeepAliveResponse>();
@@ -174,7 +174,7 @@ class SessionTest {
         } catch (CompletionException ex) {
             Assertions.assertInstanceOf(IllegalStateException.class, ex.getCause());
         }
-        verify(listener, times(1)).onSessionClosed(any());
+        verify(listener, times(1)).onSessionExpired(any());
     }
 
     @Test

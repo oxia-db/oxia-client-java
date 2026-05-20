@@ -28,14 +28,11 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor(access = PACKAGE)
 public class SessionFactory {
-    @NonNull private final ScheduledExecutorService executor;
-    @NonNull final ClientConfig config;
-
-    @NonNull final SessionNotificationListener listener;
-
-    @NonNull final RpcProvider rpcProvider;
-
-    @NonNull final InstrumentProvider instrumentProvider;
+    private final ScheduledExecutorService executor;
+    private final ClientConfig config;
+    private final SessionNotificationListener listener;
+    private final RpcProvider rpcProvider;
+    private final InstrumentProvider instrumentProvider;
 
     @NonNull
     CompletableFuture<Session> create(long shardId) {
@@ -44,7 +41,6 @@ public class SessionFactory {
                 .setSessionTimeoutMs((int) config.sessionTimeout().toMillis())
                 .setShard(shardId)
                 .setClientIdentity(config.clientIdentifier());
-
         return rpcProvider
                 .createSession(request)
                 .thenApply(

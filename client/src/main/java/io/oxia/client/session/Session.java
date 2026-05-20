@@ -15,10 +15,6 @@
  */
 package io.oxia.client.session;
 
-import static lombok.AccessLevel.PACKAGE;
-import static lombok.AccessLevel.PUBLIC;
-
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
@@ -40,27 +36,23 @@ import lombok.Getter;
 import lombok.NonNull;
 
 public class Session {
+    private final Logger log;
+    @Getter private final long shardId;
+    @Getter private final long sessionId;
 
-    private final @NonNull Logger log;
+    private final RpcProvider rpcProvider;
+    private final Duration sessionTimeout;
 
-    private final @NonNull RpcProvider rpcProvider;
-    private final @NonNull Duration sessionTimeout;
-    private final @NonNull Duration heartbeatInterval;
+    private final SessionHeartbeat heartbeat;
+    private final Duration heartbeatInterval;
+    private final SessionNotificationListener listener;
 
-    @Getter(PACKAGE)
-    @VisibleForTesting
-    private final long shardId;
+    private final ScheduledFuture<?> heartbeatFuture;
+    private volatile Instant lastSuccessfulResponse;
 
-    @Getter(PUBLIC)
-    private final long sessionId;
-
-    private final @NonNull SessionHeartbeat heartbeat;
-    private final @NonNull SessionNotificationListener listener;
     private final Counter sessionsOpened;
     private final Counter sessionsExpired;
     private final Counter sessionsClosed;
-    private final ScheduledFuture<?> heartbeatFuture;
-    private volatile Instant lastSuccessfullResponse;
 
     Session(
             @NonNull ScheduledExecutorService executor,
@@ -111,18 +103,18 @@ public class Session {
 
         sessionsOpened.increment();
 
-        this.lastSuccessfullResponse = Instant.now();
+        this.lastSuccessfulResponse = Instant.now();
         this.heartbeatFuture =
                 executor.scheduleAtFixedRate(
-                        this::sendKeepAlive,
+                        this::keepAlive,
                         heartbeatInterval.toMillis(),
                         heartbeatInterval.toMillis(),
                         TimeUnit.MILLISECONDS);
     }
 
-    private void sendKeepAlive() {
+    private void keepAlive() {
         try {
-            Duration diff = Duration.between(lastSuccessfullResponse, Instant.now());
+            Duration diff = Duration.between(lastSuccessfulResponse, Instant.now());
             if (diff.toMillis() > sessionTimeout.toMillis()) {
                 sessionsExpired.increment();
                 log.warn("Session expired");
@@ -131,10 +123,10 @@ public class Session {
             }
 
             rpcProvider
-                    .keepAlive(heartbeat)
+                    .keepAlive(heartbeat, heartbeatInterval)
                     .thenRun(
                             () -> {
-                                lastSuccessfullResponse = Instant.now();
+                                lastSuccessfulResponse = Instant.now();
                                 log.debug("Received keep-alive response");
                             })
                     .exceptionally(
@@ -164,7 +156,7 @@ public class Session {
         }
         return future.whenComplete(
                 (__, ignore) -> {
-                    listener.onSessionClosed(Session.this);
+                    listener.onSessionExpired(Session.this);
                     log.info("Session closed");
                 });
     }
