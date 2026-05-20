@@ -188,7 +188,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                 }
                 return;
             }
-            log.warn().exception(error).log("Connection health check failed");
+            log.warn().exceptionMessage(error).log("Connection health check failed");
             if (healthCheckFailureCallback != null) {
                 healthCheckFailureCallback.onFailure(this);
             }
