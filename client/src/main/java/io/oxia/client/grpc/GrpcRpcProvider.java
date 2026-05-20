@@ -156,6 +156,8 @@ final class GrpcRpcProvider implements RpcProvider {
                                 connectionManager
                                         .getConnection(getLeader(request.getShard(), hint))
                                         .stub()
+                                        .withDeadlineAfter(
+                                                clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
                                         .createSession(request, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
                                 future.completeExceptionally(OxiaStatusException.toException(error));
@@ -199,6 +201,8 @@ final class GrpcRpcProvider implements RpcProvider {
                                 connectionManager
                                         .getConnection(getLeader(request.getShard(), hint))
                                         .stub()
+                                        .withDeadlineAfter(
+                                                clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
                                         .closeSession(request, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
                                 future.completeExceptionally(OxiaStatusException.toException(error));
@@ -213,6 +217,7 @@ final class GrpcRpcProvider implements RpcProvider {
             connectionManager
                     .getConnection(shardLeaderProvider.apply(request.getShard()))
                     .stub()
+                    .withDeadlineAfter(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
                     .read(request, new ManagedStreamObserver<>(observer));
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));

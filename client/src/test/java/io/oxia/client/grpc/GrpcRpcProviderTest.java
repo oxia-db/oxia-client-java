@@ -20,6 +20,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
+import io.grpc.Context;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.Status;
@@ -39,6 +40,8 @@ import io.oxia.proto.KeepAliveResponse;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
+import io.oxia.proto.ReadRequest;
+import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
 import java.util.concurrent.Executors;
@@ -272,6 +275,79 @@ class GrpcRpcProviderTest {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();
             leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void unaryRequestsUseRequestTimeoutDeadline() throws Exception {
+        var createSessionHasDeadline = new AtomicReference<Boolean>();
+        var closeSessionHasDeadline = new AtomicReference<Boolean>();
+        var readHasDeadline = new AtomicReference<Boolean>();
+        var service =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        createSessionHasDeadline.set(Context.current().getDeadline() != null);
+                        responseObserver.onNext(new CreateSessionResponse().setSessionId(1));
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void closeSession(
+                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+                        closeSessionHasDeadline.set(Context.current().getDeadline() != null);
+                        responseObserver.onNext(new CloseSessionResponse());
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void read(ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                        readHasDeadline.set(Context.current().getDeadline() != null);
+                        responseObserver.onNext(new ReadResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server server = ServerBuilder.forPort(0).directExecutor().addService(service).build().start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofSeconds(5)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.createSession(new CreateSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
+            provider.closeSession(new CloseSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
+
+            var readResponse = new AtomicReference<ReadResponse>();
+            provider.read(
+                    new ReadRequest().setShard(1),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ReadResponse value) {
+                            readResponse.set(value);
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {}
+
+                        @Override
+                        public void onCompleted() {}
+                    });
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(readResponse.get()).isNotNull();
+                                assertThat(createSessionHasDeadline.get()).isTrue();
+                                assertThat(closeSessionHasDeadline.get()).isTrue();
+                                assertThat(readHasDeadline.get()).isTrue();
+                            });
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
         }
     }
 
