@@ -22,9 +22,7 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
-import io.oxia.client.grpc.observer.ManagedClientResponseObserver;
 import io.oxia.client.grpc.observer.ManagedObservers;
-import io.oxia.client.grpc.observer.ManagedStreamObserver;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
@@ -213,14 +211,33 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer) {
+        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+        final var hint = new AtomicReference<OxiaStatusException>();
         try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .withDeadlineAfter(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
-                    .read(request, new ManagedStreamObserver<>(observer));
+            Failsafe.with(getRetryPolicy("read", hint))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(getLeader(request.getShard(), hint))
+                                            .stub()
+                                            .read(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.toException(error));
         }
     }
 
@@ -241,11 +258,30 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void list(
             @NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer) {
+        final var hint = new AtomicReference<OxiaStatusException>();
         try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .list(request, new ManagedClientResponseObserver<>(observer));
+            Failsafe.with(getRetryPolicy("list", hint))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(getLeader(request.getShard(), hint))
+                                            .stub()
+                                            .list(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                observer.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -255,11 +291,30 @@ final class GrpcRpcProvider implements RpcProvider {
     public void rangeScan(
             @NonNull RangeScanRequest request,
             @NonNull CancelableStreamObserver<RangeScanResponse> observer) {
+        final var hint = new AtomicReference<OxiaStatusException>();
         try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .rangeScan(request, new ManagedClientResponseObserver<>(observer));
+            Failsafe.with(getRetryPolicy("range scan", hint))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(getLeader(request.getShard(), hint))
+                                            .stub()
+                                            .rangeScan(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                observer.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.toException(error));
         }
@@ -269,14 +324,32 @@ final class GrpcRpcProvider implements RpcProvider {
     public void getSequenceUpdates(
             @NonNull GetSequenceUpdatesRequest request,
             @NonNull CancelableStreamObserver<GetSequenceUpdatesResponse> observer) {
+        final var hint = new AtomicReference<OxiaStatusException>();
         try {
-            connectionManager
-                    .getConnection(shardLeaderProvider.apply(request.getShard()))
-                    .stub()
-                    .getSequenceUpdates(request, new ManagedClientResponseObserver<>(observer));
+            Failsafe.with(getRetryPolicy("get sequence updates", hint))
+                    .with(asyncExecutor)
+                    .getStageAsync(
+                            () -> {
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierObserver =
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                try {
+                                    connectionManager
+                                            .getConnection(getLeader(request.getShard(), hint))
+                                            .stub()
+                                            .getSequenceUpdates(request, barrierObserver);
+                                } catch (Throwable error) {
+                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                }
+                                return barrierFuture;
+                            })
+                    .exceptionally(
+                            error -> {
+                                observer.onError(OxiaStatusException.toException(error));
+                                return null;
+                            });
         } catch (Throwable error) {
-            final var translated = OxiaStatusException.toException(error);
-            asyncExecutor.execute(() -> observer.onError(translated));
+            observer.onError(OxiaStatusException.toException(error));
         }
     }
 
