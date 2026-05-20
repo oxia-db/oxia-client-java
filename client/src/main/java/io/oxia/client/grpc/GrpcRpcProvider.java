@@ -83,7 +83,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull StreamObserver<ShardAssignments> observer) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         try {
-            Failsafe.with(getRetryPolicy(null))
+            Failsafe.with(getRetryPolicy("get shard assignments", null))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
@@ -127,7 +127,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CreateSessionResponse> createSession(
             @NonNull CreateSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy(hint))
+        return Failsafe.with(getRetryPolicy("create session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -148,7 +148,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<KeepAliveResponse> keepAlive(
             @NonNull SessionHeartbeat heartbeat, @NonNull Duration timeout) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(Timeout.of(timeout), getRetryPolicy(hint))
+        return Failsafe.with(Timeout.of(timeout), getRetryPolicy("keep alive", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -170,7 +170,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy(hint))
+        return Failsafe.with(getRetryPolicy("close session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -271,7 +271,8 @@ final class GrpcRpcProvider implements RpcProvider {
                 : retryHint.getLeaderHint(shardId).orElseGet(() -> shardLeaderProvider.apply(shardId));
     }
 
-    private <T> RetryPolicy<T> getRetryPolicy(AtomicReference<OxiaStatusException> hint) {
+    private <T> RetryPolicy<T> getRetryPolicy(
+            @NonNull String operation, AtomicReference<OxiaStatusException> hint) {
         return RetryPolicy.<T>builder()
                 .handleIf(
                         error -> {
@@ -288,7 +289,9 @@ final class GrpcRpcProvider implements RpcProvider {
                                 log.warn()
                                         .exceptionMessage(OxiaStatusException.toException(event.getLastException()))
                                         .log(
-                                                "Retrying RPC operation after "
+                                                "Retrying "
+                                                        + operation
+                                                        + " after "
                                                         + event.getDelay()
                                                         + ". attempt="
                                                         + (event.getAttemptCount() + 1)))

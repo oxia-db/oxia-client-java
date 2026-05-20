@@ -87,6 +87,8 @@ public class OxiaStatusException extends RuntimeException {
             com.google.rpc.Status grpcStatus, Throwable cause) {
         OxiaStatusCode statusCode = UNKNOWN;
         Map<String, String> metadata = Map.of();
+
+        // parse from the error info
         for (var detail : grpcStatus.getDetailsList()) {
             if (!detail.is(ErrorInfo.class)) {
                 continue;
@@ -102,6 +104,16 @@ public class OxiaStatusException extends RuntimeException {
             } catch (InvalidProtocolBufferException ignored) {
             }
         }
+        // parse from the grpc standard code
+        if (statusCode == UNKNOWN) {
+            statusCode =
+                    switch (io.grpc.Status.fromCodeValue(grpcStatus.getCode()).getCode()) {
+                        case UNAVAILABLE -> OxiaStatusCode.RESOURCE_UNAVAILABLE;
+                        case ABORTED -> OxiaStatusCode.ABORTED;
+                        default -> UNKNOWN;
+                    };
+        }
+        // parse by the error messages
         if (statusCode == UNKNOWN) {
             statusCode =
                     switch (grpcStatus.getMessage()) {
