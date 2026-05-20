@@ -15,12 +15,15 @@
  */
 package io.oxia.client.session;
 
+import static java.util.concurrent.CompletableFuture.*;
+
 import com.google.common.collect.Maps;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import io.oxia.proto.CreateSessionRequest;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -62,8 +65,7 @@ public class SessionManager
         try {
             rLock.lock();
             if (closed) {
-                return CompletableFuture.failedFuture(
-                        new IllegalStateException("Session manager is closed"));
+                return failedFuture(new IllegalStateException("Session manager is closed"));
             }
             return sessions.compute(
                     shardId,
@@ -104,6 +106,7 @@ public class SessionManager
 
     @Override
     public void close() throws Exception {
+        final List<CompletableFuture<Void>> futures;
         final Lock wLock = closedLock.writeLock();
         try {
             wLock.lock();
@@ -111,12 +114,16 @@ public class SessionManager
                 return;
             }
             closed = true;
-            // async close session without wait
-            sessions.values().forEach(sf -> sf.thenCompose(Session::close));
+            // do our best to close all sessions
+            futures =
+                    sessions.values().stream()
+                            .map(sf -> sf.thenCompose(Session::close).exceptionally(ex -> null))
+                            .toList();
             sessions.clear();
         } finally {
             wLock.unlock();
         }
+        allOf(futures.toArray(CompletableFuture[]::new)).join();
     }
 
     @Override
