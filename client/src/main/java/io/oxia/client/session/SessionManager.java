@@ -62,7 +62,10 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session session) {
-        closeSessionQuietly(sessions.remove(session.getShardId()));
+        final var sessionFuture = sessions.remove(session.getShardId());
+        if (sessionFuture != null) {
+            closeSessionQuietly(sessionFuture);
+        }
     }
 
     @Override
