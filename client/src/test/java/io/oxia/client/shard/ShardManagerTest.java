@@ -16,7 +16,6 @@
 package io.oxia.client.shard;
 
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
-import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,7 +25,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
 import io.grpc.Status;
-import io.oxia.client.CompositeConsumer;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.ShardAssignment;
@@ -46,7 +44,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -135,30 +132,21 @@ public class ShardManagerTest {
     class ManagerTests {
         private final String namespace = "default";
 
-        @Spy
-        ShardAssignmentsContainer assignments =
-                new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, DefaultNamespace);
-
         @Mock RpcProvider rpcProvider;
         ShardManager manager;
-        ScheduledExecutorService executor;
+        ScheduledExecutorService asyncExecutor;
 
         @BeforeEach
         void mocking() {
-            executor = Executors.newSingleThreadScheduledExecutor();
+            asyncExecutor = Executors.newSingleThreadScheduledExecutor();
 
             manager =
-                    new ShardManager(
-                            executor,
-                            rpcProvider,
-                            assignments,
-                            new CompositeConsumer<>(),
-                            InstrumentProvider.NOOP);
+                    new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
         }
 
         @AfterEach
         void cleanup() {
-            executor.shutdownNow();
+            asyncExecutor.shutdownNow();
         }
 
         @Test
@@ -187,12 +175,7 @@ public class ShardManagerTest {
         void refetchesStubWhenRetryingShardAssignmentStream() {
             var stubCalls = new AtomicInteger();
             manager =
-                    new ShardManager(
-                            executor,
-                            rpcProvider,
-                            assignments,
-                            new CompositeConsumer<>(),
-                            InstrumentProvider.NOOP);
+                    new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
 
             var assignment = new ShardAssignment();
             assignment.setShard(0).setLeader("leader0");
@@ -227,8 +210,7 @@ public class ShardManagerTest {
 
         @Test
         void getAll() {
-            manager.allShardIds();
-            verify(assignments).allShardIds();
+            assertThat(manager.allShardIds()).isEmpty();
         }
 
         @Test
