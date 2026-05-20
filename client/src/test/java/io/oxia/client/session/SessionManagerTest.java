@@ -175,7 +175,7 @@ class SessionManagerTest {
     }
 
     @Test
-    void testSessionClosed() throws Exception {
+    void testSessionExpired() throws Exception {
         var shardId = 1L;
         when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(
@@ -186,7 +186,7 @@ class SessionManagerTest {
 
         var session = manager.getSession(shardId).join();
 
-        session.close().join();
+        manager.onSessionExpired(session);
         assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
         verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
     }

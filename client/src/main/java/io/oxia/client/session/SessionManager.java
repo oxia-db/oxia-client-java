@@ -62,10 +62,7 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session session) {
-        final var sessionFuture = sessions.remove(session.getShardId());
-        if (sessionFuture != null) {
-            closeSessionQuietly(sessionFuture);
-        }
+        closeSessionQuietly(sessions.remove(session.getShardId()));
     }
 
     @Override
@@ -99,6 +96,9 @@ public class SessionManager
     }
 
     private CompletableFuture<Void> closeSessionQuietly(CompletableFuture<Session> sessionFuture) {
+        if (sessionFuture == null) {
+            return CompletableFuture.completedFuture(null);
+        }
         final CompletableFuture<Void> future =
                 sessionFuture.thenCompose(Session::close).thenApply(__ -> null);
         return future.exceptionally(ex -> null);

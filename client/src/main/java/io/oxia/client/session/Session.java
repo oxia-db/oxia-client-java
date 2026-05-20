@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.Getter;
 import lombok.NonNull;
 
@@ -53,6 +54,8 @@ public class Session {
     private final Counter sessionsOpened;
     private final Counter sessionsExpired;
     private final Counter sessionsClosed;
+
+    private final AtomicBoolean closed;
 
     Session(
             @NonNull ScheduledExecutorService executor,
@@ -104,6 +107,7 @@ public class Session {
         sessionsOpened.increment();
 
         this.lastSuccessfulResponse = Instant.now();
+        this.closed = new AtomicBoolean(false);
         this.heartbeatFuture =
                 executor.scheduleAtFixedRate(
                         this::keepAlive,
@@ -118,7 +122,7 @@ public class Session {
             if (diff.toMillis() > sessionTimeout.toMillis()) {
                 sessionsExpired.increment();
                 log.warn("Session expired");
-                close();
+                listener.onSessionExpired(Session.this);
                 return;
             }
 
@@ -144,6 +148,9 @@ public class Session {
     }
 
     public CompletableFuture<Void> close() {
+        if (!closed.compareAndSet(false, true)) {
+            return CompletableFuture.completedFuture(null);
+        }
         CompletableFuture<Void> future;
         try {
             sessionsClosed.increment();
@@ -156,7 +163,6 @@ public class Session {
         }
         return future.whenComplete(
                 (__, ignore) -> {
-                    listener.onSessionExpired(Session.this);
                     log.info("Session closed");
                 });
     }

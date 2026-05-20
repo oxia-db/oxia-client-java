@@ -174,7 +174,7 @@ class SessionTest {
         } catch (CompletionException ex) {
             Assertions.assertInstanceOf(IllegalStateException.class, ex.getCause());
         }
-        verify(listener, times(1)).onSessionExpired(any());
+        verifyNoInteractions(listener);
     }
 
     @Test
