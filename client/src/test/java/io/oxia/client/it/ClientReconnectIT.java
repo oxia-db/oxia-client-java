@@ -34,7 +34,7 @@ class ClientReconnectIT {
 
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
+            new OxiaContainer(OxiaImages.OXIA, 4, true)
                     .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(ClientReconnectIT.class)));
 
     @Test
