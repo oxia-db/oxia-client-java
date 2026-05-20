@@ -15,36 +15,35 @@
  */
 package io.oxia.client.grpc.observer;
 
-import io.grpc.stub.ClientCallStreamObserver;
-import io.grpc.stub.ClientResponseObserver;
+import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.OxiaStatusException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.NonNull;
 
-public final class ManagedClientResponseObserver<ReqT, RespT>
-        implements ClientResponseObserver<ReqT, RespT> {
-    private final CancelableStreamObserver<RespT> observer;
+public final class GuardedStreamObserver<T> implements StreamObserver<T> {
+    private final StreamObserver<T> streamObserver;
+    private final AtomicBoolean terminated = new AtomicBoolean();
 
-    public ManagedClientResponseObserver(@NonNull CancelableStreamObserver<RespT> observer) {
-        this.observer = observer;
+    GuardedStreamObserver(@NonNull StreamObserver<T> streamObserver) {
+        this.streamObserver = streamObserver;
     }
 
     @Override
-    public void beforeStart(@NonNull ClientCallStreamObserver<ReqT> requestStream) {
-        observer.setRequestStream(requestStream);
-    }
-
-    @Override
-    public void onNext(@NonNull RespT value) {
-        observer.onNext(value);
+    public void onNext(@NonNull T response) {
+        streamObserver.onNext(response);
     }
 
     @Override
     public void onError(@NonNull Throwable error) {
-        observer.onError(OxiaStatusException.toException(error));
+        if (terminated.compareAndSet(false, true)) {
+            streamObserver.onError(OxiaStatusException.toException(error));
+        }
     }
 
     @Override
     public void onCompleted() {
-        observer.onCompleted();
+        if (terminated.compareAndSet(false, true)) {
+            streamObserver.onCompleted();
+        }
     }
 }

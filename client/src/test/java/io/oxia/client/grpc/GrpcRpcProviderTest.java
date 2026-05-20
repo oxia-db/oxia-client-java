@@ -37,9 +37,13 @@ import io.oxia.proto.CreateSessionResponse;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import io.oxia.proto.KeepAliveResponse;
+import io.oxia.proto.ListRequest;
+import io.oxia.proto.ListResponse;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
+import io.oxia.proto.RangeScanRequest;
+import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
@@ -279,10 +283,238 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void unaryRequestsUseRequestTimeoutDeadline() throws Exception {
+    void readRetriesWithLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicReference<ReadRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void read(ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(new ReadResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var firstServerRequests = new AtomicReference<ReadRequest>();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void read(ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                        firstServerRequests.set(request);
+                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
+            var request = new ReadRequest();
+            request.setShard(1);
+            var response = new AtomicReference<ReadResponse>();
+
+            provider.read(request, capturingStreamObserver(response));
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(response.get()).isNotNull();
+                                assertThat(firstServerRequests.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                            });
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void listRetriesWithLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicReference<ListRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void list(ListRequest request, StreamObserver<ListResponse> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(new ListResponse().addAllKeys(java.util.List.of("key")));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var firstServerRequests = new AtomicReference<ListRequest>();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void list(ListRequest request, StreamObserver<ListResponse> responseObserver) {
+                        firstServerRequests.set(request);
+                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
+            var request = new ListRequest();
+            request.setShard(1);
+            var response = new AtomicReference<ListResponse>();
+
+            provider.list(request, capturingCancelableObserver(response));
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(response.get()).isNotNull();
+                                assertThat(response.get().getKeyAt(0)).isEqualTo("key");
+                                assertThat(firstServerRequests.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                            });
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void rangeScanRetriesWithLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicReference<RangeScanRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void rangeScan(
+                            RangeScanRequest request, StreamObserver<RangeScanResponse> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(new RangeScanResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var firstServerRequests = new AtomicReference<RangeScanRequest>();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void rangeScan(
+                            RangeScanRequest request, StreamObserver<RangeScanResponse> responseObserver) {
+                        firstServerRequests.set(request);
+                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
+            var request = new RangeScanRequest();
+            request.setShard(1);
+            var response = new AtomicReference<RangeScanResponse>();
+
+            provider.rangeScan(request, capturingCancelableObserver(response));
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(response.get()).isNotNull();
+                                assertThat(firstServerRequests.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                            });
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void getSequenceUpdatesRetriesWithLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicReference<GetSequenceUpdatesRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(
+                                new GetSequenceUpdatesResponse().setHighestSequenceKey("key-1"));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var firstServerRequests = new AtomicReference<GetSequenceUpdatesRequest>();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        firstServerRequests.set(request);
+                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
+            var request = new GetSequenceUpdatesRequest();
+            request.setShard(1).setKey("key");
+            var response = new AtomicReference<GetSequenceUpdatesResponse>();
+
+            provider.getSequenceUpdates(request, capturingCancelableObserver(response));
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(response.get()).isNotNull();
+                                assertThat(response.get().getHighestSequenceKey()).isEqualTo("key-1");
+                                assertThat(firstServerRequests.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                            });
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void sessionRequestsUseRequestTimeoutDeadline() throws Exception {
         var createSessionHasDeadline = new AtomicReference<Boolean>();
         var closeSessionHasDeadline = new AtomicReference<Boolean>();
-        var readHasDeadline = new AtomicReference<Boolean>();
         var service =
                 new OxiaClientGrpc.OxiaClientImplBase() {
                     @Override
@@ -301,13 +533,6 @@ class GrpcRpcProviderTest {
                         responseObserver.onNext(new CloseSessionResponse());
                         responseObserver.onCompleted();
                     }
-
-                    @Override
-                    public void read(ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
-                        readHasDeadline.set(Context.current().getDeadline() != null);
-                        responseObserver.onNext(new ReadResponse());
-                        responseObserver.onCompleted();
-                    }
                 };
         Server server = ServerBuilder.forPort(0).directExecutor().addService(service).build().start();
         var address = "localhost:" + server.getPort();
@@ -321,29 +546,11 @@ class GrpcRpcProviderTest {
             provider.createSession(new CreateSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
             provider.closeSession(new CloseSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
 
-            var readResponse = new AtomicReference<ReadResponse>();
-            provider.read(
-                    new ReadRequest().setShard(1),
-                    new StreamObserver<>() {
-                        @Override
-                        public void onNext(ReadResponse value) {
-                            readResponse.set(value);
-                        }
-
-                        @Override
-                        public void onError(Throwable t) {}
-
-                        @Override
-                        public void onCompleted() {}
-                    });
-
             await()
                     .untilAsserted(
                             () -> {
-                                assertThat(readResponse.get()).isNotNull();
                                 assertThat(createSessionHasDeadline.get()).isTrue();
                                 assertThat(closeSessionHasDeadline.get()).isTrue();
-                                assertThat(readHasDeadline.get()).isTrue();
                             });
         } finally {
             executor.shutdownNow();
@@ -389,6 +596,37 @@ class GrpcRpcProviderTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    private static <T> StreamObserver<T> capturingStreamObserver(AtomicReference<T> response) {
+        return new StreamObserver<>() {
+            @Override
+            public void onNext(T value) {
+                response.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+    }
+
+    private static <T> CancelableStreamObserver<T> capturingCancelableObserver(
+            AtomicReference<T> response) {
+        return new CancelableStreamObserver<>() {
+            @Override
+            protected void onNextValue(@NonNull T value) {
+                response.set(value);
+            }
+
+            @Override
+            protected void onErrorValue(@NonNull Throwable t) {}
+
+            @Override
+            protected void onCompletedValue() {}
+        };
     }
 
     private static Throwable retryableErrorWithLeaderHint(String leaderAddress) {

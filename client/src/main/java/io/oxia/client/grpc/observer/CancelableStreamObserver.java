@@ -43,8 +43,9 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     }
 
     void setRequestStream(ClientCallStreamObserver<?> requestStream) {
-        if (!this.requestStream.compareAndSet(null, requestStream)) {
-            throw new IllegalStateException("Request stream was already initialized");
+        final var previous = this.requestStream.getAndSet(requestStream);
+        if (previous != null) {
+            previous.cancel(CANCELED, null);
         }
         if (canceled.get() && this.requestStream.compareAndSet(requestStream, null)) {
             requestStream.cancel(CANCELED, null);
@@ -53,23 +54,26 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public final void onNext(@NonNull T value) {
-        if (!isCanceled()) {
-            onNextValue(value);
+        if (isCanceled()) {
+            return;
         }
+        onNextValue(value);
     }
 
     @Override
     public final void onError(@NonNull Throwable t) {
-        if (!isCanceled()) {
-            onErrorValue(t);
+        if (isCanceled()) {
+            return;
         }
+        onErrorValue(t);
     }
 
     @Override
     public final void onCompleted() {
-        if (!isCanceled()) {
-            onCompletedValue();
+        if (isCanceled()) {
+            return;
         }
+        onCompletedValue();
     }
 
     protected abstract void onNextValue(@NonNull T value);

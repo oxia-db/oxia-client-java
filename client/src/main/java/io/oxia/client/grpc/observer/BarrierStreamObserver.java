@@ -17,27 +17,38 @@ package io.oxia.client.grpc.observer;
 
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.OxiaStatusException;
+import java.util.concurrent.CompletableFuture;
 import lombok.NonNull;
 
-public final class ManagedStreamObserver<T> implements StreamObserver<T> {
-    private final StreamObserver<T> observer;
+public final class BarrierStreamObserver<T> implements StreamObserver<T> {
+    private final StreamObserver<T> streamObserver;
+    private final CompletableFuture<Void> barrierFuture;
 
-    public ManagedStreamObserver(@NonNull StreamObserver<T> observer) {
-        this.observer = observer;
+    BarrierStreamObserver(
+            @NonNull StreamObserver<T> streamObserver, @NonNull CompletableFuture<Void> barrierFuture) {
+        this.streamObserver = streamObserver;
+        this.barrierFuture = barrierFuture;
     }
 
     @Override
-    public void onNext(@NonNull T value) {
-        observer.onNext(value);
+    public void onNext(@NonNull T response) {
+        barrierFuture.complete(null);
+        streamObserver.onNext(response);
     }
 
     @Override
     public void onError(@NonNull Throwable error) {
-        observer.onError(OxiaStatusException.toException(error));
+        final var translated = OxiaStatusException.toException(error);
+        if (!barrierFuture.isDone()) {
+            barrierFuture.completeExceptionally(translated);
+            return;
+        }
+        streamObserver.onError(translated);
     }
 
     @Override
     public void onCompleted() {
-        observer.onCompleted();
+        barrierFuture.complete(null);
+        streamObserver.onCompleted();
     }
 }
