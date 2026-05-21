@@ -94,8 +94,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                     subStreamObserver.onNext(inflightWrite.request);
                 }
             } catch (Throwable ex) {
-                log.warn().exceptionMessage(ex)
-                        .log("Failed to send write request, retrying");
+                log.warn().exceptionMessage(ex).log("Failed to send write request, retrying");
                 subStreamObserver = null;
                 // we are using null here to avoid the new request exception discard old.
                 scheduleRetry(null, 0);

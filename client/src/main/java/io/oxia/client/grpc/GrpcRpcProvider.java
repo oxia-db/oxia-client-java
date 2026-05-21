@@ -251,6 +251,7 @@ final class GrpcRpcProvider implements RpcProvider {
                 shardId, (__) -> new ManagedWriteStream(shardId, this, asyncExecutor));
     }
 
+    @Override
     public StreamObserver<WriteRequest> writeStream(
             long shardId,
             OxiaStatusException leaderHint,
