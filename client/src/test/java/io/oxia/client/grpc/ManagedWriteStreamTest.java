@@ -50,9 +50,8 @@ class ManagedWriteStreamTest {
         var executor = Executors.newSingleThreadScheduledExecutor();
         var config = clientConfig(address);
 
-        try (var stream =
-                new ManagedWriteStream(
-                        "default", 1, new ConnectionManager(config, executor), shard -> address, executor)) {
+        try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
+                var stream = new ManagedWriteStream(1, provider, executor)) {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
@@ -93,9 +92,8 @@ class ManagedWriteStreamTest {
         var executor = Executors.newSingleThreadScheduledExecutor();
         var config = clientConfig(address);
 
-        try (var stream =
-                new ManagedWriteStream(
-                        "default", 1, new ConnectionManager(config, executor), shard -> address, executor)) {
+        try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
+                var stream = new ManagedWriteStream(1, provider, executor)) {
             CompletableFuture<WriteResponse> pending = stream.sendWithRecovery(writeRequest(1));
 
             stream.close();
@@ -112,11 +110,9 @@ class ManagedWriteStreamTest {
 
     @Test
     void replaysInflightWritesAfterRetryableError() throws Exception {
-        var leaderRequests = new ConcurrentLinkedQueue<WriteRequest>();
-        Server leaderServer = writeServer(respondingWriteService(leaderRequests));
-        var leaderAddress = "localhost:" + leaderServer.getPort();
-
         var staleRequests = new ConcurrentLinkedQueue<WriteRequest>();
+        var recoveredRequests = new ConcurrentLinkedQueue<WriteRequest>();
+        var streamOpenCount = new AtomicInteger();
         var staleRequestCount = new AtomicInteger();
         Server staleServer =
                 writeServer(
@@ -124,13 +120,20 @@ class ManagedWriteStreamTest {
                             @Override
                             public StreamObserver<WriteRequest> writeStream(
                                     StreamObserver<WriteResponse> responseObserver) {
+                                var streamAttempt = streamOpenCount.incrementAndGet();
                                 return new StreamObserver<>() {
                                     @Override
                                     public void onNext(WriteRequest value) {
-                                        staleRequests.add(value);
-                                        if (staleRequestCount.incrementAndGet() == 2) {
-                                            responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
+                                        if (streamAttempt == 1) {
+                                            staleRequests.add(value);
+                                            if (staleRequestCount.incrementAndGet() == 2) {
+                                                responseObserver.onError(
+                                                        retryableErrorWithLeaderHint("localhost:0"));
+                                            }
+                                            return;
                                         }
+                                        recoveredRequests.add(value);
+                                        responseObserver.onNext(new WriteResponse());
                                     }
 
                                     @Override
@@ -145,13 +148,8 @@ class ManagedWriteStreamTest {
         var executor = Executors.newSingleThreadScheduledExecutor();
         var config = clientConfig(staleAddress);
 
-        try (var stream =
-                new ManagedWriteStream(
-                        "default",
-                        1,
-                        new ConnectionManager(config, executor),
-                        shard -> staleAddress,
-                        executor)) {
+        try (var provider = new GrpcRpcProvider(config, executor, shard -> staleAddress);
+                var stream = new ManagedWriteStream(1, provider, executor)) {
             var firstFuture = stream.sendWithRecovery(writeRequest(1));
             var secondFuture = stream.sendWithRecovery(writeRequest(2));
 
@@ -161,11 +159,10 @@ class ManagedWriteStreamTest {
             await()
                     .untilAsserted(() -> assertThat(keys(staleRequests)).containsExactly("key-1", "key-2"));
             await()
-                    .untilAsserted(() -> assertThat(keys(leaderRequests)).containsExactly("key-1", "key-2"));
+                    .untilAsserted(() -> assertThat(keys(recoveredRequests)).containsExactly("key-1", "key-2"));
         } finally {
             executor.shutdownNow();
             staleServer.shutdownNow();
-            leaderServer.shutdownNow();
         }
     }
 
