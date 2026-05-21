@@ -75,7 +75,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         if (inflightWrites.isEmpty()) {
             return;
         }
-        scheduleRetry(new CancellationException(), 0); // retry immediately
+        scheduleRetry(null, 0); // retry immediately
     }
 
     public CompletableFuture<WriteResponse> send(WriteRequest request) {
@@ -90,8 +90,9 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
             try {
                 if (subStreamObserver == null) {
                     initWithRecovery(null);
+                } else {
+                    subStreamObserver.onNext(inflightWrite.request);
                 }
-                subStreamObserver.onNext(inflightWrite.request);
             } catch (Throwable ex) {
                 log.warn().exceptionMessage(ex)
                         .log("Failed to send write request, retrying");
