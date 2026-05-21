@@ -302,7 +302,7 @@ class BatchTest {
             resp.addPut().setStatus(OK).setVersion();
             resp.addDelete().setStatus(KEY_NOT_FOUND);
             resp.addDeleteRange().setStatus(OK);
-            when(writeStream.sendWithRecovery(any(WriteRequest.class)))
+            when(writeStream.send(any(WriteRequest.class)))
                     .thenReturn(CompletableFuture.completedFuture(resp));
 
             batch.add(put);
@@ -323,7 +323,7 @@ class BatchTest {
         @Test
         public void sendFail() {
             var batchError = Status.UNAVAILABLE.asRuntimeException();
-            when(writeStream.sendWithRecovery(any(WriteRequest.class)))
+            when(writeStream.send(any(WriteRequest.class)))
                     .thenReturn(CompletableFuture.failedFuture(batchError));
 
             batch.add(put);

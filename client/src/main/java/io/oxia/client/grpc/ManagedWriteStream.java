@@ -51,30 +51,6 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         this.closed = false;
     }
 
-    public CompletableFuture<WriteResponse> sendWithRecovery(WriteRequest request) {
-        lock.lock();
-        final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
-        final InflightWrite inflightWrite = new InflightWrite(request, future);
-        try {
-            if (closed) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
-            }
-            inflightWrites.add(inflightWrite);
-            if (subStreamObserver == null) {
-                initWithRecovery(null);
-            } else {
-                log.debug().attr("pendingWrites", inflightWrites.size()).log("Sending write request");
-                subStreamObserver.onNext(request);
-            }
-            return future;
-        } catch (Throwable ex) {
-            scheduleRetry(null, 0);
-            return future;
-        } finally {
-            lock.unlock();
-        }
-    }
-
     @Override
     public void onNext(WriteResponse value) {
         final InflightWrite inflight = inflightWrites.poll();
@@ -86,49 +62,68 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
 
     @Override
     public void onError(Throwable t) {
-        final var translated = OxiaStatusException.toException(t);
-        final OxiaStatusException leaderHint;
-        if (!OxiaStatusException.isRetryable(translated)) {
-            final InflightWrite inflight = inflightWrites.poll();
-            if (inflight != null) {
-                log.warn()
-                        .attr("pendingWrites", inflightWrites.size())
-                        .exceptionMessage(translated)
-                        .log("Write stream failed with non-retryable error; failing head write");
-                inflight.future.completeExceptionally(translated);
-            }
-            leaderHint = null;
-        } else {
-            log.warn()
-                    .attr("pendingWrites", inflightWrites.size())
-                    .exceptionMessage(translated)
-                    .log("Write stream failed with retryable error; scheduling recovery");
-            leaderHint = translated instanceof OxiaStatusException oxiaError ? oxiaError : null;
-        }
         resetSubObserver();
         if (inflightWrites.isEmpty()) {
             return;
         }
-        scheduleRetry(leaderHint, 0); // retry immediately
+        scheduleRetry(t, 0); // retry immediately
     }
 
     @Override
     public void onCompleted() {
-        log.info()
-                .attr("pendingWrites", inflightWrites.size())
-                .log("Write stream completed; scheduling recovery");
         resetSubObserver();
         if (inflightWrites.isEmpty()) {
             return;
         }
-        scheduleRetry(null, 0); // retry immediately
+        scheduleRetry(new CancellationException(), 0); // retry immediately
     }
 
-    private void scheduleRetry(OxiaStatusException leaderHint, long backoffMills) {
+    public CompletableFuture<WriteResponse> send(WriteRequest request) {
+        lock.lock();
+        final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
+        final InflightWrite inflightWrite = new InflightWrite(request, future);
+        try {
+            if (closed) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
+            }
+            inflightWrites.add(inflightWrite);
+            try {
+                if (subStreamObserver == null) {
+                    initWithRecovery(null);
+                }
+                subStreamObserver.onNext(inflightWrite.request);
+            } catch (Throwable ex) {
+                log.warn().exceptionMessage(ex)
+                        .log("Failed to send write request, retrying");
+                subStreamObserver = null;
+                // we are using null here to avoid the new request exception discard old.
+                scheduleRetry(null, 0);
+            }
+            return future;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void scheduleRetry(Throwable error, long backoffMills) {
+        OxiaStatusException leaderHint = null;
+        if (error != null) {
+            final var translated = OxiaStatusException.toException(error);
+            if (OxiaStatusException.isRetryable(translated)) {
+                leaderHint = translated instanceof OxiaStatusException oxiaError ? oxiaError : null;
+            } else {
+                final InflightWrite inflight = inflightWrites.poll();
+                if (inflight != null) {
+                    inflight.future.completeExceptionally(translated);
+                }
+            }
+        }
         log.info()
+                .exceptionMessage(error)
                 .attr("retryDelayMillis", backoffMills)
                 .attr("pendingWrites", inflightWrites.size())
                 .log("Scheduling write stream recovery");
+        final OxiaStatusException fLeaderHint = leaderHint;
         asyncExecutor.schedule(
                 () -> {
                     lock.lock();
@@ -140,10 +135,10 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                         if (subStreamObserver != null) {
                             return;
                         }
-                        initWithRecovery(leaderHint);
+                        initWithRecovery(fLeaderHint);
                     } catch (Throwable ex) {
                         log.error().exceptionMessage(ex).log("Failed to recover write stream");
-                        scheduleRetry(null, backoff.nextDelayMillis());
+                        scheduleRetry(ex, backoff.nextDelayMillis());
                     } finally {
                         lock.unlock();
                     }

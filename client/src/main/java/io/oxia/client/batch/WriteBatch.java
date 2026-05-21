@@ -98,7 +98,7 @@ final class WriteBatch extends BatchBase implements Batch {
         try {
             final ManagedWriteStream writeStream = rpcProvider.getWriteStream(getShardId());
             writeStream
-                    .sendWithRecovery(toProto())
+                    .send(toProto())
                     .thenAccept(
                             response -> {
                                 factory.writeRequestLatencyHistogram.recordSuccess(

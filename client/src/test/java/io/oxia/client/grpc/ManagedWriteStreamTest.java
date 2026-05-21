@@ -55,8 +55,8 @@ class ManagedWriteStreamTest {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
-            var firstFuture = stream.sendWithRecovery(first);
-            var secondFuture = stream.sendWithRecovery(second);
+            var firstFuture = stream.send(first);
+            var secondFuture = stream.send(second);
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
@@ -94,14 +94,14 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
                 var stream = new ManagedWriteStream(1, provider, executor)) {
-            CompletableFuture<WriteResponse> pending = stream.sendWithRecovery(writeRequest(1));
+            CompletableFuture<WriteResponse> pending = stream.send(writeRequest(1));
 
             stream.close();
 
             assertThat(pending).isCompletedExceptionally();
             assertThatThrownBy(pending::get)
                     .isInstanceOf(java.util.concurrent.CancellationException.class);
-            assertThat(stream.sendWithRecovery(writeRequest(2))).isCompletedExceptionally();
+            assertThat(stream.send(writeRequest(2))).isCompletedExceptionally();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -145,8 +145,8 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> staleAddress);
                 var stream = new ManagedWriteStream(1, provider, executor)) {
-            var firstFuture = stream.sendWithRecovery(writeRequest(1));
-            var secondFuture = stream.sendWithRecovery(writeRequest(2));
+            var firstFuture = stream.send(writeRequest(1));
+            var secondFuture = stream.send(writeRequest(2));
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
