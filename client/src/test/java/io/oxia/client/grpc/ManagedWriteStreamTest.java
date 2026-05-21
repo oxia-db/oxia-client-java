@@ -52,7 +52,7 @@ class ManagedWriteStreamTest {
 
         try (var stream =
                 new ManagedWriteStream(
-                        1, new ConnectionManager(config, executor), shard -> address, executor)) {
+                        "default", 1, new ConnectionManager(config, executor), shard -> address, executor)) {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
@@ -95,7 +95,7 @@ class ManagedWriteStreamTest {
 
         try (var stream =
                 new ManagedWriteStream(
-                        1, new ConnectionManager(config, executor), shard -> address, executor)) {
+                        "default", 1, new ConnectionManager(config, executor), shard -> address, executor)) {
             CompletableFuture<WriteResponse> pending = stream.sendWithRecovery(writeRequest(1));
 
             stream.close();
@@ -147,7 +147,11 @@ class ManagedWriteStreamTest {
 
         try (var stream =
                 new ManagedWriteStream(
-                        1, new ConnectionManager(config, executor), shard -> staleAddress, executor)) {
+                        "default",
+                        1,
+                        new ConnectionManager(config, executor),
+                        shard -> staleAddress,
+                        executor)) {
             var firstFuture = stream.sendWithRecovery(writeRequest(1));
             var secondFuture = stream.sendWithRecovery(writeRequest(2));
 
