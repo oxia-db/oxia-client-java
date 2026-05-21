@@ -36,6 +36,7 @@ import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerInterceptor;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
@@ -49,6 +50,7 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.ManagedWriteStream;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -119,12 +121,6 @@ class BatchTest {
                             new OxiaClientImplBase() {
 
                                 @Override
-                                public void write(
-                                        WriteRequest request, StreamObserver<WriteResponse> responseObserver) {
-                                    writeResponses.forEach(c -> c.accept(responseObserver));
-                                }
-
-                                @Override
                                 public void read(
                                         ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
                                     readResponses.forEach(c -> c.accept(responseObserver));
@@ -133,12 +129,10 @@ class BatchTest {
 
     private Server server;
     private ManagedChannel channel;
-    private final List<Consumer<StreamObserver<WriteResponse>>> writeResponses = new ArrayList<>();
     private final List<Consumer<StreamObserver<ReadResponse>>> readResponses = new ArrayList<>();
 
     @BeforeEach
     public void setUp() throws Exception {
-        writeResponses.clear();
         readResponses.clear();
         String serverName = InProcessServerBuilder.generateName();
         InProcessServerBuilder serverBuilder =
@@ -149,30 +143,6 @@ class BatchTest {
         server = serverBuilder.build().start();
         channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         clientByShardId = mock(RpcProvider.class);
-        lenient()
-                .when(clientByShardId.write(any(WriteRequest.class)))
-                .thenAnswer(
-                        invocation -> {
-                            var future = new CompletableFuture<WriteResponse>();
-                            stub()
-                                    .write(
-                                            invocation.getArgument(0),
-                                            new StreamObserver<>() {
-                                                @Override
-                                                public void onNext(WriteResponse response) {
-                                                    future.complete(response);
-                                                }
-
-                                                @Override
-                                                public void onError(Throwable error) {
-                                                    future.completeExceptionally(OxiaStatusException.toException(error));
-                                                }
-
-                                                @Override
-                                                public void onCompleted() {}
-                                            });
-                            return future;
-                        });
         lenient()
                 .doAnswer(
                         invocation -> {
@@ -234,6 +204,7 @@ class BatchTest {
     @DisplayName("Tests of write batch")
     class WriteBatchTests {
         WriteBatch batch;
+        ManagedWriteStream writeStream;
         CompletableFuture<PutResult> putCallable = new CompletableFuture<>();
         CompletableFuture<PutResult> putEphemeralCallable = new CompletableFuture<>();
         CompletableFuture<Boolean> deleteCallable = new CompletableFuture<>();
@@ -270,6 +241,8 @@ class BatchTest {
 
         @BeforeEach
         void setup() {
+            writeStream = mock(ManagedWriteStream.class);
+            lenient().when(clientByShardId.getWriteStream(shardId)).thenReturn(writeStream);
 
             var factory =
                     new WriteBatchFactory(
@@ -324,16 +297,13 @@ class BatchTest {
 
         @Test
         public void sendOk() {
-            writeResponses.add(
-                    o -> {
-                        var resp = new WriteResponse();
-                        resp.addPut().setStatus(UNEXPECTED_VERSION_ID);
-                        resp.addPut().setStatus(OK).setVersion();
-                        resp.addDelete().setStatus(KEY_NOT_FOUND);
-                        resp.addDeleteRange().setStatus(OK);
-                        o.onNext(resp);
-                    });
-            writeResponses.add(StreamObserver::onCompleted);
+            var resp = new WriteResponse();
+            resp.addPut().setStatus(UNEXPECTED_VERSION_ID);
+            resp.addPut().setStatus(OK).setVersion();
+            resp.addDelete().setStatus(KEY_NOT_FOUND);
+            resp.addDeleteRange().setStatus(OK);
+            when(writeStream.send(any(WriteRequest.class)))
+                    .thenReturn(CompletableFuture.completedFuture(resp));
 
             batch.add(put);
             batch.add(putEphemeral);
@@ -342,12 +312,7 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
-
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
             assertThat(putEphemeralCallable).isCompleted();
             assertThatThrownBy(putCallable::get)
                     .hasCauseExactlyInstanceOf(UnexpectedVersionIdException.class);
@@ -358,7 +323,8 @@ class BatchTest {
         @Test
         public void sendFail() {
             var batchError = Status.UNAVAILABLE.asRuntimeException();
-            writeResponses.add(o -> o.onError(batchError));
+            when(writeStream.send(any(WriteRequest.class)))
+                    .thenReturn(CompletableFuture.failedFuture(batchError));
 
             batch.add(put);
             batch.add(putEphemeral);
@@ -367,25 +333,21 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
-
-            assertThatThrownBy(putCallable::get).hasCauseInstanceOf(OxiaStatusException.class);
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
+            assertThatThrownBy(putCallable::get).hasCauseInstanceOf(StatusRuntimeException.class);
             assertThat(putEphemeralCallable).isCompletedExceptionally();
-            assertThatThrownBy(putEphemeralCallable::get).hasCauseInstanceOf(OxiaStatusException.class);
+            assertThatThrownBy(putEphemeralCallable::get)
+                    .hasCauseInstanceOf(StatusRuntimeException.class);
             assertThat(deleteCallable).isCompletedExceptionally();
-            assertThatThrownBy(deleteCallable::get).hasCauseInstanceOf(OxiaStatusException.class);
+            assertThatThrownBy(deleteCallable::get).hasCauseInstanceOf(StatusRuntimeException.class);
             assertThat(deleteRangeCallable).isCompletedExceptionally();
-            assertThatThrownBy(deleteRangeCallable::get).hasCauseInstanceOf(OxiaStatusException.class);
+            assertThatThrownBy(deleteRangeCallable::get).hasCauseInstanceOf(StatusRuntimeException.class);
         }
 
         @Test
         public void sendFailNoClient() {
             var rpcProvider = mock(RpcProvider.class);
-            when(rpcProvider.write(any(WriteRequest.class))).thenThrow(new NoShardAvailableException(1));
+            when(rpcProvider.getWriteStream(shardId)).thenThrow(new NoShardAvailableException(shardId));
 
             batch =
                     new WriteBatch(
@@ -404,11 +366,7 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
             assertThatThrownBy(putCallable::get)
                     .satisfies(
                             e -> {
@@ -417,7 +375,7 @@ class BatchTest {
                                         .isEqualTo(shardId);
                             });
             assertThat(deleteCallable).isCompletedExceptionally();
-            assertThatThrownBy(putCallable::get)
+            assertThatThrownBy(deleteCallable::get)
                     .satisfies(
                             e -> {
                                 assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
@@ -425,7 +383,7 @@ class BatchTest {
                                         .isEqualTo(shardId);
                             });
             assertThat(deleteRangeCallable).isCompletedExceptionally();
-            assertThatThrownBy(putCallable::get)
+            assertThatThrownBy(deleteRangeCallable::get)
                     .satisfies(
                             e -> {
                                 assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);

@@ -18,26 +18,7 @@ package io.oxia.client.grpc;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
-import io.oxia.proto.CloseSessionRequest;
-import io.oxia.proto.CloseSessionResponse;
-import io.oxia.proto.CreateSessionRequest;
-import io.oxia.proto.CreateSessionResponse;
-import io.oxia.proto.GetSequenceUpdatesRequest;
-import io.oxia.proto.GetSequenceUpdatesResponse;
-import io.oxia.proto.KeepAliveResponse;
-import io.oxia.proto.ListRequest;
-import io.oxia.proto.ListResponse;
-import io.oxia.proto.NotificationBatch;
-import io.oxia.proto.NotificationsRequest;
-import io.oxia.proto.RangeScanRequest;
-import io.oxia.proto.RangeScanResponse;
-import io.oxia.proto.ReadRequest;
-import io.oxia.proto.ReadResponse;
-import io.oxia.proto.SessionHeartbeat;
-import io.oxia.proto.ShardAssignments;
-import io.oxia.proto.ShardAssignmentsRequest;
-import io.oxia.proto.WriteRequest;
-import io.oxia.proto.WriteResponse;
+import io.oxia.proto.*;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -67,7 +48,10 @@ public interface RpcProvider extends AutoCloseable {
 
     void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer);
 
-    CompletableFuture<WriteResponse> write(@NonNull WriteRequest request);
+    StreamObserver<WriteRequest> writeStream(
+            long shardId, OxiaStatusException leaderHint, StreamObserver<WriteResponse> responseObserver);
+
+    ManagedWriteStream getWriteStream(long shardId);
 
     void list(@NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer);
 
