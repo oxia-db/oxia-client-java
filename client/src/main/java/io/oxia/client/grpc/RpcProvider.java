@@ -36,8 +36,6 @@ import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
-import io.oxia.proto.WriteRequest;
-import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -67,7 +65,7 @@ public interface RpcProvider extends AutoCloseable {
 
     void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer);
 
-    CompletableFuture<WriteResponse> write(@NonNull WriteRequest request);
+    ManagedWriteStream getWriteStream(long shardId);
 
     void list(@NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer);
 

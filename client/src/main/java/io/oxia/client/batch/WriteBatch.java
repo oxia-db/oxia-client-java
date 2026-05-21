@@ -18,6 +18,7 @@ package io.oxia.client.batch;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.oxia.client.grpc.ManagedWriteStream;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.session.SessionManager;
 import io.oxia.proto.WriteRequest;
@@ -95,8 +96,9 @@ final class WriteBatch extends BatchBase implements Batch {
     public void send() {
         startSendTimeNanos = System.nanoTime();
         try {
-            rpcProvider
-                    .write(toProto())
+            final ManagedWriteStream writeStream = rpcProvider.getWriteStream(getShardId());
+            writeStream
+                    .sendWithRecovery(toProto())
                     .thenAccept(
                             response -> {
                                 factory.writeRequestLatencyHistogram.recordSuccess(

@@ -16,164 +16,190 @@
 package io.oxia.client.grpc;
 
 import io.github.merlimat.slog.Logger;
-import io.grpc.Metadata;
-import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
-import io.oxia.proto.OxiaClientGrpc;
+import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Queue;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongFunction;
 
-final class ManagedWriteStream implements AutoCloseable {
-    private static final Metadata.Key<String> NAMESPACE_KEY =
-            Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
-    private static final Metadata.Key<String> SHARD_ID_KEY =
-            Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
+public final class ManagedWriteStream implements AutoCloseable, StreamObserver<WriteResponse> {
 
-    private final Map<Long, ShardWriteStream> streams = new ConcurrentHashMap<>();
-    private final String namespace;
-    private final LongFunction<OxiaClientGrpc.OxiaClientStub> stubProvider;
+    private final Logger log;
 
-    ManagedWriteStream(String namespace, LongFunction<OxiaClientGrpc.OxiaClientStub> stubProvider) {
-        this.namespace = namespace;
-        this.stubProvider = stubProvider;
+    record InflightWrite(WriteRequest request, CompletableFuture<WriteResponse> future) {}
+
+    private final long shardId;
+    private final LongFunction<String> shardLeaderProvider;
+    private final ConnectionManager connectionManager;
+    private final ScheduledExecutorService asyncExecutor;
+    private final Backoff backoff;
+
+    private final ReentrantLock lock;
+    private boolean closed;
+    private final Queue<InflightWrite> inflightWrites;
+    private StreamObserver<WriteRequest> subStreamObserver;
+
+    public ManagedWriteStream(
+            long shardId,
+            ConnectionManager connectionManager,
+            LongFunction<String> shardLeaderProvider,
+            ScheduledExecutorService asyncExecutor) {
+        this.shardId = shardId;
+        this.log = Logger.get(ManagedWriteStream.class).with().attr("shard", shardId).build();
+        this.inflightWrites = new ConcurrentLinkedQueue<>();
+        this.shardLeaderProvider = shardLeaderProvider;
+        this.connectionManager = connectionManager;
+        this.lock = new ReentrantLock();
+        this.asyncExecutor = asyncExecutor;
+        this.backoff = new Backoff();
+        this.closed = false;
     }
 
-    CompletableFuture<WriteResponse> write(WriteRequest request) {
-        return stream(request.getShard()).send(request);
-    }
-
-    private ShardWriteStream stream(long shardId) {
-        ShardWriteStream stream = null;
-        for (int i = 0; i < 2; i++) {
-            stream = streams.get(shardId);
-            if (stream == null) {
-                stream = streams.computeIfAbsent(shardId, this::newStream);
-            }
-            if (stream.isValid()) {
-                break;
-            }
-            streams.remove(shardId, stream);
+    private void resetSubObserver() {
+        lock.lock();
+        try {
+            subStreamObserver = null;
+        } finally {
+            lock.unlock();
         }
-        return stream;
     }
 
-    private ShardWriteStream newStream(long shardId) {
-        Metadata headers = new Metadata();
-        headers.put(NAMESPACE_KEY, namespace);
-        headers.put(SHARD_ID_KEY, Long.toString(shardId));
-        return new ShardWriteStream(
-                stubProvider
-                        .apply(shardId)
-                        .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers)),
-                shardId);
+    public CompletableFuture<WriteResponse> sendWithRecovery(WriteRequest request) {
+        lock.lock();
+        final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
+        final InflightWrite inflightWrite = new InflightWrite(request, future);
+        try {
+            if (closed) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
+            }
+            if (subStreamObserver == null) {
+                initWithRecovery(null);
+            }
+            inflightWrites.add(inflightWrite);
+            log.debug().attr("pendingWrites", inflightWrites.size()).log("Sending write request");
+            subStreamObserver.onNext(request);
+            return future;
+        } catch (Throwable ex) {
+            inflightWrites.remove(inflightWrite);
+            future.completeExceptionally(ex);
+            return future;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void initWithRecovery(OxiaStatusException leaderHint) {
+        final var leader =
+                leaderHint == null
+                        ? shardLeaderProvider.apply(shardId)
+                        : leaderHint.getLeaderHint(shardId).orElseGet(() -> shardLeaderProvider.apply(shardId));
+        subStreamObserver = connectionManager.getConnection(leader).stub().writeStream(this);
+        log.info()
+                .attr("leader", leader)
+                .attr("pendingWrites", inflightWrites.size())
+                .log("Opened write stream");
+
+        log.debug().attr("pendingWrites", inflightWrites.size()).log("Replaying inflight writes");
+        final var streamObserverRef = subStreamObserver;
+        for (InflightWrite inflightWrite : inflightWrites) {
+            streamObserverRef.onNext(inflightWrite.request);
+        }
+        backoff.reset();
+    }
+
+    @Override
+    public void onNext(WriteResponse value) {
+        final InflightWrite inflight = inflightWrites.poll();
+        if (inflight != null) {
+            log.debug().attr("pendingWrites", inflightWrites.size()).log("Received write response");
+            inflight.future.complete(value);
+        }
+    }
+
+    @Override
+    public void onError(Throwable t) {
+        if (!OxiaStatusException.isRetryable(t)) {
+            final InflightWrite inflight = inflightWrites.poll();
+            if (inflight != null) {
+                log.warn()
+                        .attr("pendingWrites", inflightWrites.size())
+                        .exceptionMessage(t)
+                        .log("Write stream failed with non-retryable error; failing head write");
+                inflight.future.completeExceptionally(OxiaStatusException.toException(t));
+            }
+        } else {
+            log.warn()
+                    .attr("pendingWrites", inflightWrites.size())
+                    .exceptionMessage(t)
+                    .log("Write stream failed with retryable error; scheduling recovery");
+        }
+        resetSubObserver();
+        scheduleRetry((OxiaStatusException) OxiaStatusException.toException(t), 0); // retry immediately
+    }
+
+    @Override
+    public void onCompleted() {
+        log.info()
+                .attr("pendingWrites", inflightWrites.size())
+                .log("Write stream completed; scheduling recovery");
+        resetSubObserver();
+        scheduleRetry(null, 0); // retry immediately
+    }
+
+    private void scheduleRetry(OxiaStatusException leaderHint, long backoffMills) {
+        log.info()
+                .attr("retryDelayMillis", backoffMills)
+                .attr("pendingWrites", inflightWrites.size())
+                .log("Scheduling write stream recovery");
+        asyncExecutor.schedule(
+                () -> {
+                    lock.lock();
+                    try {
+                        if (closed) {
+                            log.info("Skipping write stream recovery after close");
+                            return;
+                        }
+                        if (subStreamObserver != null) {
+                            return;
+                        }
+                        initWithRecovery(leaderHint);
+                    } catch (Throwable ex) {
+                        log.error().exceptionMessage(ex).log("Failed to recover write stream");
+                        scheduleRetry(null, backoff.nextDelayMillis());
+                    } finally {
+                        lock.unlock();
+                    }
+                },
+                backoffMills,
+                TimeUnit.MILLISECONDS);
     }
 
     @Override
     public void close() {
-        streams.values().forEach(ShardWriteStream::close);
-        streams.clear();
-    }
-
-    private static final class ShardWriteStream implements StreamObserver<WriteResponse> {
-        private final Logger log;
-        private final StreamObserver<WriteRequest> requestStream;
-        private final Deque<CompletableFuture<WriteResponse>> pendingWrites = new ArrayDeque<>();
-
-        private volatile boolean completed;
-        private volatile Throwable completedException;
-
-        ShardWriteStream(OxiaClientGrpc.OxiaClientStub stub, long shardId) {
-            this.log = Logger.get(ManagedWriteStream.class).with().attr("shard", shardId).build();
-            this.requestStream = stub.writeStream(this);
-        }
-
-        boolean isValid() {
-            return !completed;
-        }
-
-        @Override
-        public void onNext(WriteResponse value) {
-            synchronized (this) {
-                final var future = pendingWrites.poll();
-                if (future != null) {
-                    future.complete(value);
-                }
+        lock.lock();
+        try {
+            closed = true;
+            if (subStreamObserver != null) {
+                subStreamObserver.onCompleted();
+                subStreamObserver = null;
             }
-        }
-
-        @Override
-        public void onError(Throwable error) {
-            synchronized (this) {
-                completedException = error;
-                completed = true;
-                if (!pendingWrites.isEmpty()) {
-                    log.warn()
-                            .attr("pendingWrites", pendingWrites.size())
-                            .exceptionMessage(completedException)
-                            .log(
-                                    "Receive error when writing data to server through the stream, prepare to fail pending requests");
-                }
-                pendingWrites.forEach(f -> f.completeExceptionally(completedException));
-                pendingWrites.clear();
-            }
-        }
-
-        @Override
-        public void onCompleted() {
-            synchronized (this) {
-                completed = true;
-                if (!pendingWrites.isEmpty()) {
-                    log.info()
-                            .attr("pendingWrites", pendingWrites.size())
-                            .log(
-                                    "Receive stream close signal when writing data to server through the stream, prepare to cancel pending requests");
-                }
-                pendingWrites.forEach(f -> f.completeExceptionally(new CancellationException()));
-                pendingWrites.clear();
-            }
-        }
-
-        CompletableFuture<WriteResponse> send(WriteRequest request) {
-            if (completed) {
-                return CompletableFuture.failedFuture(
-                        Optional.ofNullable(completedException).orElseGet(CancellationException::new));
-            }
-            synchronized (this) {
-                if (completed) {
-                    return CompletableFuture.failedFuture(
-                            Optional.ofNullable(completedException).orElseGet(CancellationException::new));
-                }
-                final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
-                pendingWrites.add(future);
-                try {
-                    log.debug().attr("request", request).log("Sending request");
-                    requestStream.onNext(request);
-                } catch (Exception e) {
-                    pendingWrites.remove(future);
-                    future.completeExceptionally(e);
-                }
-                return future;
-            }
-        }
-
-        void close() {
-            synchronized (this) {
-                if (completed) {
-                    return;
-                }
-                completed = true;
-                pendingWrites.forEach(f -> f.completeExceptionally(new CancellationException()));
-                pendingWrites.clear();
-            }
-            requestStream.onCompleted();
+            log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
+            inflightWrites.forEach(
+                    inflight -> {
+                        inflight.future.completeExceptionally(new CancellationException("Stream is closed"));
+                    });
+            inflightWrites.clear();
+        } catch (Throwable ex) {
+            inflightWrites.forEach(
+                    inflight -> {
+                        inflight.future.completeExceptionally(ex);
+                    });
+            inflightWrites.clear();
+        } finally {
+            lock.unlock();
         }
     }
 }

@@ -32,7 +32,9 @@ public final class BarrierStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public void onNext(@NonNull T response) {
-        barrierFuture.complete(null);
+        if (!barrierFuture.isDone()) {
+            barrierFuture.complete(null);
+        }
         streamObserver.onNext(response);
     }
 
@@ -48,7 +50,9 @@ public final class BarrierStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public void onCompleted() {
-        barrierFuture.complete(null);
+        if (!barrierFuture.isDone()) {
+            barrierFuture.complete(null);
+        }
         streamObserver.onCompleted();
     }
 }

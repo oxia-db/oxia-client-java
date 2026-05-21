@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import com.google.common.collect.Maps;
 import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
 import dev.failsafe.Timeout;
@@ -41,11 +42,9 @@ import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
-import io.oxia.proto.WriteRequest;
-import io.oxia.proto.WriteResponse;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,7 +58,7 @@ final class GrpcRpcProvider implements RpcProvider {
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
-    private final ManagedWriteStream managedWriteStream;
+    private final Map<Long, ManagedWriteStream> writeStreams;
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -69,10 +68,7 @@ final class GrpcRpcProvider implements RpcProvider {
         this.asyncExecutor = asyncExecutor;
         this.connectionManager = new ConnectionManager(clientConfig, asyncExecutor);
         this.shardLeaderProvider = shardLeaderProvider;
-        this.managedWriteStream =
-                new ManagedWriteStream(
-                        clientConfig.namespace(),
-                        shardId -> connectionManager.getConnection(shardLeaderProvider.apply(shardId)).stub());
+        this.writeStreams = Maps.newConcurrentMap();
     }
 
     @Override
@@ -242,17 +238,11 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public CompletableFuture<WriteResponse> write(@NonNull WriteRequest request) {
-        try {
-            return managedWriteStream
-                    .write(request)
-                    .exceptionally(
-                            error -> {
-                                throw new CompletionException(OxiaStatusException.toException(error));
-                            });
-        } catch (Throwable error) {
-            return CompletableFuture.failedFuture(OxiaStatusException.toException(error));
-        }
+    public ManagedWriteStream getWriteStream(long shardId) {
+        return writeStreams.computeIfAbsent(
+                shardId,
+                (__) ->
+                        new ManagedWriteStream(shardId, connectionManager, shardLeaderProvider, asyncExecutor));
     }
 
     @Override
@@ -356,7 +346,8 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void close() throws Exception {
         try {
-            managedWriteStream.close();
+            writeStreams.values().forEach(ManagedWriteStream::close);
+            writeStreams.clear();
         } finally {
             connectionManager.close();
         }
