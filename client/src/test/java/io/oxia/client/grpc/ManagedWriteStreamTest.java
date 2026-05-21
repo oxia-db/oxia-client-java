@@ -110,9 +110,11 @@ class ManagedWriteStreamTest {
 
     @Test
     void replaysInflightWritesAfterRetryableError() throws Exception {
+        var leaderRequests = new ConcurrentLinkedQueue<WriteRequest>();
+        Server leaderServer = writeServer(respondingWriteService(leaderRequests));
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+
         var staleRequests = new ConcurrentLinkedQueue<WriteRequest>();
-        var recoveredRequests = new ConcurrentLinkedQueue<WriteRequest>();
-        var streamOpenCount = new AtomicInteger();
         var staleRequestCount = new AtomicInteger();
         Server staleServer =
                 writeServer(
@@ -120,20 +122,13 @@ class ManagedWriteStreamTest {
                             @Override
                             public StreamObserver<WriteRequest> writeStream(
                                     StreamObserver<WriteResponse> responseObserver) {
-                                var streamAttempt = streamOpenCount.incrementAndGet();
                                 return new StreamObserver<>() {
                                     @Override
                                     public void onNext(WriteRequest value) {
-                                        if (streamAttempt == 1) {
-                                            staleRequests.add(value);
-                                            if (staleRequestCount.incrementAndGet() == 2) {
-                                                responseObserver.onError(
-                                                        retryableErrorWithLeaderHint("localhost:0"));
-                                            }
-                                            return;
+                                        staleRequests.add(value);
+                                        if (staleRequestCount.incrementAndGet() == 2) {
+                                            responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
                                         }
-                                        recoveredRequests.add(value);
-                                        responseObserver.onNext(new WriteResponse());
                                     }
 
                                     @Override
@@ -159,10 +154,11 @@ class ManagedWriteStreamTest {
             await()
                     .untilAsserted(() -> assertThat(keys(staleRequests)).containsExactly("key-1", "key-2"));
             await()
-                    .untilAsserted(() -> assertThat(keys(recoveredRequests)).containsExactly("key-1", "key-2"));
+                    .untilAsserted(() -> assertThat(keys(leaderRequests)).containsExactly("key-1", "key-2"));
         } finally {
             executor.shutdownNow();
             staleServer.shutdownNow();
+            leaderServer.shutdownNow();
         }
     }
 

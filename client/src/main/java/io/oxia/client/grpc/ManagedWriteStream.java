@@ -15,15 +15,11 @@
  */
 package io.oxia.client.grpc;
 
-import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
-
 import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
-
-import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
@@ -31,8 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class ManagedWriteStream implements AutoCloseable, StreamObserver<WriteResponse> {
     private final Logger log;
 
-    record InflightWrite(WriteRequest request, CompletableFuture<WriteResponse> future) {
-    }
+    record InflightWrite(WriteRequest request, CompletableFuture<WriteResponse> future) {}
 
     private final long shardId;
     private final RpcProvider rpcProvider;
@@ -45,9 +40,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
     private StreamObserver<WriteRequest> subStreamObserver;
 
     public ManagedWriteStream(
-            long shardId,
-            RpcProvider rpcProvider,
-            ScheduledExecutorService asyncExecutor) {
+            long shardId, RpcProvider rpcProvider, ScheduledExecutorService asyncExecutor) {
         this.shardId = shardId;
         this.log = Logger.get(ManagedWriteStream.class).with().attr("shard", shardId).build();
         this.inflightWrites = new ConcurrentLinkedQueue<>();
@@ -66,17 +59,16 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
             if (closed) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
             }
-            if (subStreamObserver == null) {
-                initWithRecovery();
-            }
             inflightWrites.add(inflightWrite);
-            log.debug().attr("pendingWrites", inflightWrites.size()).log("Sending write request");
-            subStreamObserver.onNext(request);
+            if (subStreamObserver == null) {
+                initWithRecovery(null);
+            } else {
+                log.debug().attr("pendingWrites", inflightWrites.size()).log("Sending write request");
+                subStreamObserver.onNext(request);
+            }
             return future;
         } catch (Throwable ex) {
-            inflightWrites.remove(inflightWrite);
-            future.completeExceptionally(ex);
-            scheduleRetry(0);
+            scheduleRetry(null, 0);
             return future;
         } finally {
             lock.unlock();
@@ -94,26 +86,30 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
 
     @Override
     public void onError(Throwable t) {
-        if (!OxiaStatusException.isRetryable(t)) {
+        final var translated = OxiaStatusException.toException(t);
+        final OxiaStatusException leaderHint;
+        if (!OxiaStatusException.isRetryable(translated)) {
             final InflightWrite inflight = inflightWrites.poll();
             if (inflight != null) {
                 log.warn()
                         .attr("pendingWrites", inflightWrites.size())
-                        .exceptionMessage(t)
+                        .exceptionMessage(translated)
                         .log("Write stream failed with non-retryable error; failing head write");
-                inflight.future.completeExceptionally(OxiaStatusException.toException(t));
+                inflight.future.completeExceptionally(translated);
             }
+            leaderHint = null;
         } else {
             log.warn()
                     .attr("pendingWrites", inflightWrites.size())
-                    .exceptionMessage(t)
+                    .exceptionMessage(translated)
                     .log("Write stream failed with retryable error; scheduling recovery");
+            leaderHint = translated instanceof OxiaStatusException oxiaError ? oxiaError : null;
         }
         resetSubObserver();
         if (inflightWrites.isEmpty()) {
             return;
         }
-        scheduleRetry( 0); // retry immediately
+        scheduleRetry(leaderHint, 0); // retry immediately
     }
 
     @Override
@@ -125,10 +121,10 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         if (inflightWrites.isEmpty()) {
             return;
         }
-        scheduleRetry(0); // retry immediately
+        scheduleRetry(null, 0); // retry immediately
     }
 
-    private void scheduleRetry(long backoffMills) {
+    private void scheduleRetry(OxiaStatusException leaderHint, long backoffMills) {
         log.info()
                 .attr("retryDelayMillis", backoffMills)
                 .attr("pendingWrites", inflightWrites.size())
@@ -144,10 +140,10 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                         if (subStreamObserver != null) {
                             return;
                         }
-                        initWithRecovery();
+                        initWithRecovery(leaderHint);
                     } catch (Throwable ex) {
                         log.error().exceptionMessage(ex).log("Failed to recover write stream");
-                        scheduleRetry(backoff.nextDelayMillis());
+                        scheduleRetry(null, backoff.nextDelayMillis());
                     } finally {
                         lock.unlock();
                     }
@@ -155,7 +151,6 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                 backoffMills,
                 TimeUnit.MILLISECONDS);
     }
-
 
     private void resetSubObserver() {
         lock.lock();
@@ -166,9 +161,8 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         }
     }
 
-
-    private void initWithRecovery() {
-        subStreamObserver = rpcProvider.writeStream(shardId, this);
+    private void initWithRecovery(OxiaStatusException leaderHint) {
+        subStreamObserver = rpcProvider.writeStream(shardId, leaderHint, this);
         log.info().attr("pendingWrites", inflightWrites.size()).log("Opened write stream");
         for (InflightWrite inflightWrite : inflightWrites) {
             subStreamObserver.onNext(inflightWrite.request);

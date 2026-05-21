@@ -46,7 +46,6 @@ import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
-
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -54,7 +53,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
-
 import lombok.NonNull;
 
 final class GrpcRpcProvider implements RpcProvider {
@@ -250,15 +248,18 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public ManagedWriteStream getWriteStream(long shardId) {
         return writeStreams.computeIfAbsent(
-                shardId,
-                (__) -> new ManagedWriteStream(shardId, this, asyncExecutor));
+                shardId, (__) -> new ManagedWriteStream(shardId, this, asyncExecutor));
     }
 
-    public StreamObserver<WriteRequest> writeStream(long shardId, StreamObserver<WriteResponse> responseObserver) {
+    public StreamObserver<WriteRequest> writeStream(
+            long shardId,
+            OxiaStatusException leaderHint,
+            StreamObserver<WriteResponse> responseObserver) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(responseObserver);
-        final var hint = new AtomicReference<OxiaStatusException>();
+        final var hint = new AtomicReference<>(leaderHint);
         return Failsafe.with(getRetryPolicy("write stream", hint))
-                .get(() -> {
+                .get(
+                        () -> {
                             final var future = new CompletableFuture<Void>();
                             final var barrierObserver =
                                     ManagedObservers.toBarrierStreamObserver(guardedObserver, future);
@@ -271,7 +272,8 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
                                             .writeStream(barrierObserver);
-                            // we don't need to wait for the stream to be ready, only need to check if it fail fast
+                            // we don't need to wait for the stream to be ready, only need to check if it fail
+                            // fast
                             future.complete(null);
                             future.join();
                             return requestObserver;

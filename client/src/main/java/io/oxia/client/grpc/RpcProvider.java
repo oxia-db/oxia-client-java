@@ -19,7 +19,6 @@ import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.proto.*;
-
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -49,7 +48,8 @@ public interface RpcProvider extends AutoCloseable {
 
     void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer);
 
-    StreamObserver<WriteRequest> writeStream(long shardId, StreamObserver<WriteResponse> responseObserver);
+    StreamObserver<WriteRequest> writeStream(
+            long shardId, OxiaStatusException leaderHint, StreamObserver<WriteResponse> responseObserver);
 
     ManagedWriteStream getWriteStream(long shardId);
 
