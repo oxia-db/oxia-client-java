@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -51,6 +52,7 @@ import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.ShardWriteStream;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
@@ -149,8 +151,10 @@ class BatchTest {
         server = serverBuilder.build().start();
         channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         clientByShardId = mock(RpcProvider.class);
+        var writeStream = mock(ShardWriteStream.class);
+        lenient().when(clientByShardId.getWriteStream(anyLong())).thenReturn(writeStream);
         lenient()
-                .when(clientByShardId.write(any(WriteRequest.class)))
+                .when(writeStream.send(any(WriteRequest.class)))
                 .thenAnswer(
                         invocation -> {
                             var future = new CompletableFuture<WriteResponse>();
@@ -385,7 +389,7 @@ class BatchTest {
         @Test
         public void sendFailNoClient() {
             var rpcProvider = mock(RpcProvider.class);
-            when(rpcProvider.write(any(WriteRequest.class))).thenThrow(new NoShardAvailableException(1));
+            when(rpcProvider.getWriteStream(anyLong())).thenThrow(new NoShardAvailableException(1));
 
             batch =
                     new WriteBatch(

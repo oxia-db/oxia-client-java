@@ -19,6 +19,8 @@ import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
 import dev.failsafe.Timeout;
 import io.github.merlimat.slog.Logger;
+import io.grpc.Metadata;
+import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
@@ -41,11 +43,10 @@ import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
-import io.oxia.proto.WriteRequest;
-import io.oxia.proto.WriteResponse;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,12 +55,16 @@ import lombok.NonNull;
 
 final class GrpcRpcProvider implements RpcProvider {
     private static final Logger log = Logger.get(GrpcRpcProvider.class);
+    private static final Metadata.Key<String> NAMESPACE_KEY =
+            Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
+    private static final Metadata.Key<String> SHARD_ID_KEY =
+            Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
 
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
-    private final ManagedWriteStream managedWriteStream;
+    private final Map<Long, ShardWriteStream> writeStreams = new ConcurrentHashMap<>();
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -69,10 +74,6 @@ final class GrpcRpcProvider implements RpcProvider {
         this.asyncExecutor = asyncExecutor;
         this.connectionManager = new ConnectionManager(clientConfig, asyncExecutor);
         this.shardLeaderProvider = shardLeaderProvider;
-        this.managedWriteStream =
-                new ManagedWriteStream(
-                        clientConfig.namespace(),
-                        shardId -> connectionManager.getConnection(shardLeaderProvider.apply(shardId)).stub());
     }
 
     @Override
@@ -242,17 +243,32 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public CompletableFuture<WriteResponse> write(@NonNull WriteRequest request) {
-        try {
-            return managedWriteStream
-                    .write(request)
-                    .exceptionally(
-                            error -> {
-                                throw new CompletionException(OxiaStatusException.toException(error));
-                            });
-        } catch (Throwable error) {
-            return CompletableFuture.failedFuture(OxiaStatusException.toException(error));
+    public ShardWriteStream getWriteStream(long shardId) {
+        ShardWriteStream stream = null;
+        for (int i = 0; i < 2; i++) {
+            stream = writeStreams.get(shardId);
+            if (stream == null) {
+                stream =
+                        writeStreams.computeIfAbsent(
+                                shardId,
+                                __ -> {
+                                    Metadata headers = new Metadata();
+                                    headers.put(NAMESPACE_KEY, clientConfig.namespace());
+                                    headers.put(SHARD_ID_KEY, Long.toString(shardId));
+                                    return new ShardWriteStream(
+                                            connectionManager
+                                                    .getConnection(shardLeaderProvider.apply(shardId))
+                                                    .stub()
+                                                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers)),
+                                            shardId);
+                                });
+            }
+            if (stream.isValid()) {
+                break;
+            }
+            writeStreams.remove(shardId, stream);
         }
+        return stream;
     }
 
     @Override
@@ -356,7 +372,8 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void close() throws Exception {
         try {
-            managedWriteStream.close();
+            writeStreams.values().forEach(ShardWriteStream::close);
+            writeStreams.clear();
         } finally {
             connectionManager.close();
         }

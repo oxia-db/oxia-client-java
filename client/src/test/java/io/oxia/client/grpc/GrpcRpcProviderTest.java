@@ -21,8 +21,13 @@ import static org.awaitility.Awaitility.await;
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
 import io.grpc.Context;
+import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.ServerCall;
+import io.grpc.ServerCallHandler;
+import io.grpc.ServerInterceptor;
+import io.grpc.ServerInterceptors;
 import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
@@ -47,6 +52,8 @@ import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
+import io.oxia.proto.WriteRequest;
+import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +62,11 @@ import lombok.NonNull;
 import org.junit.jupiter.api.Test;
 
 class GrpcRpcProviderTest {
+    private static final Metadata.Key<String> NAMESPACE_KEY =
+            Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
+    private static final Metadata.Key<String> SHARD_ID_KEY =
+            Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
+
     @Test
     void keepAliveRetriesWithLeaderHint() throws Exception {
         var leaderServerRequests = new AtomicReference<SessionHeartbeat>();
@@ -508,6 +520,73 @@ class GrpcRpcProviderTest {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();
             leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void writeUsesShardLeaderStreamWithNamespaceHeaders() throws Exception {
+        var headers = new AtomicReference<Metadata>();
+        var serverRequest = new AtomicReference<WriteRequest>();
+        var service =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public StreamObserver<WriteRequest> writeStream(
+                            StreamObserver<WriteResponse> responseObserver) {
+                        return new StreamObserver<>() {
+                            @Override
+                            public void onNext(WriteRequest request) {
+                                serverRequest.set(request);
+                                responseObserver.onNext(new WriteResponse());
+                            }
+
+                            @Override
+                            public void onError(Throwable t) {}
+
+                            @Override
+                            public void onCompleted() {
+                                responseObserver.onCompleted();
+                            }
+                        };
+                    }
+                };
+        var headerInterceptor =
+                new ServerInterceptor() {
+                    @Override
+                    public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
+                            ServerCall<ReqT, RespT> call,
+                            Metadata metadata,
+                            ServerCallHandler<ReqT, RespT> handler) {
+                        headers.set(metadata);
+                        return handler.startCall(call, metadata);
+                    }
+                };
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(ServerInterceptors.intercept(service, headerInterceptor))
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create(address).namespace("write-ns"))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var request = new WriteRequest().setShard(7);
+
+            var response =
+                    provider.getWriteStream(request.getShard()).send(request).get(5, TimeUnit.SECONDS);
+
+            assertThat(response).isNotNull();
+            assertThat(serverRequest.get()).isNotNull();
+            assertThat(serverRequest.get().getShard()).isEqualTo(7);
+            assertThat(headers.get()).isNotNull();
+            assertThat(headers.get().get(NAMESPACE_KEY)).isEqualTo("write-ns");
+            assertThat(headers.get().get(SHARD_ID_KEY)).isEqualTo("7");
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
         }
     }
 

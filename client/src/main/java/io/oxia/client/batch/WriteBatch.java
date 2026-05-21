@@ -96,7 +96,8 @@ final class WriteBatch extends BatchBase implements Batch {
         startSendTimeNanos = System.nanoTime();
         try {
             rpcProvider
-                    .write(toProto())
+                    .getWriteStream(getShardId())
+                    .send(toProto())
                     .thenAccept(
                             response -> {
                                 factory.writeRequestLatencyHistogram.recordSuccess(
