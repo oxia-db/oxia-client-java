@@ -46,12 +46,20 @@ class ConnectionManager implements AutoCloseable {
         }
         return connections.computeIfAbsent(
                 new Key(address, modKey),
-                key ->
-                        new Connection(
-                                key.address,
-                                clientConfig,
-                                executor,
-                                connection -> removeConnection(key, connection)));
+                key -> {
+                    final var connection =
+                            new Connection(
+                                    key.address,
+                                    clientConfig,
+                                    executor,
+                                    connectionToRemove -> removeConnection(key, connectionToRemove));
+                    log.info()
+                            .attr("address", key.address)
+                            .attr("connectionKey", key.random)
+                            .attr("connectionId", connection.getConnectionId())
+                            .log("Creating managed GRPC connection");
+                    return connection;
+                });
     }
 
     @Override
@@ -65,6 +73,11 @@ class ConnectionManager implements AutoCloseable {
         if (!connections.remove(key, connection)) {
             return;
         }
+        log.info()
+                .attr("address", key.address)
+                .attr("connectionKey", key.random)
+                .attr("connectionId", connection.getConnectionId())
+                .log("Removing unhealthy GRPC connection");
         try {
             connection.close();
         } catch (Exception e) {
