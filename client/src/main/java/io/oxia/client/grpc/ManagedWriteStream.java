@@ -23,11 +23,13 @@ import io.oxia.proto.WriteResponse;
 import java.util.Queue;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 public final class ManagedWriteStream implements AutoCloseable, StreamObserver<WriteResponse> {
     private final Logger log;
 
-    record InflightWrite(WriteRequest request, CompletableFuture<WriteResponse> future) {}
+    record InflightWrite(
+            Supplier<WriteRequest> requestSupplier, CompletableFuture<WriteResponse> future) {}
 
     private final long shardId;
     private final RpcProvider rpcProvider;
@@ -78,10 +80,10 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         scheduleRetry(null, 0); // retry immediately
     }
 
-    public CompletableFuture<WriteResponse> send(WriteRequest request) {
+    public CompletableFuture<WriteResponse> send(Supplier<WriteRequest> requestSupplier) {
         lock.lock();
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
-        final InflightWrite inflightWrite = new InflightWrite(request, future);
+        final InflightWrite inflightWrite = new InflightWrite(requestSupplier, future);
         try {
             if (closed) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
@@ -91,7 +93,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                 if (subStreamObserver == null) {
                     initWithRecovery(null);
                 } else {
-                    subStreamObserver.onNext(inflightWrite.request);
+                    subStreamObserver.onNext(inflightWrite.requestSupplier.get());
                 }
             } catch (Throwable ex) {
                 log.warn().exceptionMessage(ex).log("Failed to send write request, retrying");
@@ -160,7 +162,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         subStreamObserver = rpcProvider.writeStream(shardId, leaderHint, this);
         log.info().attr("pendingWrites", inflightWrites.size()).log("Opened write stream");
         for (InflightWrite inflightWrite : inflightWrites) {
-            subStreamObserver.onNext(inflightWrite.request);
+            subStreamObserver.onNext(inflightWrite.requestSupplier.get());
         }
         backoff.reset();
     }

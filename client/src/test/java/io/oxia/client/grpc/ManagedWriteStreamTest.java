@@ -31,6 +31,7 @@ import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
@@ -55,8 +56,8 @@ class ManagedWriteStreamTest {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
-            var firstFuture = stream.send(first);
-            var secondFuture = stream.send(second);
+            var firstFuture = stream.send(() -> first);
+            var secondFuture = stream.send(() -> second);
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
@@ -94,14 +95,14 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
                 var stream = new ManagedWriteStream(1, provider, executor)) {
-            CompletableFuture<WriteResponse> pending = stream.send(writeRequest(1));
+            CompletableFuture<WriteResponse> pending = stream.send(() -> writeRequest(1));
 
             stream.close();
 
             assertThat(pending).isCompletedExceptionally();
             assertThatThrownBy(pending::get)
                     .isInstanceOf(java.util.concurrent.CancellationException.class);
-            assertThat(stream.send(writeRequest(2))).isCompletedExceptionally();
+            assertThat(stream.send(() -> writeRequest(2))).isCompletedExceptionally();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -145,8 +146,8 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> staleAddress);
                 var stream = new ManagedWriteStream(1, provider, executor)) {
-            var firstFuture = stream.send(writeRequest(1));
-            var secondFuture = stream.send(writeRequest(2));
+            var firstFuture = stream.send(() -> writeRequest(1));
+            var secondFuture = stream.send(() -> writeRequest(2));
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
@@ -155,6 +156,9 @@ class ManagedWriteStreamTest {
                     .untilAsserted(() -> assertThat(keys(staleRequests)).containsExactly("key-1", "key-2"));
             await()
                     .untilAsserted(() -> assertThat(keys(leaderRequests)).containsExactly("key-1", "key-2"));
+            await()
+                    .untilAsserted(
+                            () -> assertThat(values(leaderRequests)).containsExactly("value-1", "value-2"));
         } finally {
             executor.shutdownNow();
             staleServer.shutdownNow();
@@ -194,12 +198,18 @@ class ManagedWriteStreamTest {
     private static WriteRequest writeRequest(int id) {
         var request = new WriteRequest();
         request.setShard(1);
-        request.addPut().setKey("key-" + id);
+        request.addPut().setKey("key-" + id).setValue(("value-" + id).getBytes(StandardCharsets.UTF_8));
         return request;
     }
 
     private static java.util.List<String> keys(Queue<WriteRequest> requests) {
         return requests.stream().map(request -> request.getPutAt(0).getKey()).toList();
+    }
+
+    private static java.util.List<String> values(Queue<WriteRequest> requests) {
+        return requests.stream()
+                .map(request -> new String(request.getPutAt(0).getValue(), StandardCharsets.UTF_8))
+                .toList();
     }
 
     private static io.oxia.client.ClientConfig clientConfig(String address) {

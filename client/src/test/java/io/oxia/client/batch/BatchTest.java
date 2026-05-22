@@ -63,7 +63,6 @@ import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
-import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -302,8 +301,7 @@ class BatchTest {
             resp.addPut().setStatus(OK).setVersion();
             resp.addDelete().setStatus(KEY_NOT_FOUND);
             resp.addDeleteRange().setStatus(OK);
-            when(writeStream.send(any(WriteRequest.class)))
-                    .thenReturn(CompletableFuture.completedFuture(resp));
+            when(writeStream.send(any())).thenReturn(CompletableFuture.completedFuture(resp));
 
             batch.add(put);
             batch.add(putEphemeral);
@@ -323,8 +321,7 @@ class BatchTest {
         @Test
         public void sendFail() {
             var batchError = Status.UNAVAILABLE.asRuntimeException();
-            when(writeStream.send(any(WriteRequest.class)))
-                    .thenReturn(CompletableFuture.failedFuture(batchError));
+            when(writeStream.send(any())).thenReturn(CompletableFuture.failedFuture(batchError));
 
             batch.add(put);
             batch.add(putEphemeral);
