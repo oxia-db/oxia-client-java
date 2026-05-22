@@ -148,7 +148,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             return;
         }
         if (healthCheckTask != null) {
-            healthCheckTask.cancel(true);
+            healthCheckTask.cancel(false);
         }
         channel.shutdown();
         try {
