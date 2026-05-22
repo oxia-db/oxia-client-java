@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
+import lombok.Getter;
 import lombok.NonNull;
 
 class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
@@ -48,7 +49,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final Logger log = Logger.get(Connection.class);
     private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
 
-    private final long connectionId;
+    @Getter private final long connectionId;
     private final ManagedChannel channel;
     private final @NonNull OxiaClientGrpc.OxiaClientStub asyncStub;
     private final @NonNull HealthGrpc.HealthStub healthStub;
@@ -126,10 +127,6 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     @NonNull
     OxiaClientGrpc.OxiaClientStub stub() {
         return asyncStub;
-    }
-
-    long connectionId() {
-        return connectionId;
     }
 
     static String getAddress(String address) {

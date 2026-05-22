@@ -56,7 +56,7 @@ class ConnectionManager implements AutoCloseable {
                     log.info()
                             .attr("address", key.address)
                             .attr("connectionKey", key.random)
-                            .attr("connectionId", connection.connectionId())
+                            .attr("connectionId", connection.getConnectionId())
                             .log("Creating managed GRPC connection");
                     return connection;
                 });
@@ -76,7 +76,7 @@ class ConnectionManager implements AutoCloseable {
         log.info()
                 .attr("address", key.address)
                 .attr("connectionKey", key.random)
-                .attr("connectionId", connection.connectionId())
+                .attr("connectionId", connection.getConnectionId())
                 .log("Removing unhealthy GRPC connection");
         try {
             connection.close();
