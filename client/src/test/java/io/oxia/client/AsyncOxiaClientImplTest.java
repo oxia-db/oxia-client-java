@@ -766,7 +766,7 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void testSharedRangeScanConsumerRegisterCancelHandlerWhileDelegateOnNextBlocked()
+    void testSharedRangeScanConsumerDoesNotDeadlockRegisteringCancelHandlerDuringBlockedOnNext()
             throws Exception {
         final CountDownLatch onNextEntered = new CountDownLatch(1);
         final CountDownLatch releaseOnNext = new CountDownLatch(1);
@@ -803,6 +803,9 @@ class AsyncOxiaClientImplTest {
             final AtomicInteger cancelCount = new AtomicInteger(0);
             final var registerCancelFuture =
                     executor.submit(() -> shared.registerCancelHandler(cancelCount::incrementAndGet));
+
+            // This timed out with the old synchronized onNext implementation because the shard
+            // callback held the shared consumer monitor while blocked in the sync iterator.
             registerCancelFuture.get(1, TimeUnit.SECONDS);
 
             releaseOnNext.countDown();
