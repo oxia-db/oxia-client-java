@@ -39,13 +39,16 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 import lombok.NonNull;
 
 class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final String TLS_SCHEMA = "tls://";
     private static final Logger log = Logger.get(Connection.class);
+    private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
 
+    private final long connectionId;
     private final ManagedChannel channel;
     private final @NonNull OxiaClientGrpc.OxiaClientStub asyncStub;
     private final @NonNull HealthGrpc.HealthStub healthStub;
@@ -59,6 +62,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             @NonNull ClientConfig clientConfig,
             @NonNull ScheduledExecutorService executor,
             @NonNull HealthCheckFailureCallback healthCheckFailureCallback) {
+        this.connectionId = NEXT_CONNECTION_ID.incrementAndGet();
         this.channel =
                 Grpc.newChannelBuilder(
                                 getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
@@ -124,6 +128,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
         return asyncStub;
     }
 
+    long connectionId() {
+        return connectionId;
+    }
+
     static String getAddress(String address) {
         if (address.startsWith(TLS_SCHEMA)) {
             return address.substring(TLS_SCHEMA.length());
@@ -166,7 +174,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             if (closed.get()) {
                 return;
             }
-            log.warn().attr("status", response.getStatus()).log("Connection health check failed");
+            log.warn()
+                    .attr("connectionId", connectionId)
+                    .attr("status", response.getStatus())
+                    .log("Connection health check failed");
             if (healthCheckFailureCallback != null) {
                 healthCheckFailureCallback.onFailure(this);
             }
@@ -188,7 +199,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                 }
                 return;
             }
-            log.warn().exceptionMessage(error).log("Connection health check failed");
+            log.warn()
+                    .attr("connectionId", connectionId)
+                    .exceptionMessage(error)
+                    .log("Connection health check failed");
             if (healthCheckFailureCallback != null) {
                 healthCheckFailureCallback.onFailure(this);
             }
