@@ -43,6 +43,7 @@ import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.metrics.UpDownCounter;
 import io.oxia.client.notify.NotificationManager;
+import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
@@ -745,7 +746,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
     }
 
-    private Cancelable internalShardRangeScan(
+    private Runnable internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
@@ -790,119 +791,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Optional<String> secondaryIndexName,
             RangeScanConsumer consumer) {
         final Set<Long> shardIds = shardManager.allShardIds();
-        final SharedRangeScanConsumer multiShardConsumer =
-                new SharedRangeScanConsumer(shardIds.size(), consumer);
+        final CompositeRangeScanConsumer multiShardConsumer =
+                new CompositeRangeScanConsumer(shardIds.size(), consumer);
         for (long shardId : shardIds) {
             multiShardConsumer.registerCancelHandler(
                     internalShardRangeScan(
                             shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
-        }
-    }
-
-    static class SharedRangeScanConsumer implements RangeScanConsumer {
-        private final Object callbackLock = new Object();
-        private final RangeScanConsumer delegate;
-        private final List<Cancelable> cancelHandlers = new ArrayList<>();
-
-        private int pendingCompletedRequests;
-        private boolean completed = false;
-        private Throwable completedException = null;
-
-        SharedRangeScanConsumer(int shards, RangeScanConsumer delegate) {
-            this.pendingCompletedRequests = shards;
-            this.delegate = delegate;
-        }
-
-        void registerCancelHandler(Cancelable handler) {
-            synchronized (this) {
-                if (!completed) {
-                    cancelHandlers.add(handler);
-                    return;
-                }
-            }
-            handler.cancel();
-        }
-
-        @Override
-        public boolean onNext(GetResult result) {
-            synchronized (callbackLock) {
-                synchronized (this) {
-                    if (completed) {
-                        return false;
-                    }
-                }
-                if (delegate.onNext(result)) {
-                    return true;
-                }
-
-                final List<Cancelable> handlersToCancel = completeAndTakeCancelHandlers();
-                if (handlersToCancel != null) {
-                    cancelHandlers(handlersToCancel);
-                    delegate.onCompleted();
-                }
-                return false;
-            }
-        }
-
-        private synchronized List<Cancelable> completeAndTakeCancelHandlers() {
-            if (completed) {
-                return null;
-            }
-            completed = true;
-            var handlersToCancel = new ArrayList<>(cancelHandlers);
-            cancelHandlers.clear();
-            return handlersToCancel;
-        }
-
-        private void cancelHandlers(List<Cancelable> handlersToCancel) {
-            for (Cancelable h : handlersToCancel) {
-                try {
-                    h.cancel();
-                } catch (Throwable ignored) {
-                }
-            }
-        }
-
-        @Override
-        public void onError(Throwable throwable) {
-            final boolean notifyDelegate;
-            synchronized (this) {
-                if (completedException == null) {
-                    completedException = throwable;
-                } else {
-                    completedException.addSuppressed(throwable);
-                }
-                if (completed) {
-                    return;
-                }
-                completed = true;
-                notifyDelegate = true;
-            }
-            if (notifyDelegate) {
-                synchronized (callbackLock) {
-                    delegate.onError(throwable);
-                }
-            }
-        }
-
-        @Override
-        public void onCompleted() {
-            final boolean notifyDelegate;
-            synchronized (this) {
-                if (completed) {
-                    return;
-                }
-                pendingCompletedRequests -= 1;
-                notifyDelegate = pendingCompletedRequests == 0;
-                if (notifyDelegate) {
-                    completed = true;
-                }
-            }
-            if (notifyDelegate) {
-                synchronized (callbackLock) {
-                    delegate.onCompleted();
-                }
-            }
         }
     }
 
