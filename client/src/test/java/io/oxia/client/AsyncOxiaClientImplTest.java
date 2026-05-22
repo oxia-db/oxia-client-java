@@ -52,9 +52,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -761,5 +763,54 @@ class AsyncOxiaClientImplTest {
         final AtomicInteger lateCancel = new AtomicInteger(0);
         shared.registerCancelHandler(lateCancel::incrementAndGet);
         Assertions.assertEquals(1, lateCancel.get());
+    }
+
+    @Test
+    void testSharedRangeScanConsumerRegisterCancelHandlerWhileDelegateOnNextBlocked()
+            throws Exception {
+        final CountDownLatch onNextEntered = new CountDownLatch(1);
+        final CountDownLatch releaseOnNext = new CountDownLatch(1);
+        final RangeScanConsumer userConsumer =
+                new RangeScanConsumer() {
+                    @Override
+                    public boolean onNext(GetResult result) {
+                        onNextEntered.countDown();
+                        try {
+                            return releaseOnNext.await(5, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(e);
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {}
+
+                    @Override
+                    public void onCompleted() {}
+                };
+
+        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
+        final var executor = Executors.newFixedThreadPool(2);
+        try {
+            final var onNextFuture =
+                    executor.submit(
+                            () ->
+                                    shared.onNext(
+                                            new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
+            assertThat(onNextEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            final AtomicInteger cancelCount = new AtomicInteger(0);
+            final var registerCancelFuture =
+                    executor.submit(() -> shared.registerCancelHandler(cancelCount::incrementAndGet));
+            registerCancelFuture.get(1, TimeUnit.SECONDS);
+
+            releaseOnNext.countDown();
+            assertThat(onNextFuture.get(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(cancelCount).hasValue(0);
+        } finally {
+            releaseOnNext.countDown();
+            executor.shutdownNow();
+        }
     }
 }

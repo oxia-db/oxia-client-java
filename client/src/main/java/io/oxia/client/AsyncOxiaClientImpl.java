@@ -800,6 +800,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     static class SharedRangeScanConsumer implements RangeScanConsumer {
+        private final Object callbackLock = new Object();
         private final RangeScanConsumer delegate;
         private final List<Cancelable> cancelHandlers = new ArrayList<>();
 
@@ -812,57 +813,95 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             this.delegate = delegate;
         }
 
-        synchronized void registerCancelHandler(Cancelable handler) {
-            if (completed) {
-                handler.cancel();
-                return;
+        void registerCancelHandler(Cancelable handler) {
+            synchronized (this) {
+                if (!completed) {
+                    cancelHandlers.add(handler);
+                    return;
+                }
             }
-            cancelHandlers.add(handler);
+            handler.cancel();
         }
 
         @Override
-        public synchronized boolean onNext(GetResult result) {
-            if (completed) {
+        public boolean onNext(GetResult result) {
+            synchronized (callbackLock) {
+                synchronized (this) {
+                    if (completed) {
+                        return false;
+                    }
+                }
+                if (delegate.onNext(result)) {
+                    return true;
+                }
+
+                final List<Cancelable> handlersToCancel = completeAndTakeCancelHandlers();
+                if (handlersToCancel != null) {
+                    cancelHandlers(handlersToCancel);
+                    delegate.onCompleted();
+                }
                 return false;
             }
-            if (delegate.onNext(result)) {
-                return true;
+        }
+
+        private synchronized List<Cancelable> completeAndTakeCancelHandlers() {
+            if (completed) {
+                return null;
             }
             completed = true;
-            for (Cancelable h : cancelHandlers) {
+            var handlersToCancel = new ArrayList<>(cancelHandlers);
+            cancelHandlers.clear();
+            return handlersToCancel;
+        }
+
+        private void cancelHandlers(List<Cancelable> handlersToCancel) {
+            for (Cancelable h : handlersToCancel) {
                 try {
                     h.cancel();
                 } catch (Throwable ignored) {
                 }
             }
-            cancelHandlers.clear();
-            delegate.onCompleted();
-            return false;
         }
 
         @Override
-        public synchronized void onError(Throwable throwable) {
-            if (completedException == null) {
-                completedException = throwable;
-            } else {
-                completedException.addSuppressed(throwable);
-            }
-            if (completed) {
-                return;
-            }
-            completed = true;
-            delegate.onError(throwable);
-        }
-
-        @Override
-        public synchronized void onCompleted() {
-            if (completed) {
-                return;
-            }
-            pendingCompletedRequests -= 1;
-            if (pendingCompletedRequests == 0) {
+        public void onError(Throwable throwable) {
+            final boolean notifyDelegate;
+            synchronized (this) {
+                if (completedException == null) {
+                    completedException = throwable;
+                } else {
+                    completedException.addSuppressed(throwable);
+                }
+                if (completed) {
+                    return;
+                }
                 completed = true;
-                delegate.onCompleted();
+                notifyDelegate = true;
+            }
+            if (notifyDelegate) {
+                synchronized (callbackLock) {
+                    delegate.onError(throwable);
+                }
+            }
+        }
+
+        @Override
+        public void onCompleted() {
+            final boolean notifyDelegate;
+            synchronized (this) {
+                if (completed) {
+                    return;
+                }
+                pendingCompletedRequests -= 1;
+                notifyDelegate = pendingCompletedRequests == 0;
+                if (notifyDelegate) {
+                    completed = true;
+                }
+            }
+            if (notifyDelegate) {
+                synchronized (callbackLock) {
+                    delegate.onCompleted();
+                }
             }
         }
     }
