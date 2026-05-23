@@ -36,7 +36,7 @@ public final class GuardedStreamObserver<T> implements StreamObserver<T> {
     @Override
     public void onError(@NonNull Throwable error) {
         if (terminated.compareAndSet(false, true)) {
-            streamObserver.onError(OxiaStatusException.toException(error));
+            streamObserver.onError(OxiaStatusException.from(error));
         }
     }
 

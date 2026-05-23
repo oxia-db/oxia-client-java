@@ -139,7 +139,7 @@ public class Session {
                     .exceptionally(
                             error -> {
                                 log.warn()
-                                        .exceptionMessage(OxiaStatusException.toException(error))
+                                        .exceptionMessage(OxiaStatusException.from(error))
                                         .log("Error during session keep-alive");
                                 return null;
                             });

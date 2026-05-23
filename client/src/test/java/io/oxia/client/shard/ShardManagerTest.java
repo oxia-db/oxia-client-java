@@ -25,6 +25,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
 import io.grpc.Status;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.ShardAssignment;
@@ -205,7 +207,13 @@ public class ShardManagerTest {
         @Test
         void get() {
             assertThatThrownBy(() -> manager.getShardForKey("a"))
-                    .isInstanceOf(NoShardAvailableException.class);
+                    .isInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error;
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("key", "a");
+                            });
         }
 
         @Test
@@ -215,7 +223,14 @@ public class ShardManagerTest {
 
         @Test
         void leader() {
-            assertThatThrownBy(() -> manager.leader(1)).isInstanceOf(NoShardAvailableException.class);
+            assertThatThrownBy(() -> manager.leader(1))
+                    .isInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error;
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", "1");
+                            });
         }
     }
 }

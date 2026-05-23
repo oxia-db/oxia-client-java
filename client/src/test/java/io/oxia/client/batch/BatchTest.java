@@ -51,13 +51,13 @@ import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import io.oxia.client.grpc.ManagedWriteStream;
+import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
 import io.oxia.client.session.SessionManager;
-import io.oxia.client.shard.NoShardAvailableException;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.OxiaClientGrpc;
@@ -157,7 +157,7 @@ class BatchTest {
 
                                                 @Override
                                                 public void onError(Throwable error) {
-                                                    observer.onError(OxiaStatusException.toException(error));
+                                                    observer.onError(OxiaStatusException.from(error));
                                                 }
 
                                                 @Override
@@ -344,7 +344,8 @@ class BatchTest {
         @Test
         public void sendFailNoClient() {
             var rpcProvider = mock(RpcProvider.class);
-            when(rpcProvider.getWriteStream(shardId)).thenThrow(new NoShardAvailableException(shardId));
+            when(rpcProvider.getWriteStream(shardId))
+                    .thenThrow(OxiaStatusException.shardNotFound(shardId));
 
             batch =
                     new WriteBatch(
@@ -367,25 +368,28 @@ class BatchTest {
             assertThatThrownBy(putCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
             assertThat(deleteCallable).isCompletedExceptionally();
             assertThatThrownBy(deleteCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
             assertThat(deleteRangeCallable).isCompletedExceptionally();
             assertThatThrownBy(deleteRangeCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
         }
 
@@ -467,7 +471,7 @@ class BatchTest {
         @Test
         public void sendFailNoClient() {
             var rpcProvider = mock(RpcProvider.class);
-            doThrow(new NoShardAvailableException(1))
+            doThrow(OxiaStatusException.shardNotFound(1))
                     .when(rpcProvider)
                     .read(any(ReadRequest.class), any(StreamObserver.class));
             batch =
@@ -487,9 +491,10 @@ class BatchTest {
             assertThatThrownBy(getCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
         }
 

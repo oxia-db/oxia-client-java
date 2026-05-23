@@ -15,11 +15,13 @@
  */
 package io.oxia.client.grpc;
 
-import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
+import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.rpc.ErrorInfo;
+import io.grpc.StatusException;
+import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import java.util.Map;
 import java.util.Optional;
@@ -36,20 +38,11 @@ public class OxiaStatusException extends RuntimeException {
     OxiaStatusException(
             @NonNull OxiaStatusCode statusCode,
             @NonNull Map<String, String> metadata,
-            @NonNull String message,
-            @NonNull Throwable cause) {
+            String message,
+            Throwable cause) {
         super(message, cause);
         this.statusCode = statusCode;
         this.metadata = Map.copyOf(metadata);
-    }
-
-    public static boolean isNamespaceNotFound(@NonNull Throwable error) {
-        return toException(error) instanceof OxiaStatusException oxiaError
-                && oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND;
-    }
-
-    public static boolean isRetryable(@NonNull Throwable error) {
-        return toException(error) instanceof OxiaStatusException oxiaError && oxiaError.isRetryable();
     }
 
     public boolean isRetryable() {
@@ -67,20 +60,41 @@ public class OxiaStatusException extends RuntimeException {
         return Optional.ofNullable(metadata.get("leader")).filter(leader -> !leader.isEmpty());
     }
 
-    public static @NonNull Throwable toException(@NonNull Throwable error) {
-        var cause = error;
-        while ((cause instanceof CompletionException || cause instanceof ExecutionException)
-                && cause.getCause() != null) {
-            cause = cause.getCause();
+    public static @NonNull OxiaStatusException shardNotFound(@NonNull String key) {
+        return new OxiaStatusException(
+                SHARD_NOT_FOUND, Map.of("key", key), "No shard available to accept to key: " + key, null);
+    }
+
+    public static @NonNull OxiaStatusException shardNotFound(long shardId) {
+        return new OxiaStatusException(
+                SHARD_NOT_FOUND,
+                Map.of("shard", Long.toString(shardId)),
+                "Shard not available : " + shardId,
+                null);
+    }
+
+    public static @NonNull OxiaStatusException from(@NonNull Throwable error) {
+        Throwable cause = error;
+        try {
+            while ((cause instanceof CompletionException || cause instanceof ExecutionException)
+                    && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof OxiaStatusException oxiaError) {
+                return oxiaError;
+            }
+            if (!(cause instanceof StatusException || cause instanceof StatusRuntimeException)) {
+                return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
+            }
+
+            final var grpcStatus = StatusProto.fromThrowable(cause);
+            if (grpcStatus == null) {
+                return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
+            }
+            return fromGrpcStatus(grpcStatus, cause);
+        } catch (RuntimeException e) {
+            return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
         }
-        if (cause instanceof OxiaStatusException) {
-            return cause;
-        }
-        final var grpcStatus = StatusProto.fromThrowable(cause);
-        if (grpcStatus == null) {
-            return cause;
-        }
-        return fromGrpcStatus(grpcStatus, cause);
     }
 
     private static OxiaStatusException fromGrpcStatus(
@@ -98,7 +112,11 @@ public class OxiaStatusException extends RuntimeException {
                 if (!"oxia.io".equals(info.getDomain())) {
                     continue;
                 }
-                statusCode = codeFromReason(info.getReason());
+                try {
+                    statusCode = OxiaStatusCode.valueOf(info.getReason());
+                } catch (IllegalArgumentException e) {
+                    statusCode = UNKNOWN;
+                }
                 metadata = info.getMetadataMap();
                 break;
             } catch (InvalidProtocolBufferException ignored) {
@@ -144,13 +162,5 @@ public class OxiaStatusException extends RuntimeException {
         final var message =
                 grpcStatus.getMessage().isEmpty() ? "oxia status " + statusCode : grpcStatus.getMessage();
         return new OxiaStatusException(statusCode, metadata, message, cause);
-    }
-
-    private static OxiaStatusCode codeFromReason(String reason) {
-        try {
-            return OxiaStatusCode.valueOf(reason);
-        } catch (IllegalArgumentException e) {
-            return UNKNOWN;
-        }
     }
 }

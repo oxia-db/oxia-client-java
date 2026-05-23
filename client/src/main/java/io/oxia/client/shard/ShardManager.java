@@ -16,7 +16,7 @@
 package io.oxia.client.shard;
 
 import static com.google.common.base.Throwables.getRootCause;
-import static io.oxia.client.grpc.OxiaStatusException.isNamespaceNotFound;
+import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
 import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
@@ -29,6 +29,7 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -113,7 +114,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        if (isNamespaceNotFound(error) && !initialAssignmentsFuture.isDone()) {
+        final var oxiaError = OxiaStatusException.from(error);
+        if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
             log.error("Namespace not found");
             if (initialAssignmentsFuture.completeExceptionally(
                     new NamespaceNotFoundException(assignments.getNamespace()))) {

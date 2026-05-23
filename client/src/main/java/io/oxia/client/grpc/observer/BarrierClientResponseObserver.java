@@ -46,7 +46,7 @@ public final class BarrierClientResponseObserver<ReqT, RespT>
 
     @Override
     public void onError(@NonNull Throwable error) {
-        final var translated = OxiaStatusException.toException(error);
+        final var translated = OxiaStatusException.from(error);
         if (!barrierFuture.isDone()) {
             barrierFuture.completeExceptionally(translated);
             return;
