@@ -232,5 +232,35 @@ public class ShardManagerTest {
                                 assertThat(oxiaError.getMetadata()).containsEntry("shard", "1");
                             });
         }
+
+        @Test
+        void leaderUnavailableWhenAssignmentLeaderIsEmpty() {
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+
+            doAnswer(
+                            invocation -> {
+                                var sa = new ShardAssignments();
+                                sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+                                manager.onNext(sa);
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.allShardIds()).containsExactly(0L);
+            assertThatThrownBy(() -> manager.leader(0))
+                    .isInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error;
+                                assertThat(oxiaError.getStatusCode())
+                                        .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", "0");
+                                assertThat(oxiaError.isRetryable()).isTrue();
+                            });
+        }
     }
 }

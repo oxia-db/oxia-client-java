@@ -217,6 +217,18 @@ class OxiaStatusExceptionTest {
     }
 
     @Test
+    void createsLeaderNotAvailableForEmptyShardLeader() {
+        var translated = OxiaStatusException.leaderNotAvailable(1);
+
+        assertThat(translated.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+        assertThat(translated).hasMessage("Leader not available for shard : 1");
+        assertThat(translated.getMetadata()).containsEntry("shard", "1");
+        assertThat(translated).hasNoCause();
+        assertThat(translated.isRetryable()).isTrue();
+        assertThat(OxiaStatusException.from(new CompletionException(translated))).isSameAs(translated);
+    }
+
+    @Test
     void createsShardNotFoundForMissingKeyShard() {
         var translated = OxiaStatusException.shardNotFound("key");
 

@@ -54,6 +54,9 @@ public class ShardAssignmentsContainer {
         if (shard == null) {
             throw OxiaStatusException.shardNotFound(shardId);
         }
+        if (shard.leader().isBlank()) {
+            throw OxiaStatusException.leaderNotAvailable(shardId);
+        }
 
         return shard.leader();
     }
