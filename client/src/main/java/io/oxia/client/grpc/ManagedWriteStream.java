@@ -56,17 +56,15 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
 
     @Override
     public void onNext(WriteResponse value) {
-        final int pendingBefore = inflightWrites.size();
         final InflightWrite inflight = inflightWrites.poll();
         if (inflight != null) {
-            log.debug()
-                    .attr("pendingWritesBefore", pendingBefore)
-                    .attr("pendingWritesAfter", inflightWrites.size())
-                    .log("Received write response");
+            log.debug(
+                    event ->
+                            event.attr("pendingWrites", inflightWrites.size()).log("Received write response"));
             inflight.future.complete(value);
         } else {
             log.warn()
-                    .attr("pendingWritesBefore", pendingBefore)
+                    .attr("pendingWrites", inflightWrites.size())
                     .log("Received write response with no inflight write");
         }
     }
@@ -105,27 +103,33 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
         final InflightWrite inflightWrite = new InflightWrite(requestSupplier, future);
         try {
-            log.debug()
-                    .attr("pendingWritesBefore", inflightWrites.size())
-                    .attr("observerPresent", subStreamObserver != null)
-                    .attr("closed", closed)
-                    .log("Sending write request");
+            log.debug(
+                    event ->
+                            event
+                                    .attr("pendingWritesBefore", inflightWrites.size())
+                                    .attr("observerPresent", subStreamObserver != null)
+                                    .attr("closed", closed)
+                                    .log("Sending write request"));
             if (closed) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Stream is closed"));
             }
             inflightWrites.add(inflightWrite);
-            log.debug()
-                    .attr("pendingWritesAfterQueue", inflightWrites.size())
-                    .attr("observerPresent", subStreamObserver != null)
-                    .log("Queued write request");
+            log.debug(
+                    event ->
+                            event
+                                    .attr("pendingWritesAfterQueue", inflightWrites.size())
+                                    .attr("observerPresent", subStreamObserver != null)
+                                    .log("Queued write request"));
             try {
                 if (subStreamObserver == null) {
                     initWithRecovery(null);
                 } else {
                     subStreamObserver.onNext(inflightWrite.requestSupplier.get());
-                    log.debug()
-                            .attr("pendingWrites", inflightWrites.size())
-                            .log("Sent write request on existing stream");
+                    log.debug(
+                            event ->
+                                    event
+                                            .attr("pendingWrites", inflightWrites.size())
+                                            .log("Sent write request on existing stream"));
                 }
             } catch (Throwable ex) {
                 log.warn().exceptionMessage(ex).log("Failed to send write request, retrying");
@@ -167,9 +171,11 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
                             return;
                         }
                         if (subStreamObserver != null) {
-                            log.debug()
-                                    .attr("pendingWrites", inflightWrites.size())
-                                    .log("Skipping write stream recovery because observer is present");
+                            log.debug(
+                                    event ->
+                                            event
+                                                    .attr("pendingWrites", inflightWrites.size())
+                                                    .log("Skipping write stream recovery because observer is present"));
                             return;
                         }
                         initWithRecovery(fLeaderHint);
@@ -188,10 +194,12 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
     private void resetSubObserver() {
         lock.lock();
         try {
-            log.debug()
-                    .attr("pendingWrites", inflightWrites.size())
-                    .attr("hadObserver", subStreamObserver != null)
-                    .log("Resetting write stream observer");
+            log.debug(
+                    event ->
+                            event
+                                    .attr("pendingWrites", inflightWrites.size())
+                                    .attr("hadObserver", subStreamObserver != null)
+                                    .log("Resetting write stream observer"));
             subStreamObserver = null;
         } finally {
             lock.unlock();
@@ -201,14 +209,18 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
     private void initWithRecovery(OxiaStatusException leaderHint) {
         subStreamObserver = rpcProvider.writeStream(shardId, leaderHint, this);
         log.info().attr("pendingWrites", inflightWrites.size()).log("Opened write stream");
-        log.debug()
-                .attr("pendingWrites", inflightWrites.size())
-                .attr("leaderHint", leaderHint)
-                .log("Replaying inflight writes on opened stream");
+        log.debug(
+                event ->
+                        event
+                                .attr("pendingWrites", inflightWrites.size())
+                                .attr("leaderHint", leaderHint)
+                                .log("Replaying inflight writes on opened stream"));
         for (InflightWrite inflightWrite : inflightWrites) {
             subStreamObserver.onNext(inflightWrite.requestSupplier.get());
         }
-        log.debug().attr("pendingWrites", inflightWrites.size()).log("Replayed inflight writes");
+        log.debug(
+                event ->
+                        event.attr("pendingWrites", inflightWrites.size()).log("Replayed inflight writes"));
         backoff.reset();
     }
 
