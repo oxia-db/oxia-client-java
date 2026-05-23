@@ -20,6 +20,7 @@ import io.grpc.stub.StreamObserver;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.time.Duration;
 import java.util.Queue;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
@@ -122,7 +123,7 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
         }
         log.info()
                 .exceptionMessage(error)
-                .attr("retryDelayMillis", backoffMills)
+                .attr("retryDelay", Duration.ofMillis(backoffMills).toString())
                 .attr("pendingWrites", inflightWrites.size())
                 .log("Scheduling write stream recovery");
         final OxiaStatusException fLeaderHint = leaderHint;
