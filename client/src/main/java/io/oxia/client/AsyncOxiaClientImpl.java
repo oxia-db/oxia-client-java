@@ -43,6 +43,7 @@ import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.metrics.UpDownCounter;
 import io.oxia.client.notify.NotificationManager;
+import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
@@ -642,19 +643,19 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 request,
                 new CancelableStreamObserver<>() {
                     @Override
-                    protected void onNextValue(@NonNull ListResponse response) {
+                    protected void handleNext(@NonNull ListResponse response) {
                         for (int i = 0; i < response.getKeysCount(); i++) {
                             result.add(response.getKeyAt(i));
                         }
                     }
 
                     @Override
-                    protected void onErrorValue(@NonNull Throwable t) {
+                    protected void handleError(@NonNull Throwable t) {
                         future.completeExceptionally(t);
                     }
 
                     @Override
-                    protected void onCompletedValue() {
+                    protected void handleComplete() {
                         future.complete(result);
                     }
                 });
@@ -730,22 +731,27 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Objects.requireNonNull(startKeyInclusive);
             Objects.requireNonNull(endKeyExclusive);
 
-            Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
-            Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
+            final Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
+            final Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
                         shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
-            } else {
-                internalRangeScanMultiShards(
-                        startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
+                return;
+            }
+            final Set<Long> shardIds = shardManager.allShardIds();
+            final CompositeRangeScanConsumer multiShardConsumer =
+                    new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
+            for (Long shardId : shardIds) {
+                internalShardRangeScan(
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer);
             }
         } catch (Exception e) {
             consumer.onError(e);
         }
     }
 
-    private Cancelable internalShardRangeScan(
+    private void internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
@@ -754,117 +760,31 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-
-        var observer =
-                new CancelableStreamObserver<RangeScanResponse>() {
-
+        rpcProvider.rangeScan(
+                request,
+                new CancelableStreamObserver<>() {
                     @Override
-                    protected void onNextValue(@NonNull RangeScanResponse response) {
+                    protected void handleNext(RangeScanResponse response) {
                         for (int i = 0; i < response.getRecordsCount(); i++) {
-                            if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                cancel();
-                                consumer.onCompleted();
+                            final boolean needNext =
+                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
+                            if (!needNext) {
+                                cancelAndComplete();
                                 return;
                             }
                         }
                     }
 
                     @Override
-                    protected void onErrorValue(@NonNull Throwable t) {
+                    protected void handleError(Throwable t) {
                         consumer.onError(t);
                     }
 
                     @Override
-                    protected void onCompletedValue() {
+                    protected void handleComplete() {
                         consumer.onCompleted();
                     }
-                };
-
-        rpcProvider.rangeScan(request, observer);
-        return observer::cancel;
-    }
-
-    private void internalRangeScanMultiShards(
-            String startKeyInclusive,
-            String endKeyExclusive,
-            Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer) {
-        final Set<Long> shardIds = shardManager.allShardIds();
-        final SharedRangeScanConsumer multiShardConsumer =
-                new SharedRangeScanConsumer(shardIds.size(), consumer);
-        for (long shardId : shardIds) {
-            multiShardConsumer.registerCancelHandler(
-                    internalShardRangeScan(
-                            shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
-        }
-    }
-
-    static class SharedRangeScanConsumer implements RangeScanConsumer {
-        private final RangeScanConsumer delegate;
-        private final List<Cancelable> cancelHandlers = new ArrayList<>();
-
-        private int pendingCompletedRequests;
-        private boolean completed = false;
-        private Throwable completedException = null;
-
-        SharedRangeScanConsumer(int shards, RangeScanConsumer delegate) {
-            this.pendingCompletedRequests = shards;
-            this.delegate = delegate;
-        }
-
-        synchronized void registerCancelHandler(Cancelable handler) {
-            if (completed) {
-                handler.cancel();
-                return;
-            }
-            cancelHandlers.add(handler);
-        }
-
-        @Override
-        public synchronized boolean onNext(GetResult result) {
-            if (completed) {
-                return false;
-            }
-            if (delegate.onNext(result)) {
-                return true;
-            }
-            completed = true;
-            for (Cancelable h : cancelHandlers) {
-                try {
-                    h.cancel();
-                } catch (Throwable ignored) {
-                }
-            }
-            cancelHandlers.clear();
-            delegate.onCompleted();
-            return false;
-        }
-
-        @Override
-        public synchronized void onError(Throwable throwable) {
-            if (completedException == null) {
-                completedException = throwable;
-            } else {
-                completedException.addSuppressed(throwable);
-            }
-            if (completed) {
-                return;
-            }
-            completed = true;
-            delegate.onError(throwable);
-        }
-
-        @Override
-        public synchronized void onCompleted() {
-            if (completed) {
-                return;
-            }
-            pendingCompletedRequests -= 1;
-            if (pendingCompletedRequests == 0) {
-                completed = true;
-                delegate.onCompleted();
-            }
-        }
+                });
     }
 
     @Override

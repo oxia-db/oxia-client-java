@@ -84,18 +84,18 @@ public class SequenceUpdates implements Closeable {
         var observer =
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
                     @Override
-                    protected void onNextValue(@NonNull GetSequenceUpdatesResponse value) {
-                        handleUpdate(value);
+                    protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
+                        SequenceUpdates.this.handleUpdate(value);
                     }
 
                     @Override
-                    protected void onErrorValue(@NonNull Throwable t) {
-                        handleError(t);
+                    protected void handleError(@NonNull Throwable t) {
+                        SequenceUpdates.this.handleError(t);
                     }
 
                     @Override
-                    protected void onCompletedValue() {
-                        handleCompleted();
+                    protected void handleComplete() {
+                        SequenceUpdates.this.handleCompleted();
                     }
                 };
 

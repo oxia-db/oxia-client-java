@@ -17,68 +17,132 @@ package io.oxia.client.grpc.observer;
 
 import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.concurrent.GuardedBy;
+import javax.annotation.concurrent.ThreadSafe;
 import lombok.NonNull;
 
+@ThreadSafe
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private static final String CANCELED = "canceled";
 
-    private final AtomicBoolean canceled = new AtomicBoolean();
-    private final AtomicReference<ClientCallStreamObserver<?>> requestStream =
-            new AtomicReference<>();
+    private final ReentrantLock lock;
+
+    @GuardedBy("lock")
+    private boolean terminated;
+
+    @GuardedBy("lock")
+    private ClientCallStreamObserver<?> requestStream;
+
+    public CancelableStreamObserver() {
+        this.lock = new ReentrantLock();
+        this.terminated = false;
+        this.requestStream = null;
+    }
 
     public void cancel() {
-        if (!canceled.compareAndSet(false, true)) {
-            return;
+        final ClientCallStreamObserver<?> stream;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            terminated = true;
+            stream = requestStream;
+        } finally {
+            lock.unlock();
         }
-        final var stream = requestStream.getAndSet(null);
         if (stream != null) {
             stream.cancel(CANCELED, null);
         }
     }
 
-    protected boolean isCanceled() {
-        return canceled.get();
+    public void cancelAndComplete() {
+        final ClientCallStreamObserver<?> stream;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            terminated = true;
+            stream = requestStream;
+        } finally {
+            lock.unlock();
+        }
+        if (stream != null) {
+            stream.cancel(CANCELED, null);
+        }
+        lock.lock();
+        try {
+            handleComplete();
+        } finally {
+            lock.unlock();
+        }
     }
 
-    void setRequestStream(ClientCallStreamObserver<?> requestStream) {
-        final var previous = this.requestStream.getAndSet(requestStream);
-        if (previous != null) {
-            previous.cancel(CANCELED, null);
+    void injectRequestStream(ClientCallStreamObserver<?> requestStream) {
+        final ClientCallStreamObserver<?> previousStream;
+        lock.lock();
+        try {
+            if (terminated) {
+                previousStream = requestStream;
+            } else {
+                previousStream = this.requestStream;
+                this.requestStream = requestStream;
+            }
+        } finally {
+            lock.unlock();
         }
-        if (canceled.get() && this.requestStream.compareAndSet(requestStream, null)) {
-            requestStream.cancel(CANCELED, null);
+
+        if (previousStream != null) {
+            previousStream.cancel(CANCELED, null);
         }
     }
 
     @Override
     public final void onNext(@NonNull T value) {
-        if (isCanceled()) {
-            return;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            handleNext(value);
+        } finally {
+            lock.unlock();
         }
-        onNextValue(value);
     }
 
     @Override
     public final void onError(@NonNull Throwable t) {
-        if (isCanceled()) {
-            return;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            terminated = true;
+            handleError(t);
+        } finally {
+            lock.unlock();
         }
-        onErrorValue(t);
     }
 
     @Override
     public final void onCompleted() {
-        if (isCanceled()) {
-            return;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            terminated = true;
+            handleComplete();
+        } finally {
+            lock.unlock();
         }
-        onCompletedValue();
     }
 
-    protected abstract void onNextValue(@NonNull T value);
+    protected abstract void handleNext(T value);
 
-    protected abstract void onErrorValue(@NonNull Throwable t);
+    protected abstract void handleError(Throwable t);
 
-    protected abstract void onCompletedValue();
+    protected abstract void handleComplete();
 }

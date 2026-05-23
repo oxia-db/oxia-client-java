@@ -43,6 +43,7 @@ import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.notify.NotificationManager;
+import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.ListRequest;
@@ -560,15 +561,15 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void testShardShardRangeScanConsumer() {
+    void testCompositeRangeScanConsumer() {
         final int shards = 5;
         final List<GetResult> results = new ArrayList<>();
         final AtomicInteger onErrorCount = new AtomicInteger(0);
         final AtomicInteger onCompletedCount = new AtomicInteger(0);
         final Supplier<RangeScanConsumer> newShardRangeScanConsumer =
                 () ->
-                        new AsyncOxiaClientImpl.SharedRangeScanConsumer(
-                                5,
+                        new CompositeRangeScanConsumer(
+                                shards,
                                 new RangeScanConsumer() {
                                     @Override
                                     public boolean onNext(GetResult result) {
@@ -675,7 +676,7 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void testSharedRangeScanConsumerEarlyStop() {
+    void testCompositeRangeScanConsumerEarlyStop() {
         final int shards = 3;
         final int stopAfter = 2;
         final List<GetResult> results = new ArrayList<>();
@@ -701,13 +702,7 @@ class AsyncOxiaClientImplTest {
                     }
                 };
 
-        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(shards, userConsumer);
-        final var cancelCounts = new ArrayList<AtomicInteger>();
-        for (int i = 0; i < shards; i++) {
-            final AtomicInteger c = new AtomicInteger(0);
-            cancelCounts.add(c);
-            shared.registerCancelHandler(c::incrementAndGet);
-        }
+        final var shared = new CompositeRangeScanConsumer(shards, userConsumer);
 
         // First onNext returns true.
         Assertions.assertTrue(
@@ -716,10 +711,6 @@ class AsyncOxiaClientImplTest {
         Assertions.assertFalse(
                 shared.onNext(new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
 
-        // All cancel handlers should have been invoked exactly once.
-        for (AtomicInteger c : cancelCounts) {
-            Assertions.assertEquals(1, c.get());
-        }
         // onCompleted was called exactly once on the user consumer.
         Assertions.assertEquals(1, onCompletedCount.get());
         Assertions.assertEquals(0, onErrorCount.get());
@@ -735,31 +726,5 @@ class AsyncOxiaClientImplTest {
         shared.onCompleted();
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testSharedRangeScanConsumerLateCancelHandler() {
-        // A cancel handler registered after the scan has been stopped must run immediately.
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        return false;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {}
-
-                    @Override
-                    public void onCompleted() {}
-                };
-
-        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
-        Assertions.assertFalse(
-                shared.onNext(new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-
-        final AtomicInteger lateCancel = new AtomicInteger(0);
-        shared.registerCancelHandler(lateCancel::incrementAndGet);
-        Assertions.assertEquals(1, lateCancel.get());
     }
 }
