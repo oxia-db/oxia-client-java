@@ -18,6 +18,11 @@ package io.oxia.client.grpc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
@@ -163,6 +168,64 @@ class ManagedWriteStreamTest {
             executor.shutdownNow();
             staleServer.shutdownNow();
             leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void resetsObserverWhenRecoveryReplayFails() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var openAttempts = new AtomicInteger();
+        var replayFailures = new AtomicInteger();
+        var requests = new ConcurrentLinkedQueue<WriteRequest>();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            var attempt = openAttempts.incrementAndGet();
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {
+                                    requests.add(value);
+                                    if (attempt == 2) {
+                                        replayFailures.incrementAndGet();
+                                        throw Status.UNAVAILABLE.withDescription("failed replay").asRuntimeException();
+                                    }
+                                    if (attempt == 3) {
+                                        responseObserver.onNext(new WriteResponse());
+                                    }
+                                }
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {}
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor)) {
+            var future = stream.send(() -> writeRequest(1));
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(openAttempts).hasValue(1);
+                                assertThat(requests).hasSize(1);
+                            });
+
+            stream.onError(Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
+
+            future.get(5, TimeUnit.SECONDS);
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(openAttempts).hasValue(3);
+                                assertThat(replayFailures).hasValue(1);
+                                assertThat(keys(requests)).containsExactly("key-1", "key-1", "key-1");
+                            });
+        } finally {
+            executor.shutdownNow();
         }
     }
 
