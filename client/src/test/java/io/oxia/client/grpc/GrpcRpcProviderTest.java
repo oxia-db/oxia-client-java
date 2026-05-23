@@ -29,7 +29,6 @@ import io.grpc.stub.StreamObserver;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
-import io.oxia.client.shard.NoShardAvailableException;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
@@ -569,7 +568,7 @@ class GrpcRpcProviderTest {
                         config,
                         executor,
                         shardId -> {
-                            throw new NoShardAvailableException(shardId);
+                            throw OxiaStatusException.shardNotFound(shardId);
                         })) {
             var request = new GetSequenceUpdatesRequest();
             request.setShard(1).setKey("key");
@@ -592,7 +591,12 @@ class GrpcRpcProviderTest {
 
             await()
                     .untilAsserted(
-                            () -> assertThat(error.get()).isInstanceOf(NoShardAvailableException.class));
+                            () -> {
+                                assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) error.get();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", "1");
+                            });
         } finally {
             executor.shutdownNow();
         }

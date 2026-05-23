@@ -98,17 +98,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .getShardAssignments(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                guardedObserver.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -131,17 +131,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .getNotifications(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                guardedObserver.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -162,7 +162,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
                                         .createSession(request, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
-                                future.completeExceptionally(OxiaStatusException.toException(error));
+                                future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
                         });
@@ -184,7 +184,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                         .withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS)
                                         .keepAlive(heartbeat, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
-                                future.completeExceptionally(OxiaStatusException.toException(error));
+                                future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
                         });
@@ -207,7 +207,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
                                         .closeSession(request, ManagedObservers.toCompletableFuture(future));
                             } catch (Throwable error) {
-                                future.completeExceptionally(OxiaStatusException.toException(error));
+                                future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
                         });
@@ -231,17 +231,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .read(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.toException(error));
+                                guardedObserver.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.toException(error));
+            guardedObserver.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -299,17 +299,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .list(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                observer.onError(OxiaStatusException.toException(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -332,17 +332,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .rangeScan(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                observer.onError(OxiaStatusException.toException(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -365,17 +365,17 @@ final class GrpcRpcProvider implements RpcProvider {
                                             .stub()
                                             .getSequenceUpdates(request, barrierObserver);
                                 } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.toException(error));
+                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
                                 return barrierFuture;
                             })
                     .exceptionally(
                             error -> {
-                                observer.onError(OxiaStatusException.toException(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            observer.onError(OxiaStatusException.toException(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -401,18 +401,18 @@ final class GrpcRpcProvider implements RpcProvider {
         return RetryPolicy.<T>builder()
                 .handleIf(
                         error -> {
-                            final var translated = OxiaStatusException.toException(error);
-                            if (hint != null && translated instanceof OxiaStatusException oxiaError) {
-                                hint.set(oxiaError);
+                            final var translated = OxiaStatusException.from(error);
+                            if (hint != null) {
+                                hint.set(translated);
                             }
-                            return OxiaStatusException.isRetryable(translated);
+                            return translated.isRetryable();
                         })
                 .withBackoff(
                         clientConfig.connectionBackoffMinDelay(), clientConfig.connectionBackoffMaxDelay())
                 .onRetryScheduled(
                         event ->
                                 log.warn()
-                                        .exceptionMessage(OxiaStatusException.toException(event.getLastException()))
+                                        .exceptionMessage(OxiaStatusException.from(event.getLastException()))
                                         .log(
                                                 "Retrying "
                                                         + operation

@@ -34,7 +34,7 @@ public final class ManagedObservers {
 
             @Override
             public void onError(@NonNull Throwable error) {
-                future.completeExceptionally(OxiaStatusException.toException(error));
+                future.completeExceptionally(OxiaStatusException.from(error));
             }
 
             @Override

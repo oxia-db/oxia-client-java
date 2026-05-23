@@ -111,9 +111,9 @@ public final class ManagedWriteStream implements AutoCloseable, StreamObserver<W
     private void scheduleRetry(Throwable error, long backoffMills) {
         OxiaStatusException leaderHint = null;
         if (error != null) {
-            final var translated = OxiaStatusException.toException(error);
-            if (OxiaStatusException.isRetryable(translated)) {
-                leaderHint = translated instanceof OxiaStatusException oxiaError ? oxiaError : null;
+            final var translated = OxiaStatusException.from(error);
+            if (translated.isRetryable()) {
+                leaderHint = translated;
             } else {
                 final InflightWrite inflight = inflightWrites.poll();
                 if (inflight != null) {
