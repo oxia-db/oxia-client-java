@@ -43,6 +43,7 @@ import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.metrics.UpDownCounter;
 import io.oxia.client.notify.NotificationManager;
+import io.oxia.client.operation.rangescan.CancelableRangeScanStreamObserver;
 import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
@@ -51,7 +52,6 @@ import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
 import io.oxia.proto.RangeScanRequest;
-import io.oxia.proto.RangeScanResponse;
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -731,22 +731,27 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Objects.requireNonNull(startKeyInclusive);
             Objects.requireNonNull(endKeyExclusive);
 
-            Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
-            Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
+            final Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
+            final Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
                         shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
-            } else {
-                internalRangeScanMultiShards(
-                        startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
+                return;
+            }
+            final Set<Long> shardIds = shardManager.allShardIds();
+            final CompositeRangeScanConsumer multiShardConsumer =
+                    new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
+            for (Long shardId : shardIds) {
+                internalShardRangeScan(
+                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer);
             }
         } catch (Exception e) {
             consumer.onError(e);
         }
     }
 
-    private Runnable internalShardRangeScan(
+    private void internalShardRangeScan(
             long shardId,
             String startKeyInclusive,
             String endKeyExclusive,
@@ -755,49 +760,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-
-        var observer =
-                new CancelableStreamObserver<RangeScanResponse>() {
-
-                    @Override
-                    protected void onNextValue(@NonNull RangeScanResponse response) {
-                        for (int i = 0; i < response.getRecordsCount(); i++) {
-                            if (!consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)))) {
-                                cancel();
-                                consumer.onCompleted();
-                                return;
-                            }
-                        }
-                    }
-
-                    @Override
-                    protected void onErrorValue(@NonNull Throwable t) {
-                        consumer.onError(t);
-                    }
-
-                    @Override
-                    protected void onCompletedValue() {
-                        consumer.onCompleted();
-                    }
-                };
-
-        rpcProvider.rangeScan(request, observer);
-        return observer::cancel;
-    }
-
-    private void internalRangeScanMultiShards(
-            String startKeyInclusive,
-            String endKeyExclusive,
-            Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer) {
-        final Set<Long> shardIds = shardManager.allShardIds();
-        final CompositeRangeScanConsumer multiShardConsumer =
-                new CompositeRangeScanConsumer(shardIds.size(), consumer);
-        for (long shardId : shardIds) {
-            multiShardConsumer.registerCancelHandler(
-                    internalShardRangeScan(
-                            shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer));
-        }
+        rpcProvider.rangeScan(request, new CancelableRangeScanStreamObserver(consumer));
     }
 
     @Override

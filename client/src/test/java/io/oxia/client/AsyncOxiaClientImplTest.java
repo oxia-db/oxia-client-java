@@ -53,11 +53,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -571,7 +569,7 @@ class AsyncOxiaClientImplTest {
         final Supplier<RangeScanConsumer> newShardRangeScanConsumer =
                 () ->
                         new CompositeRangeScanConsumer(
-                                5,
+                                shards,
                                 new RangeScanConsumer() {
                                     @Override
                                     public boolean onNext(GetResult result) {
@@ -705,12 +703,6 @@ class AsyncOxiaClientImplTest {
                 };
 
         final var shared = new CompositeRangeScanConsumer(shards, userConsumer);
-        final var cancelCounts = new ArrayList<AtomicInteger>();
-        for (int i = 0; i < shards; i++) {
-            final AtomicInteger c = new AtomicInteger(0);
-            cancelCounts.add(c);
-            shared.registerCancelHandler(c::incrementAndGet);
-        }
 
         // First onNext returns true.
         Assertions.assertTrue(
@@ -719,10 +711,6 @@ class AsyncOxiaClientImplTest {
         Assertions.assertFalse(
                 shared.onNext(new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
 
-        // All cancel handlers should have been invoked exactly once.
-        for (AtomicInteger c : cancelCounts) {
-            Assertions.assertEquals(1, c.get());
-        }
         // onCompleted was called exactly once on the user consumer.
         Assertions.assertEquals(1, onCompletedCount.get());
         Assertions.assertEquals(0, onErrorCount.get());
@@ -738,83 +726,5 @@ class AsyncOxiaClientImplTest {
         shared.onCompleted();
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testCompositeRangeScanConsumerLateCancelHandler() {
-        // A cancel handler registered after the scan has been stopped must run immediately.
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        return false;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {}
-
-                    @Override
-                    public void onCompleted() {}
-                };
-
-        final var shared = new CompositeRangeScanConsumer(2, userConsumer);
-        Assertions.assertFalse(
-                shared.onNext(new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-
-        final AtomicInteger lateCancel = new AtomicInteger(0);
-        shared.registerCancelHandler(lateCancel::incrementAndGet);
-        Assertions.assertEquals(1, lateCancel.get());
-    }
-
-    @Test
-    void testCompositeRangeScanConsumerDoesNotDeadlockRegisteringCancelHandlerDuringBlockedOnNext()
-            throws Exception {
-        final CountDownLatch onNextEntered = new CountDownLatch(1);
-        final CountDownLatch releaseOnNext = new CountDownLatch(1);
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        onNextEntered.countDown();
-                        try {
-                            return releaseOnNext.await(5, TimeUnit.SECONDS);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            throw new AssertionError(e);
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {}
-
-                    @Override
-                    public void onCompleted() {}
-                };
-
-        final var shared = new CompositeRangeScanConsumer(2, userConsumer);
-        final var executor = Executors.newFixedThreadPool(2);
-        try {
-            final var onNextFuture =
-                    executor.submit(
-                            () ->
-                                    shared.onNext(
-                                            new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-            assertThat(onNextEntered.await(5, TimeUnit.SECONDS)).isTrue();
-
-            final AtomicInteger cancelCount = new AtomicInteger(0);
-            final var registerCancelFuture =
-                    executor.submit(() -> shared.registerCancelHandler(cancelCount::incrementAndGet));
-
-            // This timed out with the old synchronized onNext implementation because the shard
-            // callback held the shared consumer monitor while blocked in the sync iterator.
-            registerCancelFuture.get(1, TimeUnit.SECONDS);
-
-            releaseOnNext.countDown();
-            assertThat(onNextFuture.get(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(cancelCount).hasValue(0);
-        } finally {
-            releaseOnNext.countDown();
-            executor.shutdownNow();
-        }
     }
 }

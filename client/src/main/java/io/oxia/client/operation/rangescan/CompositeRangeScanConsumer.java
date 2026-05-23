@@ -17,112 +17,67 @@ package io.oxia.client.operation.rangescan;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.RangeScanConsumer;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class CompositeRangeScanConsumer implements RangeScanConsumer {
-    private final Object callbackLock = new Object();
     private final RangeScanConsumer delegate;
-    private final List<Runnable> cancelHandlers = new ArrayList<>();
-
+    private final ReentrantLock lock;
     private int pendingCompletedRequests;
-    private boolean completed = false;
-    private Throwable completedException = null;
+    private boolean completed;
 
     public CompositeRangeScanConsumer(int shards, RangeScanConsumer delegate) {
         this.pendingCompletedRequests = shards;
         this.delegate = delegate;
-    }
-
-    public void registerCancelHandler(Runnable handler) {
-        synchronized (this) {
-            if (!completed) {
-                cancelHandlers.add(handler);
-                return;
-            }
-        }
-        handler.run();
+        this.completed = false;
+        this.lock = new ReentrantLock();
     }
 
     @Override
     public boolean onNext(GetResult result) {
-        synchronized (callbackLock) {
-            synchronized (this) {
-                if (completed) {
-                    return false;
-                }
+        lock.lock();
+        try {
+            if (completed) {
+                return false; // ignore the dirty data
             }
-            if (delegate.onNext(result)) {
-                return true;
-            }
-
-            final List<Runnable> handlersToCancel = completeAndTakeCancelHandlers();
-            if (handlersToCancel != null) {
-                cancelHandlers(handlersToCancel);
+            final boolean wantNext = delegate.onNext(result);
+            if (!wantNext) {
+                completed = true;
                 delegate.onCompleted();
             }
-            return false;
-        }
-    }
-
-    private synchronized List<Runnable> completeAndTakeCancelHandlers() {
-        if (completed) {
-            return null;
-        }
-        completed = true;
-        var handlersToCancel = new ArrayList<>(cancelHandlers);
-        cancelHandlers.clear();
-        return handlersToCancel;
-    }
-
-    private void cancelHandlers(List<Runnable> handlersToCancel) {
-        for (Runnable h : handlersToCancel) {
-            try {
-                h.run();
-            } catch (Throwable ignored) {
-            }
+            return wantNext;
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public void onError(Throwable throwable) {
-        final boolean notifyDelegate;
-        synchronized (this) {
-            if (completedException == null) {
-                completedException = throwable;
-            } else {
-                completedException.addSuppressed(throwable);
-            }
+        lock.lock();
+        try {
             if (completed) {
                 return;
             }
+            delegate.onError(throwable);
             completed = true;
-            notifyDelegate = true;
-        }
-        if (notifyDelegate) {
-            synchronized (callbackLock) {
-                delegate.onError(throwable);
-            }
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
     public void onCompleted() {
-        final boolean notifyDelegate;
-        synchronized (this) {
+        lock.lock();
+        try {
             if (completed) {
                 return;
             }
             pendingCompletedRequests -= 1;
-            notifyDelegate = pendingCompletedRequests == 0;
-            if (notifyDelegate) {
+            if (pendingCompletedRequests == 0) {
+                delegate.onCompleted();
                 completed = true;
             }
-        }
-        if (notifyDelegate) {
-            synchronized (callbackLock) {
-                delegate.onCompleted();
-            }
+        } finally {
+            lock.unlock();
         }
     }
 }
