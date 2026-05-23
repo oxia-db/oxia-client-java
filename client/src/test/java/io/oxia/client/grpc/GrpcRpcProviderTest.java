@@ -49,6 +49,7 @@ import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import org.junit.jupiter.api.Test;
@@ -332,6 +333,75 @@ class GrpcRpcProviderTest {
         } finally {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void readRetriesWhenLeaderIsTemporarilyUnavailable() throws Exception {
+        var leaderServerRequests = new AtomicReference<ReadRequest>();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void read(ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                        leaderServerRequests.set(request);
+                        responseObserver.onNext(new ReadResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var lookupAttempts = new AtomicInteger();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create("localhost:0")
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider =
+                new GrpcRpcProvider(
+                        config,
+                        executor,
+                        shardId -> {
+                            if (lookupAttempts.getAndIncrement() == 0) {
+                                throw OxiaStatusException.leaderNotAvailable(shardId);
+                            }
+                            return leaderAddress;
+                        })) {
+            var request = new ReadRequest();
+            request.setShard(1);
+            var response = new AtomicReference<ReadResponse>();
+            var error = new AtomicReference<Throwable>();
+
+            provider.read(
+                    request,
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ReadResponse value) {
+                            response.set(value);
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                        }
+
+                        @Override
+                        public void onCompleted() {}
+                    });
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(error.get()).isNull();
+                                assertThat(response.get()).isNotNull();
+                                assertThat(leaderServerRequests.get()).isNotNull();
+                                assertThat(lookupAttempts.get()).isGreaterThanOrEqualTo(2);
+                            });
+        } finally {
+            executor.shutdownNow();
             leaderServer.shutdownNow();
         }
     }

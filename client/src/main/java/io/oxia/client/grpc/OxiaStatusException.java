@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.grpc.OxiaStatusCode.RESOURCE_UNAVAILABLE;
 import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
 
@@ -70,6 +71,14 @@ public class OxiaStatusException extends RuntimeException {
                 SHARD_NOT_FOUND,
                 Map.of("shard", Long.toString(shardId)),
                 "Shard not available : " + shardId,
+                null);
+    }
+
+    public static @NonNull OxiaStatusException leaderNotAvailable(long shardId) {
+        return new OxiaStatusException(
+                RESOURCE_UNAVAILABLE,
+                Map.of("shard", Long.toString(shardId)),
+                "Leader not available for shard : " + shardId,
                 null);
     }
 
