@@ -24,12 +24,12 @@ import lombok.NonNull;
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private static final String CANCELED = "canceled";
 
-    private final AtomicBoolean canceled = new AtomicBoolean();
+    private final AtomicBoolean terminated = new AtomicBoolean();
     private final AtomicReference<ClientCallStreamObserver<?>> requestStream =
             new AtomicReference<>();
 
     public void cancel() {
-        if (!canceled.compareAndSet(false, true)) {
+        if (!terminated.compareAndSet(false, true)) {
             return;
         }
         final var stream = requestStream.getAndSet(null);
@@ -39,7 +39,7 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     }
 
     protected boolean isCanceled() {
-        return canceled.get();
+        return terminated.get();
     }
 
     void setRequestStream(ClientCallStreamObserver<?> requestStream) {
@@ -47,7 +47,7 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
         if (previous != null) {
             previous.cancel(CANCELED, null);
         }
-        if (canceled.get() && this.requestStream.compareAndSet(requestStream, null)) {
+        if (terminated.get() && this.requestStream.compareAndSet(requestStream, null)) {
             requestStream.cancel(CANCELED, null);
         }
     }
@@ -62,17 +62,19 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public final void onError(@NonNull Throwable t) {
-        if (isCanceled()) {
+        if (!terminated.compareAndSet(false, true)) {
             return;
         }
+        requestStream.set(null);
         onErrorValue(t);
     }
 
     @Override
     public final void onCompleted() {
-        if (isCanceled()) {
+        if (!terminated.compareAndSet(false, true)) {
             return;
         }
+        requestStream.set(null);
         onCompletedValue();
     }
 
