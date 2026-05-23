@@ -35,7 +35,7 @@ public final class BarrierClientResponseObserver<ReqT, RespT>
 
     @Override
     public void beforeStart(@NonNull ClientCallStreamObserver<ReqT> requestStream) {
-        streamObserver.setRequestStream(requestStream);
+        streamObserver.injectRequestStream(requestStream);
     }
 
     @Override

@@ -43,7 +43,6 @@ import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.metrics.UpDownCounter;
 import io.oxia.client.notify.NotificationManager;
-import io.oxia.client.operation.rangescan.CancelableRangeScanStreamObserver;
 import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
@@ -52,6 +51,7 @@ import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
 import io.oxia.proto.RangeScanRequest;
+import io.oxia.proto.RangeScanResponse;
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -643,19 +643,19 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 request,
                 new CancelableStreamObserver<>() {
                     @Override
-                    protected void onNextValue(@NonNull ListResponse response) {
+                    protected void handleNext(@NonNull ListResponse response) {
                         for (int i = 0; i < response.getKeysCount(); i++) {
                             result.add(response.getKeyAt(i));
                         }
                     }
 
                     @Override
-                    protected void onErrorValue(@NonNull Throwable t) {
+                    protected void handleError(@NonNull Throwable t) {
                         future.completeExceptionally(t);
                     }
 
                     @Override
-                    protected void onCompletedValue() {
+                    protected void handleComplete() {
                         future.complete(result);
                     }
                 });
@@ -760,7 +760,31 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-        rpcProvider.rangeScan(request, new CancelableRangeScanStreamObserver(consumer));
+        rpcProvider.rangeScan(
+                request,
+                new CancelableStreamObserver<>() {
+                    @Override
+                    protected void handleNext(RangeScanResponse response) {
+                        for (int i = 0; i < response.getRecordsCount(); i++) {
+                            final boolean needNext =
+                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
+                            if (!needNext) {
+                                cancelAndComplete();
+                                return;
+                            }
+                        }
+                    }
+
+                    @Override
+                    protected void handleError(Throwable t) {
+                        consumer.onError(t);
+                    }
+
+                    @Override
+                    protected void handleComplete() {
+                        consumer.onCompleted();
+                    }
+                });
     }
 
     @Override

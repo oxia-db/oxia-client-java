@@ -19,8 +19,10 @@ import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.concurrent.ThreadSafe;
 import lombok.NonNull;
 
+@ThreadSafe
 public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private static final String CANCELED = "canceled";
 
@@ -38,11 +40,18 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
         }
     }
 
-    protected boolean isCanceled() {
-        return terminated.get();
+    public void cancelAndComplete() {
+        if (!terminated.compareAndSet(false, true)) {
+            return;
+        }
+        final var stream = requestStream.getAndSet(null);
+        if (stream != null) {
+            stream.cancel(CANCELED, null);
+        }
+        handleComplete();
     }
 
-    void setRequestStream(ClientCallStreamObserver<?> requestStream) {
+    void injectRequestStream(ClientCallStreamObserver<?> requestStream) {
         final var previous = this.requestStream.getAndSet(requestStream);
         if (previous != null) {
             previous.cancel(CANCELED, null);
@@ -54,10 +63,10 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public final void onNext(@NonNull T value) {
-        if (isCanceled()) {
+        if (terminated.get()) {
             return;
         }
-        onNextValue(value);
+        handleNext(value);
     }
 
     @Override
@@ -66,7 +75,7 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
             return;
         }
         requestStream.set(null);
-        onErrorValue(t);
+        handleError(t);
     }
 
     @Override
@@ -75,12 +84,12 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
             return;
         }
         requestStream.set(null);
-        onCompletedValue();
+        handleComplete();
     }
 
-    protected abstract void onNextValue(@NonNull T value);
+    protected abstract void handleNext(T value);
 
-    protected abstract void onErrorValue(@NonNull Throwable t);
+    protected abstract void handleError(Throwable t);
 
-    protected abstract void onCompletedValue();
+    protected abstract void handleComplete();
 }

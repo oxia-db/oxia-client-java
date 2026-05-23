@@ -579,15 +579,15 @@ class GrpcRpcProviderTest {
                     request,
                     new CancelableStreamObserver<>() {
                         @Override
-                        protected void onNextValue(@NonNull GetSequenceUpdatesResponse value) {}
+                        protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {}
 
                         @Override
-                        protected void onErrorValue(@NonNull Throwable throwable) {
+                        protected void handleError(@NonNull Throwable throwable) {
                             error.set(throwable);
                         }
 
                         @Override
-                        protected void onCompletedValue() {}
+                        protected void handleComplete() {}
                     });
 
             await()
@@ -617,15 +617,15 @@ class GrpcRpcProviderTest {
             AtomicReference<T> response) {
         return new CancelableStreamObserver<>() {
             @Override
-            protected void onNextValue(@NonNull T value) {
+            protected void handleNext(@NonNull T value) {
                 response.set(value);
             }
 
             @Override
-            protected void onErrorValue(@NonNull Throwable t) {}
+            protected void handleError(@NonNull Throwable t) {}
 
             @Override
-            protected void onCompletedValue() {}
+            protected void handleComplete() {}
         };
     }
 

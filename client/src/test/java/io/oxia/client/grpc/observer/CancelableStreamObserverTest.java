@@ -47,7 +47,7 @@ class CancelableStreamObserverTest {
         var observer = new RecordingStreamObserver();
         @SuppressWarnings("unchecked")
         ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
-        observer.setRequestStream(requestStream);
+        observer.injectRequestStream(requestStream);
 
         observer.cancel();
         observer.onNext("late");
@@ -61,14 +61,31 @@ class CancelableStreamObserverTest {
     }
 
     @Test
+    void cancelAndCompleteCancelsAndCompletes() {
+        var observer = new RecordingStreamObserver();
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+        observer.injectRequestStream(requestStream);
+
+        observer.cancelAndComplete();
+        observer.onNext("late");
+        observer.onCompleted();
+
+        verify(requestStream).cancel(eq("canceled"), isNull());
+        assertThat(observer.nextCount).hasValue(0);
+        assertThat(observer.errorCount).hasValue(0);
+        assertThat(observer.completedCount).hasValue(1);
+    }
+
+    @Test
     void cancelAfterCompletedDoesNotCancelCompletedRequestStream() {
         var observer = new RecordingStreamObserver();
         @SuppressWarnings("unchecked")
         ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
-        observer.setRequestStream(requestStream);
+        observer.injectRequestStream(requestStream);
 
         observer.onCompleted();
-        observer.cancel();
+        observer.cancelAndComplete();
 
         verify(requestStream, never()).cancel(eq("canceled"), isNull());
         assertThat(observer.completedCount).hasValue(1);
@@ -81,7 +98,7 @@ class CancelableStreamObserverTest {
         ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
 
         observer.cancel();
-        observer.setRequestStream(requestStream);
+        observer.injectRequestStream(requestStream);
 
         verify(requestStream).cancel(eq("canceled"), isNull());
     }
@@ -92,17 +109,17 @@ class CancelableStreamObserverTest {
         private final AtomicInteger completedCount = new AtomicInteger();
 
         @Override
-        protected void onNextValue(String value) {
+        protected void handleNext(String value) {
             nextCount.incrementAndGet();
         }
 
         @Override
-        protected void onErrorValue(Throwable t) {
+        protected void handleError(Throwable t) {
             errorCount.incrementAndGet();
         }
 
         @Override
-        protected void onCompletedValue() {
+        protected void handleComplete() {
             completedCount.incrementAndGet();
         }
     }
