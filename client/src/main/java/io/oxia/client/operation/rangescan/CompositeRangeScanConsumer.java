@@ -57,8 +57,8 @@ public class CompositeRangeScanConsumer implements RangeScanConsumer {
             if (completed) {
                 return;
             }
-            delegate.onError(throwable);
             completed = true;
+            delegate.onError(throwable);
         } finally {
             lock.unlock();
         }
@@ -73,8 +73,8 @@ public class CompositeRangeScanConsumer implements RangeScanConsumer {
             }
             pendingCompletedRequests -= 1;
             if (pendingCompletedRequests == 0) {
-                delegate.onCompleted();
                 completed = true;
+                delegate.onCompleted();
             }
         } finally {
             lock.unlock();

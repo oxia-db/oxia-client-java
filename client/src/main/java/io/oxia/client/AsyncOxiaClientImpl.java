@@ -739,7 +739,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
                 return;
             }
-            final Set<Long> shardIds = shardManager.allShardIds();
+            final Set<Long> shardIds = Set.copyOf(shardManager.allShardIds());
             final CompositeRangeScanConsumer multiShardConsumer =
                     new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
             for (Long shardId : shardIds) {
