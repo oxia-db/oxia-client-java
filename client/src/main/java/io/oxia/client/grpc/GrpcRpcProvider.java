@@ -256,29 +256,22 @@ final class GrpcRpcProvider implements RpcProvider {
             long shardId,
             OxiaStatusException leaderHint,
             StreamObserver<WriteResponse> responseObserver) {
-        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(responseObserver);
         final var hint = new AtomicReference<>(leaderHint);
-        return Failsafe.with(getRetryPolicy("write stream", hint))
-                .get(
-                        () -> {
-                            final var future = new CompletableFuture<Void>();
-                            final var barrierObserver =
-                                    ManagedObservers.toBarrierStreamObserver(guardedObserver, future);
-                            final var headers = new Metadata();
-                            headers.put(NAMESPACE_KEY, clientConfig.namespace());
-                            headers.put(SHARD_ID_KEY, Long.toString(shardId));
-                            final var requestObserver =
-                                    connectionManager
-                                            .getConnection(getLeader(shardId, hint))
-                                            .stub()
-                                            .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
-                                            .writeStream(barrierObserver);
-                            // we don't need to wait for the stream to be ready, only need to check if it fail
-                            // fast
-                            future.complete(null);
-                            future.join();
-                            return requestObserver;
-                        });
+        final var future = new CompletableFuture<Void>();
+        final var barrierObserver = ManagedObservers.toBarrierStreamObserver(responseObserver, future);
+        final var headers = new Metadata();
+        headers.put(NAMESPACE_KEY, clientConfig.namespace());
+        headers.put(SHARD_ID_KEY, Long.toString(shardId));
+        final var requestObserver =
+                connectionManager
+                        .getConnection(getLeader(shardId, hint))
+                        .stub()
+                        .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                        .writeStream(barrierObserver);
+        // we don't need to wait for the stream to be ready, only need to check if it's fast failed
+        future.complete(null);
+        future.join();
+        return requestObserver;
     }
 
     @Override

@@ -16,7 +16,9 @@
 package io.oxia.client.grpc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
@@ -46,6 +48,7 @@ import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
+import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -403,6 +406,50 @@ class GrpcRpcProviderTest {
         } finally {
             executor.shutdownNow();
             leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void writeStreamDoesNotRetryLeaderLookupFailure() throws Exception {
+        var lookupAttempts = new AtomicInteger();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create("localhost:0")
+                                        .connectionBackoff(Duration.ofSeconds(5), Duration.ofSeconds(5)))
+                        .getClientConfig();
+
+        try (var provider =
+                new GrpcRpcProvider(
+                        config,
+                        executor,
+                        shardId -> {
+                            lookupAttempts.incrementAndGet();
+                            throw OxiaStatusException.leaderNotAvailable(shardId);
+                        })) {
+            assertTimeoutPreemptively(
+                    Duration.ofMillis(500),
+                    () ->
+                            assertThatThrownBy(
+                                            () ->
+                                                    provider.writeStream(
+                                                            1,
+                                                            null,
+                                                            new StreamObserver<WriteResponse>() {
+                                                                @Override
+                                                                public void onNext(WriteResponse value) {}
+
+                                                                @Override
+                                                                public void onError(Throwable t) {}
+
+                                                                @Override
+                                                                public void onCompleted() {}
+                                                            }))
+                                    .isInstanceOf(OxiaStatusException.class));
+
+            assertThat(lookupAttempts).hasValue(1);
+        } finally {
+            executor.shutdownNow();
         }
     }
 
