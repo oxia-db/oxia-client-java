@@ -19,6 +19,7 @@ import io.github.merlimat.slog.Logger;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -240,6 +241,7 @@ public final class ManagedWriteStream implements AutoCloseable {
         }
         return () -> {};
     }
+
 
     private void initWithRecovery(OxiaStatusException leaderHint) {
         subStreamObserver = new ManagedSubWriteStream(this, rpcProvider, shardId, leaderHint);
