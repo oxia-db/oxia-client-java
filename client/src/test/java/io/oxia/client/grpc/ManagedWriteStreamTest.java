@@ -42,8 +42,11 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ManagedWriteStreamTest {
@@ -276,6 +279,73 @@ class ManagedWriteStreamTest {
             assertThat(requestCount).hasValue(2);
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void headTimeoutFailsCurrentInflightsAndStartsFreshForFutureWrites() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new ConcurrentLinkedQueue<StreamObserver<WriteResponse>>();
+        var requestCount = new AtomicInteger();
+        var completedStreams = new AtomicInteger();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            responseObservers.add(responseObserver);
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {
+                                    requestCount.incrementAndGet();
+                                }
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {
+                                    completedStreams.incrementAndGet();
+                                }
+                            };
+                        });
+
+        var timeoutTask = new AtomicReference<Runnable>();
+        var executor = mock(ScheduledExecutorService.class);
+        when(executor.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class)))
+                .thenAnswer(
+                        invocation -> {
+                            timeoutTask.set(invocation.getArgument(0));
+                            return mock(ScheduledFuture.class);
+                        });
+
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
+            var first = stream.send(() -> writeRequest(1));
+            var second = stream.send(() -> writeRequest(2));
+            assertThat(requestCount).hasValue(2);
+            assertThat(responseObservers).hasSize(1);
+
+            timeoutTask.get().run();
+
+            await()
+                    .untilAsserted(
+                            () -> {
+                                assertThat(first).isCompletedExceptionally();
+                                assertThat(second).isCompletedExceptionally();
+                                assertThat(completedStreams).hasValue(1);
+                            });
+            assertThatThrownBy(first::get)
+                    .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThatThrownBy(second::get)
+                    .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+
+            responseObservers.peek().onNext(new WriteResponse());
+
+            var third = stream.send(() -> writeRequest(3));
+            await().untilAsserted(() -> assertThat(responseObservers).hasSize(2));
+            responseObservers.stream().skip(1).findFirst().orElseThrow().onNext(new WriteResponse());
+
+            third.get(5, TimeUnit.SECONDS);
+            assertThat(requestCount).hasValue(3);
         }
     }
 

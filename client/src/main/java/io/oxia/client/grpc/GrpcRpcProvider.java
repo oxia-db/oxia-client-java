@@ -248,7 +248,9 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public ManagedWriteStream getWriteStream(long shardId) {
         return writeStreams.computeIfAbsent(
-                shardId, (__) -> new ManagedWriteStream(shardId, this, asyncExecutor));
+                shardId,
+                (__) ->
+                        new ManagedWriteStream(shardId, this, asyncExecutor, clientConfig.requestTimeout()));
     }
 
     @Override
