@@ -279,6 +279,62 @@ class ManagedWriteStreamTest {
         }
     }
 
+    @Test
+    void closeIfHeadInflightExpiredFailsCurrentInflights() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new ConcurrentLinkedQueue<StreamObserver<WriteResponse>>();
+        var requestCount = new AtomicInteger();
+        var completedStreams = new AtomicInteger();
+        var removedStreams = new AtomicInteger();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            responseObservers.add(responseObserver);
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {
+                                    requestCount.incrementAndGet();
+                                }
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {
+                                    completedStreams.incrementAndGet();
+                                }
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor)) {
+            var first = stream.send(() -> writeRequest(1));
+            var second = stream.send(() -> writeRequest(2));
+            assertThat(requestCount).hasValue(2);
+            assertThat(responseObservers).hasSize(1);
+
+            assertThat(
+                            stream.closeIfHeadInflightExpired(
+                                    System.nanoTime(), Duration.ZERO, () -> removedStreams.incrementAndGet() == 1))
+                    .isTrue();
+
+            assertThat(first).isCompletedExceptionally();
+            assertThat(second).isCompletedExceptionally();
+            assertThatThrownBy(first::get)
+                    .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThatThrownBy(second::get)
+                    .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThat(completedStreams).hasValue(1);
+            assertThat(removedStreams).hasValue(1);
+
+            responseObservers.peek().onNext(new WriteResponse());
+            assertThat(stream.send(() -> writeRequest(3))).isCompletedExceptionally();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static OxiaClientGrpc.OxiaClientImplBase respondingWriteService(
             Queue<WriteRequest> requests) {
         return new OxiaClientGrpc.OxiaClientImplBase() {
