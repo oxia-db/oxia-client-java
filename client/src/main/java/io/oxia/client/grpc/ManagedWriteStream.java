@@ -19,6 +19,7 @@ import io.github.merlimat.slog.Logger;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -27,22 +28,14 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public final class ManagedWriteStream implements AutoCloseable {
     private final Logger log;
 
     record InflightWrite(
-            Supplier<WriteRequest> requestSupplier,
-            CompletableFuture<WriteResponse> future,
-            long createdAtNanos) {
-        boolean isExpired(long nowNanos, Duration requestTimeout) {
-            return nowNanos - createdAtNanos >= requestTimeout.toNanos();
-        }
-    }
+            Supplier<WriteRequest> requestSupplier, CompletableFuture<WriteResponse> future) {}
 
     private final long shardId;
     private final RpcProvider rpcProvider;
@@ -147,8 +140,7 @@ public final class ManagedWriteStream implements AutoCloseable {
     public CompletableFuture<WriteResponse> send(Supplier<WriteRequest> requestSupplier) {
         lock.lock();
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
-        final InflightWrite inflightWrite =
-                new InflightWrite(requestSupplier, future, System.nanoTime());
+        final InflightWrite inflightWrite = new InflightWrite(requestSupplier, future);
         try {
             log.debug(
                     event ->
@@ -250,66 +242,6 @@ public final class ManagedWriteStream implements AutoCloseable {
         return () -> {};
     }
 
-    boolean closeIfHeadInflightExpired(
-            long nowNanos, Duration requestTimeout, BooleanSupplier removeStream) {
-        final var inflightsToFail = new ArrayList<InflightWrite>();
-        ManagedSubWriteStream streamToComplete = null;
-        lock.lock();
-        try {
-            final var headInflight = inflightWrites.peekFirst();
-            if (closed || headInflight == null || !headInflight.isExpired(nowNanos, requestTimeout)) {
-                return false;
-            }
-            if (!removeStream.getAsBoolean()) {
-                return false;
-            }
-            closed = true;
-            streamToComplete = subStreamObserver;
-            subStreamObserver = null;
-            log.warn()
-                    .attr("pendingWrites", inflightWrites.size())
-                    .attr("requestTimeout", requestTimeout.toString())
-                    .log("Write stream head request timed out");
-            inflightsToFail.addAll(inflightWrites);
-            inflightWrites.clear();
-        } finally {
-            lock.unlock();
-        }
-        completeSubStream(streamToComplete);
-        final var timeout =
-                new TimeoutException("Write stream head request timed out after " + requestTimeout);
-        inflightsToFail.forEach(inflight -> inflight.future.completeExceptionally(timeout));
-        return true;
-    }
-
-    void closeWithError(Throwable error) {
-        final var inflightsToFail = new ArrayList<InflightWrite>();
-        ManagedSubWriteStream streamToComplete = null;
-        lock.lock();
-        try {
-            closed = true;
-            streamToComplete = subStreamObserver;
-            subStreamObserver = null;
-            log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
-            inflightsToFail.addAll(inflightWrites);
-            inflightWrites.clear();
-        } finally {
-            lock.unlock();
-        }
-        completeSubStream(streamToComplete);
-        inflightsToFail.forEach(inflight -> inflight.future.completeExceptionally(error));
-    }
-
-    private void completeSubStream(ManagedSubWriteStream streamToComplete) {
-        if (streamToComplete == null) {
-            return;
-        }
-        try {
-            streamToComplete.complete();
-        } catch (Throwable ex) {
-            log.warn().exceptionMessage(ex).log("Failed to complete write stream");
-        }
-    }
 
     private void initWithRecovery(OxiaStatusException leaderHint) {
         subStreamObserver = new ManagedSubWriteStream(this, rpcProvider, shardId, leaderHint);
@@ -331,6 +263,32 @@ public final class ManagedWriteStream implements AutoCloseable {
 
     @Override
     public void close() {
-        closeWithError(new CancellationException("Stream is closed"));
+        var inflightsToFail = new ArrayList<InflightWrite>();
+        Throwable closeError = null;
+        lock.lock();
+        try {
+            closed = true;
+            if (subStreamObserver != null) {
+                subStreamObserver.complete();
+                subStreamObserver = null;
+            }
+            log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
+            inflightsToFail.addAll(inflightWrites);
+            inflightWrites.clear();
+        } catch (Throwable ex) {
+            closeError = ex;
+            inflightsToFail.addAll(inflightWrites);
+            inflightWrites.clear();
+        } finally {
+            lock.unlock();
+        }
+        if (closeError != null) {
+            final var error = closeError;
+            inflightsToFail.forEach(inflight -> inflight.future.completeExceptionally(error));
+            return;
+        }
+        inflightsToFail.forEach(
+                inflight ->
+                        inflight.future.completeExceptionally(new CancellationException("Stream is closed")));
     }
 }

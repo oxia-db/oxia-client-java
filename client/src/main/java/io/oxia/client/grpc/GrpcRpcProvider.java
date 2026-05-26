@@ -47,10 +47,9 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
@@ -67,8 +66,7 @@ final class GrpcRpcProvider implements RpcProvider {
     private final ConnectionManager connectionManager;
     private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
-    private final ConcurrentMap<Long, ManagedWriteStream> writeStreams;
-    private final ScheduledFuture<?> writeStreamTimeoutCheck;
+    private final Map<Long, ManagedWriteStream> writeStreams;
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -79,13 +77,6 @@ final class GrpcRpcProvider implements RpcProvider {
         this.connectionManager = new ConnectionManager(clientConfig, asyncExecutor);
         this.shardLeaderProvider = shardLeaderProvider;
         this.writeStreams = Maps.newConcurrentMap();
-        final long writeStreamTimeoutCheckIntervalMillis = writeStreamTimeoutCheckIntervalMillis();
-        this.writeStreamTimeoutCheck =
-                asyncExecutor.scheduleWithFixedDelay(
-                        this::cleanupExpiredWriteStreams,
-                        writeStreamTimeoutCheckIntervalMillis,
-                        writeStreamTimeoutCheckIntervalMillis,
-                        TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -260,28 +251,6 @@ final class GrpcRpcProvider implements RpcProvider {
                 shardId, (__) -> new ManagedWriteStream(shardId, this, asyncExecutor));
     }
 
-    private long writeStreamTimeoutCheckIntervalMillis() {
-        return Math.max(1, clientConfig.requestTimeout().toMillis() / 2);
-    }
-
-    private void cleanupExpiredWriteStreams() {
-        final long nowNanos = System.nanoTime();
-        writeStreams.forEach(
-                (shardId, writeStream) -> {
-                    try {
-                        writeStream.closeIfHeadInflightExpired(
-                                nowNanos,
-                                clientConfig.requestTimeout(),
-                                () -> writeStreams.remove(shardId, writeStream));
-                    } catch (Throwable error) {
-                        log.warn()
-                                .exceptionMessage(error)
-                                .attr("shard", shardId)
-                                .log("Failed to cleanup timed out write stream");
-                    }
-                });
-    }
-
     @Override
     public StreamObserver<WriteRequest> writeStream(
             long shardId,
@@ -406,7 +375,6 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void close() throws Exception {
         try {
-            writeStreamTimeoutCheck.cancel(false);
             writeStreams.values().forEach(ManagedWriteStream::close);
             writeStreams.clear();
         } finally {
