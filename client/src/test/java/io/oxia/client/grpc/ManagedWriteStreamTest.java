@@ -177,10 +177,12 @@ class ManagedWriteStreamTest {
         var openAttempts = new AtomicInteger();
         var replayFailures = new AtomicInteger();
         var requests = new ConcurrentLinkedQueue<WriteRequest>();
+        var responseObservers = new ConcurrentLinkedQueue<StreamObserver<WriteResponse>>();
         when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
                 .thenAnswer(
                         invocation -> {
                             var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            responseObservers.add(responseObserver);
                             var attempt = openAttempts.incrementAndGet();
                             return new StreamObserver<WriteRequest>() {
                                 @Override
@@ -213,7 +215,9 @@ class ManagedWriteStreamTest {
                                 assertThat(requests).hasSize(1);
                             });
 
-            stream.onError(Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
+            responseObservers
+                    .peek()
+                    .onError(Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
 
             future.get(5, TimeUnit.SECONDS);
 
@@ -224,6 +228,52 @@ class ManagedWriteStreamTest {
                                 assertThat(replayFailures).hasValue(1);
                                 assertThat(keys(requests)).containsExactly("key-1", "key-1", "key-1");
                             });
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void ignoresResponsesFromInactiveSubStream() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new ConcurrentLinkedQueue<StreamObserver<WriteResponse>>();
+        var requestCount = new AtomicInteger();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            responseObservers.add(responseObserver);
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {
+                                    requestCount.incrementAndGet();
+                                }
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {}
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor)) {
+            var future = stream.send(() -> writeRequest(1));
+            assertThat(requestCount).hasValue(1);
+            assertThat(responseObservers).hasSize(1);
+
+            var inactiveObserver = responseObservers.peek();
+            inactiveObserver.onError(
+                    Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
+
+            await().untilAsserted(() -> assertThat(responseObservers).hasSize(2));
+            inactiveObserver.onNext(new WriteResponse());
+            assertThat(future).isNotDone();
+
+            responseObservers.stream().skip(1).findFirst().orElseThrow().onNext(new WriteResponse());
+            future.get(5, TimeUnit.SECONDS);
+            assertThat(requestCount).hasValue(2);
         } finally {
             executor.shutdownNow();
         }
