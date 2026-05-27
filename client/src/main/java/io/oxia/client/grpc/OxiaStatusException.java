@@ -17,6 +17,7 @@ package io.oxia.client.grpc;
 
 import static io.oxia.client.grpc.OxiaStatusCode.RESOURCE_UNAVAILABLE;
 import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
+import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
 import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -24,10 +25,10 @@ import com.google.rpc.ErrorInfo;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
+import io.oxia.client.util.CompletableFutures;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import lombok.Getter;
 import lombok.NonNull;
 
@@ -82,15 +83,23 @@ public class OxiaStatusException extends RuntimeException {
                 null);
     }
 
+    public static @NonNull OxiaStatusException resourceUnavailable(@NonNull String message) {
+        return new OxiaStatusException(RESOURCE_UNAVAILABLE, Map.of(), message, null);
+    }
+
+    public static @NonNull OxiaStatusException timeout(@NonNull Throwable error) {
+        return new OxiaStatusException(
+                TIMEOUT, Map.of(), "Request timed out", CompletableFutures.unwrapException(error));
+    }
+
     public static @NonNull OxiaStatusException from(@NonNull Throwable error) {
-        Throwable cause = error;
+        Throwable cause = CompletableFutures.unwrapException(error);
         try {
-            while ((cause instanceof CompletionException || cause instanceof ExecutionException)
-                    && cause.getCause() != null) {
-                cause = cause.getCause();
-            }
             if (cause instanceof OxiaStatusException oxiaError) {
                 return oxiaError;
+            }
+            if (cause instanceof TimeoutException) {
+                return timeout(cause);
             }
             if (!(cause instanceof StatusException || cause instanceof StatusRuntimeException)) {
                 return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
