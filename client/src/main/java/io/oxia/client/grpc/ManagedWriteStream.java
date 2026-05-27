@@ -20,9 +20,7 @@ import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
@@ -70,7 +68,8 @@ public final class ManagedWriteStream implements AutoCloseable {
         this.timeoutScheduler =
                 asyncExecutor.scheduleWithFixedDelay(
                         () -> {
-                            final OxiaStatusException timeoutError;
+                            List<InflightWrite> inflightsToFail = null;
+                            OxiaStatusException oxiaStatusException = null;
                             lock.lock();
                             try {
                                 final InflightWrite inflightWrite = inflightWrites.peekFirst();
@@ -87,11 +86,20 @@ public final class ManagedWriteStream implements AutoCloseable {
                                         .attr("requestTimeoutMs", requestTimeoutMs)
                                         .attr("pendingWrites", inflightWrites.size())
                                         .log("Write stream timed out, close and re-create it.");
-                                timeoutError = OxiaStatusException.timeout(new TimeoutException());
+                                oxiaStatusException = OxiaStatusException.timeout(new TimeoutException());
+                                inflightsToFail = close0(oxiaStatusException);
                             } finally {
                                 lock.unlock();
+                                if (inflightsToFail != null) {
+                                    for (InflightWrite inflight : inflightsToFail) {
+                                        try {
+                                            inflight.future.completeExceptionally(oxiaStatusException);
+                                        } catch (Throwable ex) {
+                                            log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
+                                        }
+                                    }
+                                }
                             }
-                            close(timeoutError);
                         },
                         timeoutInterval,
                         timeoutInterval,
@@ -306,37 +314,44 @@ public final class ManagedWriteStream implements AutoCloseable {
     }
 
     private void close(@NonNull OxiaStatusException error) {
-        final ArrayList<InflightWrite> inflightsToFail;
+        List<InflightWrite> inflightsToFail = null;
         lock.lock();
         try {
-            if (closed) {
-                return;
-            }
-            closed = true;
-            closedError = error;
-            timeoutScheduler.cancel(false);
-            if (subStreamObserver != null) {
-                try {
-                    subStreamObserver.complete();
-                } catch (Throwable ex) {
-                    log.warn().exceptionMessage(ex).log("Failed to close write stream");
-                } finally {
-                    subStreamObserver = null;
-                }
-            }
-            log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
-            inflightsToFail = new ArrayList<>(inflightWrites);
-            inflightWrites.clear();
+            inflightsToFail = close0(error);
         } finally {
             lock.unlock();
+            if (inflightsToFail != null) {
+                inflightsToFail.forEach(
+                        inflight -> {
+                            try {
+                                inflight.future.completeExceptionally(error);
+                            } catch (Throwable ex) {
+                                log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
+                            }
+                        });
+            }
         }
-        inflightsToFail.forEach(
-                inflight -> {
-                    try {
-                        inflight.future.completeExceptionally(error);
-                    } catch (Throwable ex) {
-                        log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
-                    }
-                });
+    }
+
+    private List<InflightWrite> close0(OxiaStatusException error) {
+        if (closed) {
+            return null;
+        }
+        closed = true;
+        closedError = error;
+        timeoutScheduler.cancel(false);
+        if (subStreamObserver != null) {
+            var closingObserver = subStreamObserver;
+            subStreamObserver = null;
+            try {
+                closingObserver.complete();
+            } catch (Throwable ex) {
+                log.warn().exceptionMessage(ex).log("Failed to close write stream");
+            }
+        }
+        log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
+        final var inflightsToFail = new ArrayList<>(inflightWrites);
+        inflightWrites.clear();
+        return inflightsToFail;
     }
 }

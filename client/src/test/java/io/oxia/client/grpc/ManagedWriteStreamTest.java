@@ -120,6 +120,46 @@ class ManagedWriteStreamTest {
     }
 
     @Test
+    void ignoresSynchronousResponseDuringClose() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {}
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {
+                                    responseObserver.onNext(new WriteResponse());
+                                }
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
+            var pending = stream.send(() -> writeRequest(1));
+
+            stream.close();
+
+            assertThatThrownBy(() -> pending.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error.getCause();
+                                assertThat(oxiaError.getStatusCode())
+                                        .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+                            });
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void timeoutClosesCurrentStreamAndNextLookupCreatesNewStream() throws Exception {
         Server server =
                 writeServer(
