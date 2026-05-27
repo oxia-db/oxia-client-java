@@ -35,13 +35,14 @@ public final class ManagedWriteStream implements AutoCloseable {
     record InflightWrite(
             Supplier<WriteRequest> requestSupplier,
             CompletableFuture<WriteResponse> future,
-            long timestampMs) {}
+            long timestampNanos) {}
 
     private final long shardId;
     private final RpcProvider rpcProvider;
     private final ScheduledExecutorService asyncExecutor;
     private final Backoff backoff;
     private final long requestTimeoutMs;
+    private final long requestTimeoutNanos;
     private final ScheduledFuture<?> timeoutScheduler;
 
     private final ReentrantLock lock;
@@ -64,6 +65,7 @@ public final class ManagedWriteStream implements AutoCloseable {
         this.backoff = new Backoff();
         this.closed = false;
         this.requestTimeoutMs = requestTimeout.toMillis();
+        this.requestTimeoutNanos = requestTimeout.toNanos();
         final long timeoutInterval = Math.max(requestTimeoutMs / 10, Duration.ofSeconds(1).toMillis());
         this.timeoutScheduler =
                 asyncExecutor.scheduleWithFixedDelay(
@@ -75,10 +77,11 @@ public final class ManagedWriteStream implements AutoCloseable {
                                 if (inflightWrite == null) {
                                     return;
                                 }
-                                final long requestAgeMs = System.currentTimeMillis() - inflightWrite.timestampMs;
-                                if (requestAgeMs < requestTimeoutMs) {
+                                final long requestAgeNanos = System.nanoTime() - inflightWrite.timestampNanos;
+                                if (requestAgeNanos < requestTimeoutNanos) {
                                     return;
                                 }
+                                final long requestAgeMs = TimeUnit.NANOSECONDS.toMillis(requestAgeNanos);
                                 log.warn()
                                         .attr("requestAgeMs", requestAgeMs)
                                         .attr("requestTimeoutMs", requestTimeoutMs)
@@ -177,7 +180,7 @@ public final class ManagedWriteStream implements AutoCloseable {
         lock.lock();
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
         final InflightWrite inflightWrite =
-                new InflightWrite(requestSupplier, future, System.currentTimeMillis());
+                new InflightWrite(requestSupplier, future, System.nanoTime());
         try {
             log.debug(
                     event ->
@@ -306,19 +309,25 @@ public final class ManagedWriteStream implements AutoCloseable {
         final ArrayList<InflightWrite> inflightsToFail;
         lock.lock();
         try {
+            if (closed) {
+                return;
+            }
             closed = true;
             closedError = error;
             timeoutScheduler.cancel(false);
             if (subStreamObserver != null) {
-                subStreamObserver.complete();
-                subStreamObserver = null;
+                try {
+                    subStreamObserver.complete();
+                } catch (Throwable ex) {
+                    log.warn().exceptionMessage(ex).log("Failed to close write stream");
+                } finally {
+                    subStreamObserver = null;
+                }
             }
-        } catch (Throwable ex) {
-            log.warn().exceptionMessage(ex).log("Failed to close write stream");
-        } finally {
             log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
             inflightsToFail = new ArrayList<>(inflightWrites);
             inflightWrites.clear();
+        } finally {
             lock.unlock();
         }
         inflightsToFail.forEach(

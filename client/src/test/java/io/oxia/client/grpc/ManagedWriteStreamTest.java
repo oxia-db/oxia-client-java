@@ -161,6 +161,14 @@ class ManagedWriteStreamTest {
                             });
 
             await().untilAsserted(() -> assertThat(firstStream.isClosed()).isTrue());
+            firstStream.close();
+            assertThatThrownBy(() -> firstStream.send(() -> writeRequest(2)).get())
+                    .hasCauseInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT);
+                            });
             assertThat(provider.getWriteStream(1)).isNotSameAs(firstStream);
         } finally {
             executor.shutdownNow();
