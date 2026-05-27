@@ -39,7 +39,6 @@ import io.oxia.proto.WriteResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Queue;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -57,7 +56,7 @@ class ManagedWriteStreamTest {
         var config = clientConfig(address);
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
-                var stream = new ManagedWriteStream(1, provider, executor)) {
+                var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
@@ -75,7 +74,7 @@ class ManagedWriteStreamTest {
     }
 
     @Test
-    void closeCancelsPendingWritesAndRejectsNewWrites() throws Exception {
+    void closeFailsPendingWritesAndRejectsNewWrites() throws Exception {
         Server server =
                 writeServer(
                         new OxiaClientGrpc.OxiaClientImplBase() {
@@ -99,15 +98,70 @@ class ManagedWriteStreamTest {
         var config = clientConfig(address);
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
-                var stream = new ManagedWriteStream(1, provider, executor)) {
-            CompletableFuture<WriteResponse> pending = stream.send(() -> writeRequest(1));
+                var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
+            var pending = stream.send(() -> writeRequest(1));
 
             stream.close();
 
             assertThat(pending).isCompletedExceptionally();
             assertThatThrownBy(pending::get)
-                    .isInstanceOf(java.util.concurrent.CancellationException.class);
+                    .hasCauseInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error.getCause();
+                                assertThat(oxiaError.getStatusCode())
+                                        .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+                            });
             assertThat(stream.send(() -> writeRequest(2))).isCompletedExceptionally();
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void timeoutClosesCurrentStreamAndNextLookupCreatesNewStream() throws Exception {
+        Server server =
+                writeServer(
+                        new OxiaClientGrpc.OxiaClientImplBase() {
+                            @Override
+                            public StreamObserver<WriteRequest> writeStream(
+                                    StreamObserver<WriteResponse> responseObserver) {
+                                return new StreamObserver<>() {
+                                    @Override
+                                    public void onNext(WriteRequest value) {}
+
+                                    @Override
+                                    public void onError(Throwable t) {}
+
+                                    @Override
+                                    public void onCompleted() {}
+                                };
+                            }
+                        });
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address)
+                                        .requestTimeout(Duration.ofMillis(50))
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shard -> address)) {
+            var firstStream = provider.getWriteStream(1);
+            var timedOut = firstStream.send(() -> writeRequest(1));
+
+            assertThatThrownBy(() -> timedOut.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(OxiaStatusException.class)
+                    .satisfies(
+                            error -> {
+                                var oxiaError = (OxiaStatusException) error.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT);
+                            });
+
+            await().untilAsserted(() -> assertThat(firstStream.isClosed()).isTrue());
+            assertThat(provider.getWriteStream(1)).isNotSameAs(firstStream);
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -150,7 +204,7 @@ class ManagedWriteStreamTest {
         var config = clientConfig(staleAddress);
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> staleAddress);
-                var stream = new ManagedWriteStream(1, provider, executor)) {
+                var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
             var firstFuture = stream.send(() -> writeRequest(1));
             var secondFuture = stream.send(() -> writeRequest(2));
 
@@ -206,7 +260,7 @@ class ManagedWriteStreamTest {
                         });
 
         var executor = Executors.newSingleThreadScheduledExecutor();
-        try (var stream = new ManagedWriteStream(1, rpcProvider, executor)) {
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
             var future = stream.send(() -> writeRequest(1));
             await()
                     .untilAsserted(
@@ -258,7 +312,7 @@ class ManagedWriteStreamTest {
                         });
 
         var executor = Executors.newSingleThreadScheduledExecutor();
-        try (var stream = new ManagedWriteStream(1, rpcProvider, executor)) {
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
             var future = stream.send(() -> writeRequest(1));
             assertThat(requestCount).hasValue(1);
             assertThat(responseObservers).hasSize(1);

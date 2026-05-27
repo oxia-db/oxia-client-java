@@ -27,6 +27,7 @@ import io.grpc.protobuf.StatusProto;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 
 class OxiaStatusExceptionTest {
@@ -191,6 +192,18 @@ class OxiaStatusExceptionTest {
 
         assertThat(OxiaStatusException.from(new CompletionException(error))).isSameAs(error);
         assertThat(OxiaStatusException.from(new ExecutionException(error))).isSameAs(error);
+    }
+
+    @Test
+    void returnsTimeoutOxiaError() {
+        var timeout = new TimeoutException("timed out");
+
+        var translated = OxiaStatusException.from(new CompletionException(timeout));
+
+        assertThat(translated.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT);
+        assertThat(translated).hasMessage("Request timed out");
+        assertThat(translated).hasCause(timeout);
+        assertThat(translated.isRetryable()).isFalse();
     }
 
     @Test
