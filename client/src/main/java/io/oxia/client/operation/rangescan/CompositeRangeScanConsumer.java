@@ -15,17 +15,17 @@
  */
 package io.oxia.client.operation.rangescan;
 
+import io.oxia.client.api.CancelableRangeScanConsumer;
 import io.oxia.client.api.GetResult;
-import io.oxia.client.api.RangeScanConsumer;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class CompositeRangeScanConsumer implements RangeScanConsumer {
-    private final RangeScanConsumer delegate;
+public class CompositeRangeScanConsumer implements CancelableRangeScanConsumer {
+    private final CancelableRangeScanConsumer delegate;
     private final ReentrantLock lock;
     private int pendingCompletedRequests;
     private boolean completed;
 
-    public CompositeRangeScanConsumer(int shards, RangeScanConsumer delegate) {
+    public CompositeRangeScanConsumer(int shards, CancelableRangeScanConsumer delegate) {
         this.pendingCompletedRequests = shards;
         this.delegate = delegate;
         this.completed = false;

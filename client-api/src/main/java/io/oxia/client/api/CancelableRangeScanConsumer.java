@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,36 +16,26 @@
 package io.oxia.client.api;
 
 /**
- * Callback used by {@link AsyncOxiaClient#rangeScan(String, String, RangeScanConsumer)} to deliver
- * records, errors, and the completion signal for a streaming range scan.
+ * Callback used by {@link AsyncOxiaClient#rangeScanWithCancellation(String, String,
+ * CancelableRangeScanConsumer)} to deliver records while allowing callers to stop a streaming range
+ * scan early.
  *
  * <p>Exactly one of {@link #onError(Throwable)} or {@link #onCompleted()} is invoked per scan, and
- * always after the final {@link #onNext(GetResult)} call.
- *
- * <pre>{@code
- * client.rangeScan("a", "z", new RangeScanConsumer() {
- *     public void onNext(GetResult result) {
- *         process(result);
- *     }
- *     public void onError(Throwable t) { log.warn("scan failed", t); }
- *     public void onCompleted() { log.info("scan finished"); }
- * });
- * }</pre>
- *
- * <p>For early stop support, see {@link AsyncOxiaClient#rangeScanWithCancellation(String, String,
- * CancelableRangeScanConsumer)}.
- *
- * <p>For a synchronous, iterator-style alternative, see {@link SyncOxiaClient#rangeScan(String,
- * String)}.
+ * always after the final {@link #onNext(GetResult)} call. Returning {@code false} from {@code
+ * onNext} stops iteration early; implementations that support cancellation cancel the underlying
+ * server stream and invoke {@link #onCompleted()} once.
  */
-public interface RangeScanConsumer {
+public interface CancelableRangeScanConsumer {
 
     /**
      * Invoked for each record returned by the range scan operation.
      *
      * @param result The GetResult for the record.
+     * @return {@code true} to keep receiving records, {@code false} to stop the iteration. When
+     *     {@code false} is returned, no further {@link #onNext} invocations will be made and {@link
+     *     #onCompleted()} will be invoked once.
      */
-    void onNext(GetResult result);
+    boolean onNext(GetResult result);
 
     /**
      * Invoked when an error occurs during the range scan operation.
