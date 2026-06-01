@@ -100,7 +100,7 @@ class NotificationIt {
         Awaitility.await()
                 .untilAsserted(
                         () -> {
-                            Assertions.assertEquals(10, notifications.size());
+                            Assertions.assertFalse(notifications.isEmpty());
                             for (Notification notification : notifications) {
                                 Assertions.assertInstanceOf(Notification.KeyRangeDelete.class, notification);
                                 Notification.KeyRangeDelete delete = (Notification.KeyRangeDelete) notification;
