@@ -35,6 +35,7 @@ import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.CancelableRangeScanConsumer;
 import io.oxia.client.api.CloseableIterable;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
@@ -43,7 +44,6 @@ import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
-import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -580,7 +580,8 @@ class OxiaClientIT {
                 syncClient.put(String.format("rs-close-%02d", i), Integer.toString(i).getBytes());
             }
 
-            try (CloseableIterable<GetResult> scan = syncClient.rangeScan("rs-close-", "rs-close-~")) {
+            try (CloseableIterable<GetResult> scan =
+                    syncClient.rangeScanCloseable("rs-close-", "rs-close-~")) {
                 int count = 0;
                 for (GetResult ignored : scan) {
                     count++;
@@ -590,7 +591,7 @@ class OxiaClientIT {
             }
 
             // After close, the iterable can no longer be iterated.
-            CloseableIterable<GetResult> scan = syncClient.rangeScan("rs-close-", "rs-close-~");
+            CloseableIterable<GetResult> scan = syncClient.rangeScanCloseable("rs-close-", "rs-close-~");
             scan.close();
             assertThatThrownBy(scan::iterator).isInstanceOf(IllegalStateException.class);
         }
@@ -608,10 +609,10 @@ class OxiaClientIT {
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
-        client.rangeScan(
+        client.rangeScanWithCancellation(
                 "rs-stop-",
                 "rs-stop-~",
-                new RangeScanConsumer() {
+                new CancelableRangeScanConsumer() {
                     @Override
                     public boolean onNext(GetResult result) {
                         onNextCalls.incrementAndGet();

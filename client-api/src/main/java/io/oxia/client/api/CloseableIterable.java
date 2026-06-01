@@ -21,7 +21,7 @@ package io.oxia.client.api;
  * <p>Intended for use with try-with-resources:
  *
  * <pre>{@code
- * try (CloseableIterable<GetResult> scan = client.rangeScan(start, end)) {
+ * try (CloseableIterable<GetResult> scan = client.rangeScanCloseable(start, end)) {
  *     for (GetResult r : scan) {
  *         if (done) break;
  *     }
