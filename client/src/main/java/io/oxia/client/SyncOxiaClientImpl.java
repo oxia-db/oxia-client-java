@@ -163,27 +163,13 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
         return rangeScan(startKeyInclusive, endKeyExclusive, Collections.emptySet());
     }
 
     @Override
-    public Iterable<GetResult> rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            Set<RangeScanOption> options) {
-        return rangeScanCloseable(startKeyInclusive, endKeyExclusive, options);
-    }
-
-    @Override
-    public CloseableIterable<GetResult> rangeScanCloseable(
-            @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
-        return rangeScanCloseable(startKeyInclusive, endKeyExclusive, Collections.emptySet());
-    }
-
-    @Override
-    public CloseableIterable<GetResult> rangeScanCloseable(
+    public CloseableIterable<GetResult> rangeScan(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             Set<RangeScanOption> options) {
@@ -198,7 +184,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
                 }
                 GetResultIterator gri = new GetResultIterator();
                 active.add(gri);
-                asyncClient.rangeScanWithCancellation(startKeyInclusive, endKeyExclusive, gri, options);
+                asyncClient.rangeScan(startKeyInclusive, endKeyExclusive, gri, options);
                 return gri;
             }
 

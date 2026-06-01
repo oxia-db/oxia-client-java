@@ -19,7 +19,6 @@ import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.api.AsyncOxiaClient;
-import io.oxia.client.api.CancelableRangeScanConsumer;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
@@ -698,47 +697,10 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull String endKeyExclusive,
             @NonNull RangeScanConsumer consumer,
             @NonNull Set<RangeScanOption> options) {
-        rangeScanWithCancellation(
-                startKeyInclusive,
-                endKeyExclusive,
-                new CancelableRangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        consumer.onNext(result);
-                        return true;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        consumer.onError(throwable);
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        consumer.onCompleted();
-                    }
-                },
-                options);
-    }
-
-    @Override
-    public void rangeScanWithCancellation(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull CancelableRangeScanConsumer consumer) {
-        rangeScanWithCancellation(startKeyInclusive, endKeyExclusive, consumer, Collections.emptySet());
-    }
-
-    @Override
-    public void rangeScanWithCancellation(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull CancelableRangeScanConsumer consumer,
-            @NonNull Set<RangeScanOption> options) {
         gaugePendingRangeScanRequests.increment();
 
-        final CancelableRangeScanConsumer timedConsumer =
-                new CancelableRangeScanConsumer() {
+        final RangeScanConsumer timedConsumer =
+                new RangeScanConsumer() {
                     final long startTime = System.nanoTime();
                     final AtomicLong totalSize = new AtomicLong();
 
@@ -794,7 +756,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            CancelableRangeScanConsumer consumer) {
+            RangeScanConsumer consumer) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
