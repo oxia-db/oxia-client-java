@@ -89,6 +89,19 @@ subprojects {
                 }
             }
         }
+
+        extensions.configure<org.gradle.api.publish.PublishingExtension>("publishing") {
+            repositories {
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/oxia-db/oxia-client-java")
+                    credentials {
+                        username = findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+                        password = findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+                    }
+                }
+            }
+        }
     }
 
     java {

@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Release to Maven Central
+    name: Release Maven artifacts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,8 +39,35 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Validate release version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "Release publishing must run from a tag ref, got ${GITHUB_REF_TYPE}:${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+          expected_version="${GITHUB_REF_NAME#v}"
+          project_version="$(./gradlew properties -q | awk '/^version:/ { print $2 }')"
+
+          if [[ "${project_version}" == *-SNAPSHOT ]]; then
+            echo "Cannot release snapshot version ${project_version}"
+            exit 1
+          fi
+
+          if [[ "${project_version}" != "${expected_version}" ]]; then
+            echo "Tag version ${expected_version} does not match project version ${project_version}"
+            exit 1
+          fi
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew publishAllPublicationsToGitHubPackagesRepository --no-configuration-cache
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
+
       - name: Release to Maven Central
-        run: ./gradlew publishAllPublicationsToMavenCentral --no-configuration-cache
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
