@@ -28,9 +28,9 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.oxia.client.api.CancelableRangeScanConsumer;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.batch.BatchManager;
@@ -566,11 +566,11 @@ class AsyncOxiaClientImplTest {
         final List<GetResult> results = new ArrayList<>();
         final AtomicInteger onErrorCount = new AtomicInteger(0);
         final AtomicInteger onCompletedCount = new AtomicInteger(0);
-        final Supplier<CancelableRangeScanConsumer> newShardRangeScanConsumer =
+        final Supplier<RangeScanConsumer> newShardRangeScanConsumer =
                 () ->
                         new CompositeRangeScanConsumer(
                                 shards,
-                                new CancelableRangeScanConsumer() {
+                                new RangeScanConsumer() {
                                     @Override
                                     public boolean onNext(GetResult result) {
                                         results.add(result);
@@ -683,8 +683,8 @@ class AsyncOxiaClientImplTest {
         final AtomicInteger onErrorCount = new AtomicInteger(0);
         final AtomicInteger onCompletedCount = new AtomicInteger(0);
 
-        final CancelableRangeScanConsumer userConsumer =
-                new CancelableRangeScanConsumer() {
+        final RangeScanConsumer userConsumer =
+                new RangeScanConsumer() {
                     @Override
                     public boolean onNext(GetResult result) {
                         results.add(result);

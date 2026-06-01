@@ -75,7 +75,7 @@
  * <pre>{@code
  * List<String> keys = client.list("a", "z");
  *
- * try (CloseableIterable<GetResult> scan = client.rangeScanCloseable("a", "z")) {
+ * try (CloseableIterable<GetResult> scan = client.rangeScan("a", "z")) {
  *     for (GetResult r : scan) {
  *         // process r
  *     }

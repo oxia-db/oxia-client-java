@@ -15,14 +15,13 @@
  */
 package io.oxia.client;
 
-import io.oxia.client.api.CancelableRangeScanConsumer;
 import io.oxia.client.api.GetResult;
+import io.oxia.client.api.RangeScanConsumer;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import lombok.SneakyThrows;
 
-public class GetResultIterator
-        implements Iterator<GetResult>, CancelableRangeScanConsumer, AutoCloseable {
+public class GetResultIterator implements Iterator<GetResult>, RangeScanConsumer, AutoCloseable {
 
     private GetResult pendingResult;
     private Throwable error = null;

@@ -184,8 +184,9 @@ public interface SyncOxiaClient extends AutoCloseable {
     /**
      * Scan any existing records within the specified range of keys.
      *
-     * <p>For cancellation when iteration is abandoned before completion, use {@link
-     * #rangeScanCloseable(String, String)}.
+     * <p>The returned iterable holds an active server stream and should be closed (e.g. via
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -193,13 +194,14 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return An iterable object that will provide all the records and their version objects.
      */
-    Iterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
+    CloseableIterable<GetResult> rangeScan(String startKeyInclusive, String endKeyExclusive);
 
     /**
      * Scan any existing records within the specified range of keys.
      *
-     * <p>For cancellation when iteration is abandoned before completion, use {@link
-     * #rangeScanCloseable(String, String, Set)}.
+     * <p>The returned iterable holds an active server stream and should be closed (e.g. via
+     * try-with-resources) when iteration is abandoned before completion, otherwise the stream is only
+     * torn down when iteration runs to its natural end.
      *
      * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
      *     the range.
@@ -208,35 +210,7 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param options the range scan options
      * @return An iterable object that will provide all the records and their version objects.
      */
-    Iterable<GetResult> rangeScan(
-            String startKeyInclusive, String endKeyExclusive, Set<RangeScanOption> options);
-
-    /**
-     * Scan any existing records within the specified range of keys, returning an iterable that can be
-     * closed when iteration is abandoned before completion.
-     *
-     * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
-     *     the range.
-     * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
-     *     the range.
-     * @return A closeable iterable object that will provide all the records and their version
-     *     objects.
-     */
-    CloseableIterable<GetResult> rangeScanCloseable(String startKeyInclusive, String endKeyExclusive);
-
-    /**
-     * Scan any existing records within the specified range of keys, returning an iterable that can be
-     * closed when iteration is abandoned before completion.
-     *
-     * @param startKeyInclusive The key that declares start of the range, and is <b>included</b> from
-     *     the range.
-     * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
-     *     the range.
-     * @param options the range scan options
-     * @return A closeable iterable object that will provide all the records and their version
-     *     objects.
-     */
-    CloseableIterable<GetResult> rangeScanCloseable(
+    CloseableIterable<GetResult> rangeScan(
             String startKeyInclusive, String endKeyExclusive, Set<RangeScanOption> options);
 
     /**
