@@ -195,7 +195,7 @@ public interface OxiaClientBuilder {
     /**
      * Configure the keep alive timeout for the connection.
      *
-     * <p>Default is <code>5 sec</code>.
+     * <p>Default is <code>3 sec</code>.
      *
      * @param connectionKeepAliveTimeout the keep alive timeout duration
      * @return the builder instance
