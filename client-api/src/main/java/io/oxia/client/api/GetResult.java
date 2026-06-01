@@ -23,11 +23,11 @@ import java.util.Objects;
  *
  * <p>A {@code null} {@code GetResult} from a {@code get} call signals that no record exists for the
  * requested key. When {@link io.oxia.client.api.options.GetOption#ExcludeValue} is used, the {@code
- * value} field will be {@code null} but {@code key} and {@code version} are still populated.
+ * value} field will be an empty byte array but {@code key} and {@code version} are still populated.
  *
  * @param key the key of the record returned by the server (may differ from the key supplied to
  *     {@code get} when a non-equal {@link io.oxia.client.api.options.GetOption comparison} is used)
- * @param value the record's value, or {@code null} if the value was not requested
+ * @param value the record's value, or an empty byte array if the value was not requested
  * @param version metadata describing the record at the time it was read
  */
 public record GetResult(String key, byte[] value, Version version) {
