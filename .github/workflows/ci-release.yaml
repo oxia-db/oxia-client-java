@@ -1,4 +1,4 @@
-name: CI - Publish Release
+name: Release
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build:
     name: Release to Maven Central
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-8-32-x86
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,3 +45,18 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
+
+      - name: Generate Javadocs
+        if: startsWith(github.ref, 'refs/tags/')
+        run: ./gradlew :client-api:javadoc
+
+      - name: Publish Javadocs
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: oxia-db/oxia-db.github.io
+          publish_branch: main
+          publish_dir: ./client-api/build/docs/javadoc
+          destination_dir: public/oxia-client-java/apidocs/latest
+          keep_files: false
