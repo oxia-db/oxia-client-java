@@ -1,6 +1,6 @@
 # Oxia Java client SDK
 
-[![Build](https://github.com/oxia-db/oxia-client-java/actions/workflows/pr-build-and-test.yml/badge.svg)](https://github.com/oxia-db/oxia-client-java/actions/workflows/pr-build-and-test.yml)
+[![Build](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml/badge.svg)](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml)
 
 ## Overview
 
