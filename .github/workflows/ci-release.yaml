@@ -47,11 +47,11 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
 
       - name: Generate Javadocs
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         run: ./gradlew :client-api:javadoc
 
       - name: Publish Javadocs
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
