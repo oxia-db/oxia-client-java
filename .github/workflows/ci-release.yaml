@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  schedule:
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,6 +18,7 @@ concurrency:
 jobs:
   build:
     name: Release to Maven Central
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     runs-on: cncf-ubuntu-8-32-x86
     steps:
       - name: Checkout code
@@ -38,6 +41,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Verify snapshot version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          version="$(./gradlew properties -q | awk '/^version:/ {print $2}')"
+          if [[ "$version" != *-SNAPSHOT ]]; then
+            echo "Refusing to publish non-SNAPSHOT version from main: $version"
+            exit 1
+          fi
+
       - name: Release to Maven Central
         run: ./gradlew publishAllPublicationsToMavenCentral --no-configuration-cache
         env:
@@ -47,11 +59,11 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PRIVATE_KEY_PASSPHRASE }}
 
       - name: Generate Javadocs
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        if: startsWith(github.ref, 'refs/tags/')
         run: ./gradlew :client-api:javadoc
 
       - name: Publish Javadocs
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
