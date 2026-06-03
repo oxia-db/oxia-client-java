@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import org.gradle.api.publish.PublishingExtension
+
 plugins {
     `java-library`
     jacoco
@@ -86,6 +88,27 @@ subprojects {
                     connection.set("scm:git:git://github.com/oxia-db/oxia-client-java.git")
                     developerConnection.set("scm:git:ssh://github.com:oxia-db/oxia-client-java.git")
                     url.set("https://github.com/oxia-db/oxia-client-java")
+                }
+            }
+        }
+
+        extensions.configure<PublishingExtension>("publishing") {
+            repositories {
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/oxia-db/oxia-client-java")
+                    credentials {
+                        username =
+                                providers.gradleProperty("githubPackagesUsername")
+                                        .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+                                        .orElse("")
+                                        .get()
+                        password =
+                                providers.gradleProperty("githubPackagesPassword")
+                                        .orElse(providers.environmentVariable("GITHUB_TOKEN"))
+                                        .orElse("")
+                                        .get()
+                    }
                 }
             }
         }
