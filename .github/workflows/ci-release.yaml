@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  schedule:
-    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +16,7 @@ concurrency:
 jobs:
   build:
     name: Release to Maven Central
-    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: cncf-ubuntu-8-32-x86
     steps:
       - name: Checkout code
@@ -40,15 +38,6 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Verify snapshot version
-        if: github.ref == 'refs/heads/main'
-        run: |
-          version="$(./gradlew properties -q | awk '/^version:/ {print $2}')"
-          if [[ "$version" != *-SNAPSHOT ]]; then
-            echo "Refusing to publish non-SNAPSHOT version from main: $version"
-            exit 1
-          fi
 
       - name: Release to Maven Central
         run: ./gradlew publishAllPublicationsToMavenCentral --no-configuration-cache
