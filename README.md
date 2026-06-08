@@ -28,6 +28,10 @@ Common build actions:
 | Skip Spotless formatting check  | `./gradlew build -x spotlessCheck`       |
 | Format code                     | `./gradlew spotlessApply`                |
 
+## Release
+
+See [RELEASE.md](RELEASE.md) for the Maven Central release process.
+
 ### Contributing to Oxia
 
 Please 🌟 star the project if you like it.
