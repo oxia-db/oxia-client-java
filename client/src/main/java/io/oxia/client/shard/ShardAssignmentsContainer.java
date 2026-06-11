@@ -17,8 +17,8 @@ package io.oxia.client.shard;
 
 import com.google.common.base.Strings;
 import io.oxia.client.grpc.OxiaStatusException;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -28,6 +28,9 @@ public class ShardAssignmentsContainer {
     private final ConcurrentMap<Long, Shard> shards = new ConcurrentHashMap<>();
     private final ShardStrategy shardStrategy;
 
+    // Immutable lookup structure, rebuilt on each assignments update
+    private volatile ShardRouter router;
+
     @Getter private final String namespace;
 
     ShardAssignmentsContainer(ShardStrategy shardStrategy, String namespace) {
@@ -35,18 +38,16 @@ public class ShardAssignmentsContainer {
             throw new IllegalArgumentException("namespace must not be null or empty");
         }
         this.shardStrategy = shardStrategy;
+        this.router = shardStrategy.createRouter(List.of());
         this.namespace = namespace;
     }
 
     public long getShardForKey(String key) {
-        var test = shardStrategy.acceptsKeyPredicate(key);
-        Optional<Shard> shard = shards.values().stream().filter(test).findFirst();
-
-        if (shard.isPresent()) {
-            return shard.get().id();
-        } else {
+        Shard shard = router.getShardForKey(key);
+        if (shard == null) {
             throw OxiaStatusException.shardNotFound(key);
         }
+        return shard.id();
     }
 
     public String leader(long shardId) {
@@ -61,10 +62,11 @@ public class ShardAssignmentsContainer {
         return shard.leader();
     }
 
-    void update(ShardManager.ShardAssignmentChanges changes) {
+    synchronized void update(ShardManager.ShardAssignmentChanges changes) {
         changes.added().forEach(s -> shards.put(s.id(), s));
         changes.reassigned().forEach(s -> shards.put(s.id(), s));
         changes.removed().forEach(s -> shards.remove(s.id(), s));
+        router = shardStrategy.createRouter(shards.values());
     }
 
     Set<Long> allShardIds() {

@@ -36,6 +36,6 @@ public class Xxh332HashTest {
     @ParameterizedTest
     @MethodSource("hashArgs")
     void ranges(String key, long hash) {
-        assertThat(Xxh332Hash.apply(key)).isEqualTo(hash);
+        assertThat(Xxh332Hash.applyAsLong(key)).isEqualTo(hash);
     }
 }
