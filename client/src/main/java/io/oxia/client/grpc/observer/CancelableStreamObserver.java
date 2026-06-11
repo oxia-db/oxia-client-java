@@ -27,6 +27,7 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private static final String CANCELED = "canceled";
 
     private final ReentrantLock lock;
+    private final boolean manualFlowControl;
 
     @GuardedBy("lock")
     private boolean terminated;
@@ -35,7 +36,17 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
     private ClientCallStreamObserver<?> requestStream;
 
     public CancelableStreamObserver() {
+        this(false);
+    }
+
+    /**
+     * @param manualFlowControl when true, the stream is started with automatic inbound flow control
+     *     disabled: after one initial message, further messages are only delivered when {@link
+     *     #requestNextMessage()} is invoked.
+     */
+    public CancelableStreamObserver(boolean manualFlowControl) {
         this.lock = new ReentrantLock();
+        this.manualFlowControl = manualFlowControl;
         this.terminated = false;
         this.requestStream = null;
     }
@@ -87,6 +98,11 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
             if (terminated) {
                 previousStream = requestStream;
             } else {
+                if (manualFlowControl) {
+                    // Must happen before the call is started: injectRequestStream is invoked
+                    // from ClientResponseObserver.beforeStart()
+                    requestStream.disableAutoRequestWithInitial(1);
+                }
                 previousStream = this.requestStream;
                 this.requestStream = requestStream;
             }
@@ -96,6 +112,23 @@ public abstract class CancelableStreamObserver<T> implements StreamObserver<T> {
 
         if (previousStream != null) {
             previousStream.cancel(CANCELED, null);
+        }
+    }
+
+    /** Requests the next message on a stream using manual flow control. No-op once terminated. */
+    public final void requestNextMessage() {
+        final ClientCallStreamObserver<?> stream;
+        lock.lock();
+        try {
+            if (terminated) {
+                return;
+            }
+            stream = requestStream;
+        } finally {
+            lock.unlock();
+        }
+        if (stream != null) {
+            stream.request(1);
         }
     }
 

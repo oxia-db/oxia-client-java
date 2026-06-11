@@ -103,10 +103,63 @@ class CancelableStreamObserverTest {
         verify(requestStream).cancel(eq("canceled"), isNull());
     }
 
+    @Test
+    void manualFlowControlDisablesAutoRequestOnInjection() {
+        var observer = new RecordingStreamObserver(true);
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+
+        observer.injectRequestStream(requestStream);
+
+        verify(requestStream).disableAutoRequestWithInitial(1);
+    }
+
+    @Test
+    void autoFlowControlByDefault() {
+        var observer = new RecordingStreamObserver();
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+
+        observer.injectRequestStream(requestStream);
+
+        verify(requestStream, never()).disableAutoRequestWithInitial(1);
+    }
+
+    @Test
+    void requestNextMessageForwardsToStream() {
+        var observer = new RecordingStreamObserver(true);
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+        observer.injectRequestStream(requestStream);
+
+        observer.requestNextMessage();
+
+        verify(requestStream).request(1);
+    }
+
+    @Test
+    void requestNextMessageIsNoOpOnceTerminated() {
+        var observer = new RecordingStreamObserver(true);
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+        observer.injectRequestStream(requestStream);
+
+        observer.cancel();
+        observer.requestNextMessage();
+
+        verify(requestStream, never()).request(1);
+    }
+
     private static final class RecordingStreamObserver extends CancelableStreamObserver<String> {
         private final AtomicInteger nextCount = new AtomicInteger();
         private final AtomicInteger errorCount = new AtomicInteger();
         private final AtomicInteger completedCount = new AtomicInteger();
+
+        RecordingStreamObserver() {}
+
+        RecordingStreamObserver(boolean manualFlowControl) {
+            super(manualFlowControl);
+        }
 
         @Override
         protected void handleNext(String value) {
