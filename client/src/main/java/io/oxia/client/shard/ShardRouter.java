@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2026 The Oxia Authors
+ * Copyright © 2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,15 @@
  */
 package io.oxia.client.shard;
 
-import java.util.Collection;
-import java.util.function.Predicate;
 import lombok.NonNull;
 
-interface ShardStrategy {
-    @NonNull
-    Predicate<Shard> acceptsKeyPredicate(@NonNull String key);
+/**
+ * Immutable key-to-shard lookup structure. Rebuilt by the {@link ShardStrategy} whenever the shard
+ * assignments change, and queried on every client operation.
+ */
+@FunctionalInterface
+interface ShardRouter {
 
-    /**
-     * Builds the lookup structure used to route keys to shards. Invoked only when the shard
-     * assignments change, while the returned router is queried on every operation.
-     */
-    @NonNull
-    ShardRouter createRouter(@NonNull Collection<Shard> shards);
+    /** Returns the shard that owns the given key, or {@code null} when no shard matches. */
+    Shard getShardForKey(@NonNull String key);
 }

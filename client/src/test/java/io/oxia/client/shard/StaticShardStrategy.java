@@ -21,7 +21,9 @@ import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -38,6 +40,20 @@ class StaticShardStrategy implements ShardStrategy {
         return Optional.ofNullable(assignments.get(key))
                 .map(a -> (Predicate<Shard>) s -> isEquivalent(s, a))
                 .orElse(s -> false);
+    }
+
+    @Override
+    public @NonNull ShardRouter createRouter(@NonNull Collection<Shard> shards) {
+        final List<Shard> snapshot = List.copyOf(shards);
+        return key -> {
+            final var test = acceptsKeyPredicate(key);
+            for (Shard shard : snapshot) {
+                if (test.test(shard)) {
+                    return shard;
+                }
+            }
+            return null;
+        };
     }
 
     public @NonNull StaticShardStrategy assign(@NonNull String key, @NonNull ShardAssignment shard) {
