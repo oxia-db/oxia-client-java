@@ -29,6 +29,8 @@ public class CompositeConsumer<T> implements Consumer<T> {
 
     @Override
     public void accept(T t) {
-        callbacks.parallelStream().forEach(c -> c.accept(t));
+        for (Consumer<T> callback : callbacks) {
+            callback.accept(t);
+        }
     }
 }
