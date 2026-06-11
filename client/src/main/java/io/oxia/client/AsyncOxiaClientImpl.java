@@ -365,7 +365,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             });
         }
 
-        return future.orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS);
+        return future;
     }
 
     @Override
