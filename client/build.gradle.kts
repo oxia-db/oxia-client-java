@@ -22,11 +22,16 @@ dependencies {
     api(project(":client-api"))
 
     implementation(libs.caffeine)
+    implementation(libs.failsafe)
     implementation(libs.netty.buffer)
     implementation(libs.grpc.netty.shaded)
+    implementation(libs.grpc.protobuf)
+    implementation(libs.grpc.services)
     implementation(libs.grpc.stub)
     implementation(libs.opentelemetry.api)
     implementation(libs.jakarta.annotation.api)
+    implementation(libs.protobuf.java)
+    implementation(libs.proto.google.common.protos)
     implementation(libs.zero.allocation.hashing)
 
     testImplementation(libs.grpc.inprocess)

@@ -24,13 +24,18 @@ import static java.time.Duration.ZERO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.delegatesTo;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.grpc.CallCredentials;
+import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerInterceptor;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
@@ -45,19 +50,19 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubProvider;
-import io.oxia.client.grpc.WriteStreamWrapper;
+import io.oxia.client.grpc.ManagedWriteStream;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
 import io.oxia.client.session.SessionManager;
-import io.oxia.client.shard.NoShardAvailableException;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
+import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
-import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -67,7 +72,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -81,7 +86,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class BatchTest {
-    OxiaStubProvider clientByShardId;
+    RpcProvider clientByShardId;
     @Mock SessionManager sessionManager;
     @Mock Session session;
     long shardId = 1L;
@@ -115,38 +120,6 @@ class BatchTest {
                             new OxiaClientImplBase() {
 
                                 @Override
-                                public StreamObserver<WriteRequest> writeStream(
-                                        StreamObserver<WriteResponse> responseObserver) {
-                                    ForkJoinPool.commonPool()
-                                            .submit(
-                                                    () -> {
-                                                        try {
-                                                            Thread.sleep(1000);
-                                                        } catch (InterruptedException e) {
-                                                            throw new RuntimeException(e);
-                                                        }
-                                                        writeResponses.forEach(wr -> wr.accept(responseObserver));
-                                                    });
-
-                                    return new StreamObserver<WriteRequest>() {
-                                        @Override
-                                        public void onNext(WriteRequest value) {}
-
-                                        @Override
-                                        public void onError(Throwable t) {}
-
-                                        @Override
-                                        public void onCompleted() {}
-                                    };
-                                }
-
-                                @Override
-                                public void write(
-                                        WriteRequest request, StreamObserver<WriteResponse> responseObserver) {
-                                    writeResponses.forEach(c -> c.accept(responseObserver));
-                                }
-
-                                @Override
                                 public void read(
                                         ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
                                     readResponses.forEach(c -> c.accept(responseObserver));
@@ -154,13 +127,12 @@ class BatchTest {
                             }));
 
     private Server server;
-    private OxiaStub stub;
-    private final List<Consumer<StreamObserver<WriteResponse>>> writeResponses = new ArrayList<>();
+    private ManagedChannel channel;
     private final List<Consumer<StreamObserver<ReadResponse>>> readResponses = new ArrayList<>();
 
     @BeforeEach
     public void setUp() throws Exception {
-        writeResponses.clear();
+        readResponses.clear();
         String serverName = InProcessServerBuilder.generateName();
         InProcessServerBuilder serverBuilder =
                 InProcessServerBuilder.forName(serverName).directExecutor().addService(serviceImpl);
@@ -168,27 +140,70 @@ class BatchTest {
             serverBuilder.intercept(serverInterceptor);
         }
         server = serverBuilder.build().start();
-        stub =
-                new OxiaStub(
-                        InProcessChannelBuilder.forName(serverName).directExecutor().build(), authentication);
-        final WriteStreamWrapper writeStreamWrapper = new WriteStreamWrapper(stub.async(), 0L);
-        clientByShardId = mock(OxiaStubProvider.class);
-        lenient().when(clientByShardId.getStubForShard(anyLong())).thenReturn(stub);
+        channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        clientByShardId = mock(RpcProvider.class);
         lenient()
-                .when(clientByShardId.getWriteStreamForShard(anyLong()))
-                .thenReturn(writeStreamWrapper);
+                .doAnswer(
+                        invocation -> {
+                            StreamObserver<ReadResponse> observer = invocation.getArgument(1);
+                            stub()
+                                    .read(
+                                            invocation.getArgument(0),
+                                            new StreamObserver<>() {
+                                                @Override
+                                                public void onNext(ReadResponse response) {
+                                                    observer.onNext(response);
+                                                }
+
+                                                @Override
+                                                public void onError(Throwable error) {
+                                                    observer.onError(OxiaStatusException.from(error));
+                                                }
+
+                                                @Override
+                                                public void onCompleted() {
+                                                    observer.onCompleted();
+                                                }
+                                            });
+                            return null;
+                        })
+                .when(clientByShardId)
+                .read(any(ReadRequest.class), any(StreamObserver.class));
+    }
+
+    private OxiaClientGrpc.OxiaClientStub stub() {
+        var stub = OxiaClientGrpc.newStub(channel);
+        if (authentication == null) {
+            return stub;
+        }
+        return stub.withCallCredentials(
+                new CallCredentials() {
+                    @Override
+                    public void applyRequestMetadata(
+                            RequestInfo requestInfo, Executor appExecutor, MetadataApplier applier) {
+                        Metadata metadata = new Metadata();
+                        authentication
+                                .generateCredentials()
+                                .forEach(
+                                        (key, value) ->
+                                                metadata.put(
+                                                        Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
+                        applier.apply(metadata);
+                    }
+                });
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        channel.shutdownNow();
         server.shutdownNow();
-        stub.close();
     }
 
     @Nested
     @DisplayName("Tests of write batch")
     class WriteBatchTests {
         WriteBatch batch;
+        ManagedWriteStream writeStream;
         CompletableFuture<PutResult> putCallable = new CompletableFuture<>();
         CompletableFuture<PutResult> putEphemeralCallable = new CompletableFuture<>();
         CompletableFuture<Boolean> deleteCallable = new CompletableFuture<>();
@@ -225,13 +240,12 @@ class BatchTest {
 
         @BeforeEach
         void setup() {
+            writeStream = mock(ManagedWriteStream.class);
+            lenient().when(clientByShardId.getWriteStream(shardId)).thenReturn(writeStream);
 
             var factory =
                     new WriteBatchFactory(
-                            mock(OxiaStubProvider.class),
-                            mock(SessionManager.class),
-                            config,
-                            InstrumentProvider.NOOP);
+                            mock(RpcProvider.class), mock(SessionManager.class), config, InstrumentProvider.NOOP);
             batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 1024 * 1024);
         }
 
@@ -282,16 +296,12 @@ class BatchTest {
 
         @Test
         public void sendOk() {
-            writeResponses.add(
-                    o -> {
-                        var resp = new WriteResponse();
-                        resp.addPut().setStatus(UNEXPECTED_VERSION_ID);
-                        resp.addPut().setStatus(OK).setVersion();
-                        resp.addDelete().setStatus(KEY_NOT_FOUND);
-                        resp.addDeleteRange().setStatus(OK);
-                        o.onNext(resp);
-                    });
-            writeResponses.add(StreamObserver::onCompleted);
+            var resp = new WriteResponse();
+            resp.addPut().setStatus(UNEXPECTED_VERSION_ID);
+            resp.addPut().setStatus(OK).setVersion();
+            resp.addDelete().setStatus(KEY_NOT_FOUND);
+            resp.addDeleteRange().setStatus(OK);
+            when(writeStream.send(any())).thenReturn(CompletableFuture.completedFuture(resp));
 
             batch.add(put);
             batch.add(putEphemeral);
@@ -300,12 +310,7 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
-
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
             assertThat(putEphemeralCallable).isCompleted();
             assertThatThrownBy(putCallable::get)
                     .hasCauseExactlyInstanceOf(UnexpectedVersionIdException.class);
@@ -315,8 +320,8 @@ class BatchTest {
 
         @Test
         public void sendFail() {
-            var batchError = new RuntimeException();
-            writeResponses.add(o -> o.onError(batchError));
+            var batchError = Status.UNAVAILABLE.asRuntimeException();
+            when(writeStream.send(any())).thenReturn(CompletableFuture.failedFuture(batchError));
 
             batch.add(put);
             batch.add(putEphemeral);
@@ -325,12 +330,7 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
-
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
             assertThatThrownBy(putCallable::get).hasCauseInstanceOf(StatusRuntimeException.class);
             assertThat(putEphemeralCallable).isCompletedExceptionally();
             assertThatThrownBy(putEphemeralCallable::get)
@@ -343,18 +343,18 @@ class BatchTest {
 
         @Test
         public void sendFailNoClient() {
-            var stubProvider = mock(OxiaStubProvider.class);
-            when(stubProvider.getWriteStreamForShard(anyLong()))
-                    .thenThrow(new NoShardAvailableException(1));
+            var rpcProvider = mock(RpcProvider.class);
+            when(rpcProvider.getWriteStream(shardId))
+                    .thenThrow(OxiaStatusException.shardNotFound(shardId));
 
             batch =
                     new WriteBatch(
                             new WriteBatchFactory(
-                                    mock(OxiaStubProvider.class),
+                                    mock(RpcProvider.class),
                                     mock(SessionManager.class),
                                     config,
                                     InstrumentProvider.NOOP),
-                            stubProvider,
+                            rpcProvider,
                             sessionManager,
                             shardId,
                             1024 * 1024);
@@ -364,33 +364,32 @@ class BatchTest {
 
             batch.send();
 
-            Awaitility.await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(putCallable).isCompletedExceptionally();
-                            });
+            Awaitility.await().untilAsserted(() -> assertThat(putCallable).isCompletedExceptionally());
             assertThatThrownBy(putCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
             assertThat(deleteCallable).isCompletedExceptionally();
-            assertThatThrownBy(putCallable::get)
+            assertThatThrownBy(deleteCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
             assertThat(deleteRangeCallable).isCompletedExceptionally();
-            assertThatThrownBy(putCallable::get)
+            assertThatThrownBy(deleteRangeCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
         }
 
@@ -411,8 +410,7 @@ class BatchTest {
 
         @BeforeEach
         void setup() {
-            var factory =
-                    new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP);
+            var factory = new ReadBatchFactory(mock(RpcProvider.class), config, InstrumentProvider.NOOP);
             batch = new ReadBatch(factory, clientByShardId, shardId);
         }
 
@@ -460,24 +458,26 @@ class BatchTest {
 
         @Test
         public void sendFail() {
-            var batchError = new RuntimeException();
+            var batchError = Status.UNAVAILABLE.asRuntimeException();
             readResponses.add(o -> o.onError(batchError));
 
             batch.add(get);
             batch.send();
 
             assertThat(getCallable).isCompletedExceptionally();
-            assertThatThrownBy(getCallable::get).hasCauseInstanceOf(StatusRuntimeException.class);
+            assertThatThrownBy(getCallable::get).hasCauseInstanceOf(OxiaStatusException.class);
         }
 
         @Test
         public void sendFailNoClient() {
-            var stubProvider = mock(OxiaStubProvider.class);
-            when(stubProvider.getStubForShard(anyLong())).thenThrow(new NoShardAvailableException(1));
+            var rpcProvider = mock(RpcProvider.class);
+            doThrow(OxiaStatusException.shardNotFound(1))
+                    .when(rpcProvider)
+                    .read(any(ReadRequest.class), any(StreamObserver.class));
             batch =
                     new ReadBatch(
-                            new ReadBatchFactory(mock(OxiaStubProvider.class), config, InstrumentProvider.NOOP),
-                            stubProvider,
+                            new ReadBatchFactory(mock(RpcProvider.class), config, InstrumentProvider.NOOP),
+                            rpcProvider,
                             shardId);
 
             batch.add(get);
@@ -491,9 +491,10 @@ class BatchTest {
             assertThatThrownBy(getCallable::get)
                     .satisfies(
                             e -> {
-                                assertThat(e).hasCauseExactlyInstanceOf(NoShardAvailableException.class);
-                                assertThat(((NoShardAvailableException) e.getCause()).getShardId())
-                                        .isEqualTo(shardId);
+                                assertThat(e).hasCauseExactlyInstanceOf(OxiaStatusException.class);
+                                var oxiaError = (OxiaStatusException) e.getCause();
+                                assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
+                                assertThat(oxiaError.getMetadata()).containsEntry("shard", Long.toString(shardId));
                             });
         }
 

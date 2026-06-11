@@ -16,6 +16,7 @@
 package io.oxia.client.shard;
 
 import com.google.common.base.Strings;
+import io.oxia.client.grpc.OxiaStatusException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -44,14 +45,17 @@ public class ShardAssignmentsContainer {
         if (shard.isPresent()) {
             return shard.get().id();
         } else {
-            throw new NoShardAvailableException((key));
+            throw OxiaStatusException.shardNotFound(key);
         }
     }
 
     public String leader(long shardId) {
         Shard shard = shards.get(shardId);
         if (shard == null) {
-            throw new NoShardAvailableException(shardId);
+            throw OxiaStatusException.shardNotFound(shardId);
+        }
+        if (shard.leader().isBlank()) {
+            throw OxiaStatusException.leaderNotAvailable(shardId);
         }
 
         return shard.leader();

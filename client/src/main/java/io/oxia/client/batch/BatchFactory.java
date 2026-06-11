@@ -18,14 +18,14 @@ package io.oxia.client.batch;
 import static lombok.AccessLevel.PACKAGE;
 
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor(access = PACKAGE)
 abstract class BatchFactory {
-    final @NonNull OxiaStubProvider stubProvider;
+    final @NonNull RpcProvider rpcProvider;
 
     @Getter(PACKAGE)
     private final @NonNull ClientConfig config;

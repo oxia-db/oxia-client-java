@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,22 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.oxia.client.grpc;
+package io.oxia.client.it;
 
-import java.util.Objects;
-import lombok.NonNull;
+import org.testcontainers.utility.DockerImageName;
 
-/** Customised GRPC status code. */
-public enum CustomStatusCode {
-    ErrorNamespaceNotFound,
-    // fallback to Status.code
-    UNKNOWN;
+public final class OxiaImages {
+    public static final DockerImageName OXIA = DockerImageName.parse("oxia/oxia:0.16.3");
 
-    public static @NonNull CustomStatusCode fromDescription(String description) {
-        Objects.requireNonNull(description);
-        return switch (description) {
-            case "oxia: namespace not found" -> ErrorNamespaceNotFound;
-            default -> UNKNOWN;
-        };
-    }
+    private OxiaImages() {}
 }

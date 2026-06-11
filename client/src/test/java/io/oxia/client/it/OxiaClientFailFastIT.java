@@ -32,7 +32,7 @@ class OxiaClientFailFastIT {
 
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME)
+            new OxiaContainer(OxiaImages.OXIA)
                     .withShards(4)
                     .withLogConsumer(
                             new Slf4jLogConsumer(LoggerFactory.getLogger(OxiaClientFailFastIT.class)));

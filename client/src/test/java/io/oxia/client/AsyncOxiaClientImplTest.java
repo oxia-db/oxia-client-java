@@ -28,7 +28,6 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.grpc.stub.StreamObserver;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
@@ -40,15 +39,15 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
-import io.oxia.client.grpc.OxiaStub;
-import io.oxia.client.grpc.OxiaStubManager;
+import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.notify.NotificationManager;
+import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
-import io.oxia.proto.OxiaClientGrpc;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,7 +70,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AsyncOxiaClientImplTest {
-    @Mock OxiaStubManager stubManager;
+    @Mock RpcProvider rpcProvider;
     @Mock ShardManager shardManager;
     @Mock NotificationManager notificationManager;
     @Mock BatchManager readBatchManager;
@@ -90,7 +89,7 @@ class AsyncOxiaClientImplTest {
                         "client-identity",
                         Executors.newSingleThreadScheduledExecutor(),
                         InstrumentProvider.NOOP,
-                        stubManager,
+                        rpcProvider,
                         shardManager,
                         notificationManager,
                         readBatchManager,
@@ -482,11 +481,10 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void list(@Mock OxiaStub stub0, @Mock OxiaStub stub1) {
+    void list() {
 
         when(shardManager.allShardIds()).thenReturn(Set.of(0L, 1L));
-        setupListStub(0L, "leader0", stub0);
-        setupListStub(1L, "leader1", stub1);
+        setupListStub();
 
         List<String> list = client.list("a", "e").join();
 
@@ -495,10 +493,8 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void listWithTimeout(@Mock OxiaStub stub0, @Mock OxiaStub stub1) {
+    void listWithTimeout() {
         when(shardManager.allShardIds()).thenReturn(Set.of(0L, 1L));
-        setupTimeoutStub(0L, "leader0", stub0);
-        setupTimeoutStub(1L, "leader1", stub1);
         final var result = client.list("a", "e");
         try {
             result.join();
@@ -528,32 +524,19 @@ class AsyncOxiaClientImplTest {
         assertThat(client.list("a", null)).isCompletedExceptionally();
     }
 
-    private void setupTimeoutStub(long shardId, String leader, OxiaStub stub) {
-        when(shardManager.leader(shardId)).thenReturn(leader);
-        when(stubManager.getStub(leader)).thenReturn(stub);
-
-        var async = mock(OxiaClientGrpc.OxiaClientStub.class);
-        when(stub.async()).thenReturn(async);
-        doNothing().when(async).list(any(ListRequest.class), any(StreamObserver.class));
-    }
-
-    private void setupListStub(long shardId, String leader, OxiaStub stub) {
-        when(shardManager.leader(shardId)).thenReturn(leader);
-        when(stubManager.getStub(leader)).thenReturn(stub);
-
-        var async = mock(OxiaClientGrpc.OxiaClientStub.class);
-        when(stub.async()).thenReturn(async);
-
+    private void setupListStub() {
         doAnswer(
                         i -> {
-                            var so = (StreamObserver<ListResponse>) i.getArgument(1);
+                            var request = (ListRequest) i.getArgument(0);
+                            var so = (CancelableStreamObserver<ListResponse>) i.getArgument(1);
+                            var shardId = request.getShard();
                             so.onNext(listResponse(shardId, "a", "b"));
                             so.onNext(listResponse(shardId, "c", "d"));
                             so.onCompleted();
                             return null;
                         })
-                .when(async)
-                .list(any(ListRequest.class), any(StreamObserver.class));
+                .when(rpcProvider)
+                .list(any(ListRequest.class), any(CancelableStreamObserver.class));
     }
 
     private ListResponse listResponse(long shardId, String first, String second) {
@@ -568,25 +551,25 @@ class AsyncOxiaClientImplTest {
         client.close();
         var inOrder =
                 inOrder(
-                        readBatchManager, writeBatchManager, notificationManager, shardManager, stubManager);
+                        readBatchManager, writeBatchManager, notificationManager, shardManager, rpcProvider);
         inOrder.verify(readBatchManager).close();
         inOrder.verify(writeBatchManager).close();
         inOrder.verify(notificationManager).close();
         inOrder.verify(shardManager).close();
-        inOrder.verify(stubManager).close();
+        inOrder.verify(rpcProvider).close();
         client = null;
     }
 
     @Test
-    void testShardShardRangeScanConsumer() {
+    void testCompositeRangeScanConsumer() {
         final int shards = 5;
         final List<GetResult> results = new ArrayList<>();
         final AtomicInteger onErrorCount = new AtomicInteger(0);
         final AtomicInteger onCompletedCount = new AtomicInteger(0);
         final Supplier<RangeScanConsumer> newShardRangeScanConsumer =
                 () ->
-                        new AsyncOxiaClientImpl.SharedRangeScanConsumer(
-                                5,
+                        new CompositeRangeScanConsumer(
+                                shards,
                                 new RangeScanConsumer() {
                                     @Override
                                     public boolean onNext(GetResult result) {
@@ -693,7 +676,7 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
-    void testSharedRangeScanConsumerEarlyStop() {
+    void testCompositeRangeScanConsumerEarlyStop() {
         final int shards = 3;
         final int stopAfter = 2;
         final List<GetResult> results = new ArrayList<>();
@@ -719,13 +702,7 @@ class AsyncOxiaClientImplTest {
                     }
                 };
 
-        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(shards, userConsumer);
-        final var cancelCounts = new ArrayList<AtomicInteger>();
-        for (int i = 0; i < shards; i++) {
-            final AtomicInteger c = new AtomicInteger(0);
-            cancelCounts.add(c);
-            shared.registerCancelHandler(c::incrementAndGet);
-        }
+        final var shared = new CompositeRangeScanConsumer(shards, userConsumer);
 
         // First onNext returns true.
         Assertions.assertTrue(
@@ -734,10 +711,6 @@ class AsyncOxiaClientImplTest {
         Assertions.assertFalse(
                 shared.onNext(new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
 
-        // All cancel handlers should have been invoked exactly once.
-        for (AtomicInteger c : cancelCounts) {
-            Assertions.assertEquals(1, c.get());
-        }
         // onCompleted was called exactly once on the user consumer.
         Assertions.assertEquals(1, onCompletedCount.get());
         Assertions.assertEquals(0, onErrorCount.get());
@@ -753,31 +726,5 @@ class AsyncOxiaClientImplTest {
         shared.onCompleted();
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testSharedRangeScanConsumerLateCancelHandler() {
-        // A cancel handler registered after the scan has been stopped must run immediately.
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        return false;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {}
-
-                    @Override
-                    public void onCompleted() {}
-                };
-
-        final var shared = new AsyncOxiaClientImpl.SharedRangeScanConsumer(2, userConsumer);
-        Assertions.assertFalse(
-                shared.onNext(new GetResult("k", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-
-        final AtomicInteger lateCancel = new AtomicInteger(0);
-        shared.registerCancelHandler(lateCancel::incrementAndGet);
-        Assertions.assertEquals(1, lateCancel.get());
     }
 }

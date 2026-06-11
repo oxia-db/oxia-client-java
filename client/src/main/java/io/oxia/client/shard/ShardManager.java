@@ -16,6 +16,7 @@
 package io.oxia.client.shard;
 
 import static com.google.common.base.Throwables.getRootCause;
+import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
 import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
@@ -25,13 +26,11 @@ import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
-import io.oxia.client.grpc.CustomStatusCode;
-import io.oxia.client.grpc.OxiaStub;
+import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
@@ -52,32 +51,31 @@ import lombok.NonNull;
 
 public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignments> {
 
-    private static final Logger LOG = Logger.get(ShardManager.class);
     private final Logger log;
-    private final ScheduledExecutorService executor;
-    private final OxiaStub stub;
-    private final @NonNull ShardAssignmentsContainer assignments;
-    private final @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks;
+    private final ScheduledExecutorService asyncExecutor;
+    private final RpcProvider rpcProvider;
+    private final ShardAssignmentsContainer assignments;
+    private final CompositeConsumer<ShardAssignmentChanges> callbacks;
+
+    private final Backoff backoff = new Backoff();
+    private final CompletableFuture<Void> initialAssignmentsFuture;
+
+    private volatile boolean closed;
 
     private final Counter shardAssignmentsEvents;
 
-    private final Backoff backoff = new Backoff();
-    private volatile boolean closed;
-
-    private final CompletableFuture<Void> initialAssignmentsFuture = new CompletableFuture<>();
-
-    @VisibleForTesting
-    ShardManager(
-            @NonNull ScheduledExecutorService executor,
-            @NonNull OxiaStub stub,
-            @NonNull ShardAssignmentsContainer assignments,
-            @NonNull CompositeConsumer<ShardAssignmentChanges> callbacks,
-            @NonNull InstrumentProvider instrumentProvider) {
-        this.stub = stub;
-        this.executor = executor;
-        this.assignments = assignments;
-        this.callbacks = callbacks;
-        this.log = LOG.with().attr("namespace", assignments.getNamespace()).build();
+    public ShardManager(
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull RpcProvider rpcProvider,
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull String namespace) {
+        this.rpcProvider = rpcProvider;
+        this.asyncExecutor = asyncExecutor;
+        this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
+        this.callbacks = new CompositeConsumer<>();
+        this.initialAssignmentsFuture = new CompletableFuture<>();
+        this.log =
+                Logger.get(ShardManager.class).with().attr("namespace", assignments.getNamespace()).build();
 
         this.shardAssignmentsEvents =
                 instrumentProvider.newCounter(
@@ -85,19 +83,6 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                         Unit.None,
                         "The total count of received shard assignment events",
                         Attributes.empty());
-    }
-
-    public ShardManager(
-            ScheduledExecutorService executor,
-            @NonNull OxiaStub stub,
-            @NonNull InstrumentProvider instrumentProvider,
-            @NonNull String namespace) {
-        this(
-                executor,
-                stub,
-                new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace),
-                new CompositeConsumer<>(),
-                instrumentProvider);
     }
 
     @Override
@@ -109,7 +94,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
-        stub.async().getShardAssignments(req, this);
+        rpcProvider.getShardAssignments(req, this);
         return initialAssignmentsFuture;
     }
 
@@ -129,27 +114,17 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        if (error instanceof StatusRuntimeException statusError) {
-            var status = statusError.getStatus();
-            if (status.getCode() == Status.Code.UNKNOWN) {
-                // Suppress unknown errors
-                final var description = status.getDescription();
-                if (description != null) {
-                    var customStatusCode = CustomStatusCode.fromDescription(description);
-                    if (customStatusCode == CustomStatusCode.ErrorNamespaceNotFound) {
-                        log.error("Namespace not found");
-                        if (!initialAssignmentsFuture.isDone()) {
-                            if (initialAssignmentsFuture.completeExceptionally(
-                                    new NamespaceNotFoundException(assignments.getNamespace()))) {
-                                close();
-                            }
-                        }
-                    }
-                }
+        final var oxiaError = OxiaStatusException.from(error);
+        if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
+            log.error("Namespace not found");
+            if (initialAssignmentsFuture.completeExceptionally(
+                    new NamespaceNotFoundException(assignments.getNamespace()))) {
+                close();
+                return;
             }
         }
-        log.warn().exception(getRootCause(error)).log("Failed receiving shard assignments");
-        executor.schedule(
+        log.warn().exceptionMessage(getRootCause(error)).log("Failed receiving shard assignments");
+        asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
                         log.info("Retry creating stream for shard assignments");
@@ -167,7 +142,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         }
 
         log.warn("Stream closed while receiving shard assignments");
-        executor.schedule(
+        asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
                         log.info("Retry creating stream for shard assignments after stream closed");
@@ -206,18 +181,16 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     static Map<Long, Shard> recomputeShardHashBoundaries(
             Map<Long, Shard> assignments, Set<Shard> updates) {
         var toDelete = new ArrayList<>();
-        updates.forEach(
-                update ->
-                        update
-                                .findOverlapping(assignments.values())
-                                .forEach(
-                                        existing -> {
-                                            LOG.info()
-                                                    .attr("existing", existing)
-                                                    .attr("update", update)
-                                                    .log("Deleting shard as it overlaps");
-                                            toDelete.add(existing.id());
-                                        }));
+        var log = Logger.get(ShardManager.class);
+        for (var update : updates) {
+            for (var existing : update.findOverlapping(assignments.values())) {
+                log.info()
+                        .attr("existing", existing)
+                        .attr("update", update)
+                        .log("Deleting shard as it overlaps");
+                toDelete.add(existing.id());
+            }
+        }
 
         return unmodifiableMap(
                 Stream.concat(
@@ -275,13 +248,5 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
         callbacks.add(callback);
-    }
-
-    private boolean isErrorRetryable(@NonNull Throwable ex) {
-        if (ex instanceof NamespaceNotFoundException nsNotFoundError) {
-            return nsNotFoundError.isRetryable();
-        }
-        // Allow the rest of the errors to retry.
-        return true;
     }
 }

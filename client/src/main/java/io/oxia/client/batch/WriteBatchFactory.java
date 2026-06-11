@@ -17,7 +17,7 @@ package io.oxia.client.batch;
 
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.session.SessionManager;
@@ -29,11 +29,11 @@ class WriteBatchFactory extends BatchFactory {
     final LatencyHistogram writeRequestLatencyHistogram;
 
     public WriteBatchFactory(
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
             @NonNull ClientConfig config,
             @NonNull InstrumentProvider instrumentProvider) {
-        super(stubProvider, config);
+        super(rpcProvider, config);
         this.sessionManager = sessionManager;
 
         writeRequestLatencyHistogram =
@@ -45,6 +45,6 @@ class WriteBatchFactory extends BatchFactory {
 
     @Override
     public Batch getBatch(long shardId) {
-        return new WriteBatch(this, stubProvider, sessionManager, shardId, getConfig().maxBatchSize());
+        return new WriteBatch(this, rpcProvider, sessionManager, shardId, getConfig().maxBatchSize());
     }
 }

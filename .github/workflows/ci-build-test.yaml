@@ -1,4 +1,4 @@
-name: Build and test
+name: Build
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-8-32-x86
 
     steps:
       - name: Checkout code
@@ -36,7 +36,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and Verify
-        run: ./gradlew build
+        run: ./gradlew build --info
 
       - name: Validate Javadoc creation
         run: ./gradlew :client-api:javadoc

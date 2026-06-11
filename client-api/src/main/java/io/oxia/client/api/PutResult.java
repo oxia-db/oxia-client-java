@@ -16,9 +16,15 @@
 package io.oxia.client.api;
 
 /**
- * The result of a client get request.
+ * The result of a successful put operation.
+ *
+ * <p>The {@code key} returned here is the effective key stored on the server. It usually matches
+ * the key supplied to the put call; with {@link
+ * io.oxia.client.api.options.PutOption#SequenceKeysDeltas sequence-key} options the server assigns
+ * the key, so callers must use this value to read the record back.
  *
  * @param key the effective key stored in Oxia
- * @param version Metadata for the record associated with the key specified in the call.
+ * @param version metadata describing the record after the put was applied (use {@link
+ *     Version#versionId()} for subsequent conditional writes)
  */
 public record PutResult(String key, Version version) {}

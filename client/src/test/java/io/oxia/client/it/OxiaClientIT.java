@@ -25,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-import io.grpc.StatusRuntimeException;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -55,6 +54,7 @@ import io.oxia.client.api.options.GetSequenceUpdatesOption;
 import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.testcontainers.OxiaContainer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -84,7 +84,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class OxiaClientIT {
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME)
+            new OxiaContainer(OxiaImages.OXIA)
                     .withShards(10)
                     .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(OxiaClientIT.class)));
 
@@ -938,7 +938,7 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(StatusRuntimeException.class);
+                    .isInstanceOf(OxiaStatusException.class);
         }
     }
 }

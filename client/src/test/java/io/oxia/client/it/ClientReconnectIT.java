@@ -34,69 +34,70 @@ class ClientReconnectIT {
 
     @Container
     private static final OxiaContainer oxia =
-            new OxiaContainer(OxiaContainer.DEFAULT_IMAGE_NAME, 4, true)
+            new OxiaContainer(OxiaImages.OXIA, 4, true)
                     .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(ClientReconnectIT.class)));
 
     @Test
-    void testReconnection() {
-        AsyncOxiaClient client =
-                OxiaClientBuilder.create(oxia.getServiceAddress()).asyncClient().join();
+    void testReconnection() throws Exception {
         String key = "1";
         byte[] value = "1".getBytes(StandardCharsets.UTF_8);
 
-        long startTime = System.currentTimeMillis();
-        long elapse = 3000L;
-        while (true) {
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
-
-            try {
-                client.put(key, value).get(1, TimeUnit.SECONDS);
-            } catch (Throwable ex) {
-                Assertions.fail("unexpected behaviour", ex);
-            }
-
-            try {
-                GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
-                Assertions.assertArrayEquals(getResult.value(), value);
-            } catch (Throwable ex) {
-                Assertions.fail("unexpected behaviour", ex);
-            }
-
-            if (System.currentTimeMillis() - startTime >= elapse) {
-                oxia.stop();
-
+        try (AsyncOxiaClient client =
+                OxiaClientBuilder.create(oxia.getServiceAddress()).asyncClient().join()) {
+            long startTime = System.currentTimeMillis();
+            long elapse = 3000L;
+            while (true) {
                 try {
-                    Thread.sleep(3000);
+                    Thread.sleep(500);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
 
-                oxia.start();
+                try {
+                    client.put(key, value).get(1, TimeUnit.SECONDS);
+                } catch (Throwable ex) {
+                    Assertions.fail("unexpected behaviour", ex);
+                }
 
-                Awaitility.await()
-                        .atMost(15, TimeUnit.SECONDS)
-                        .untilAsserted(
-                                () -> {
-                                    try {
-                                        client.put(key, value).get(1, TimeUnit.SECONDS);
-                                    } catch (Throwable ex) {
-                                        Assertions.fail("unexpected behaviour", ex);
-                                    }
+                try {
+                    GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
+                    Assertions.assertArrayEquals(getResult.value(), value);
+                } catch (Throwable ex) {
+                    Assertions.fail("unexpected behaviour", ex);
+                }
 
-                                    try {
-                                        GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
-                                        Assertions.assertArrayEquals(getResult.value(), value);
-                                    } catch (Throwable ex) {
-                                        Assertions.fail("unexpected behaviour", ex);
-                                    }
-                                });
-                break;
+                if (System.currentTimeMillis() - startTime >= elapse) {
+                    oxia.stop();
+
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+
+                    oxia.start();
+
+                    Awaitility.await()
+                            .atMost(15, TimeUnit.SECONDS)
+                            .untilAsserted(
+                                    () -> {
+                                        try {
+                                            client.put(key, value).get(1, TimeUnit.SECONDS);
+                                        } catch (Throwable ex) {
+                                            Assertions.fail("unexpected behaviour", ex);
+                                        }
+
+                                        try {
+                                            GetResult getResult = client.get("1").get(1, TimeUnit.SECONDS);
+                                            Assertions.assertArrayEquals(getResult.value(), value);
+                                        } catch (Throwable ex) {
+                                            Assertions.fail("unexpected behaviour", ex);
+                                        }
+                                    });
+                    break;
+                }
             }
         }
     }

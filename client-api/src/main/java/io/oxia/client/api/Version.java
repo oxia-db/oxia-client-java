@@ -18,14 +18,22 @@ package io.oxia.client.api;
 import java.util.Optional;
 
 /**
- * Oxia record metadata.
+ * Metadata associated with an Oxia record.
  *
- * @param versionId The current versionId of the record.
- * @param createdTimestamp The instant at which the record was created. In epoch milliseconds.
- * @param modifiedTimestamp The instant at which the record was last updated. In epoch milliseconds.
- * @param modificationsCount The number of modifications since the record was last created.
- * @param sessionId The session to which this record is scoped.
- * @param clientIdentifier The client to which this record was scoped.
+ * <p>The {@code versionId} is the value that drives optimistic concurrency control: pass it back
+ * via {@link io.oxia.client.api.options.PutOption#IfVersionIdEquals(long)} or {@link
+ * io.oxia.client.api.options.DeleteOption#IfVersionIdEquals(long)} to make a write conditional on
+ * the record not having changed since it was read.
+ *
+ * <p>{@link #sessionId()} and {@link #clientIdentifier()} are present only on ephemeral records —
+ * see {@link io.oxia.client.api.options.PutOption#AsEphemeralRecord}.
+ *
+ * @param versionId the current versionId of the record (monotonically increasing per record)
+ * @param createdTimestamp the instant at which the record was first created, in epoch milliseconds
+ * @param modifiedTimestamp the instant at which the record was last updated, in epoch milliseconds
+ * @param modificationsCount the number of modifications since the record was created
+ * @param sessionId for ephemeral records, the session to which the record is scoped
+ * @param clientIdentifier for ephemeral records, the client to which the record is scoped
  */
 public record Version(
         long versionId,

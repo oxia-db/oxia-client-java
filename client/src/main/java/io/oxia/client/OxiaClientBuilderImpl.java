@@ -72,7 +72,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     @NonNull protected Duration connectionBackoffMaxDelay = Duration.ofSeconds(30);
 
     protected Duration connectionKeepAliveTime = Duration.ofSeconds(10);
-    protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(5);
+    protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
 
     protected int maxConnectionsPerNode = DefaultMaxConnectionPerNode;
 

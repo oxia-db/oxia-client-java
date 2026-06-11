@@ -19,7 +19,22 @@ plugins {
     jacoco
     alias(libs.plugins.spotless)
     alias(libs.plugins.spotbugs)
+    alias(libs.plugins.maven.publish) apply false
 }
+
+val publishedArtifactIds =
+        mapOf(
+                "client-api" to "oxia-client-api",
+                "client" to "oxia-client",
+                "perf" to "oxia-perf",
+        )
+
+val publishedNames =
+        mapOf(
+                "client-api" to "Oxia Client API",
+                "client" to "Oxia Client",
+                "perf" to "Oxia Perf Client",
+        )
 
 allprojects {
     repositories {
@@ -32,6 +47,49 @@ subprojects {
     apply(plugin = "jacoco")
     apply(plugin = "com.diffplug.spotless")
     apply(plugin = "com.github.spotbugs")
+
+    publishedArtifactIds[project.name]?.let { artifactId: String ->
+        apply(plugin = "com.vanniktech.maven.publish")
+
+        extensions.configure<com.vanniktech.maven.publish.MavenPublishBaseExtension>("mavenPublishing") {
+            publishToMavenCentral()
+            signAllPublications()
+
+            coordinates(group.toString(), artifactId, version.toString())
+
+            pom {
+                name.set(publishedNames[project.name])
+                description.set("Oxia Client SDK for Java")
+                url.set("https://oxia-db.github.io")
+                inceptionYear.set("2022")
+
+                organization {
+                    name.set("The Oxia Authors")
+                    url.set("https://oxia-db.github.io/")
+                }
+
+                licenses {
+                    license {
+                        name.set("Apache License, Version 2.0")
+                        url.set("http://www.apache.org/licenses/LICENSE-2.0")
+                    }
+                }
+
+                developers {
+                    developer {
+                        organization.set("The Oxia Authors")
+                        organizationUrl.set("https://oxia-db.github.io/")
+                    }
+                }
+
+                scm {
+                    connection.set("scm:git:git://github.com/oxia-db/oxia-client-java.git")
+                    developerConnection.set("scm:git:ssh://github.com:oxia-db/oxia-client-java.git")
+                    url.set("https://github.com/oxia-db/oxia-client-java")
+                }
+            }
+        }
+    }
 
     java {
         toolchain {

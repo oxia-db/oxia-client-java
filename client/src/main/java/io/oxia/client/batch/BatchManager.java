@@ -18,7 +18,7 @@ package io.oxia.client.batch;
 import static lombok.AccessLevel.PACKAGE;
 
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.OxiaStubProvider;
+import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.session.SessionManager;
 import java.util.List;
@@ -63,18 +63,17 @@ public class BatchManager implements AutoCloseable {
 
     public static @NonNull BatchManager newReadBatchManager(
             @NonNull ClientConfig config,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider) {
-        return new BatchManager(
-                Batcher.newReadBatcherFactory(config, stubProvider, instrumentProvider));
+        return new BatchManager(Batcher.newReadBatcherFactory(config, rpcProvider, instrumentProvider));
     }
 
     public static @NonNull BatchManager newWriteBatchManager(
             @NonNull ClientConfig config,
-            @NonNull OxiaStubProvider stubProvider,
+            @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
             @NonNull InstrumentProvider instrumentProvider) {
         return new BatchManager(
-                Batcher.newWriteBatcherFactory(config, stubProvider, sessionManager, instrumentProvider));
+                Batcher.newWriteBatcherFactory(config, rpcProvider, sessionManager, instrumentProvider));
     }
 }
