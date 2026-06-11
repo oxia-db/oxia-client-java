@@ -15,9 +15,8 @@
  */
 package io.oxia.client.batch;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import com.google.common.annotations.VisibleForTesting;
+import io.netty.buffer.ByteBufUtil;
 import io.oxia.client.grpc.ManagedWriteStream;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.session.SessionManager;
@@ -57,14 +56,15 @@ final class WriteBatch extends BatchBase implements Batch {
         this.maxBatchSize = maxBatchSize;
     }
 
+    // ByteBufUtil.utf8Bytes() computes the UTF-8 encoded length without materializing the bytes
     int sizeOf(@NonNull Operation<?> operation) {
         if (operation instanceof Operation.WriteOperation.PutOperation p) {
-            return p.key().getBytes(UTF_8).length + p.value().length;
+            return ByteBufUtil.utf8Bytes(p.key()) + p.value().length;
         } else if (operation instanceof Operation.WriteOperation.DeleteOperation d) {
-            return d.key().getBytes(UTF_8).length;
+            return ByteBufUtil.utf8Bytes(d.key());
         } else if (operation instanceof Operation.WriteOperation.DeleteRangeOperation r) {
-            return r.startKeyInclusive().getBytes(UTF_8).length
-                    + r.endKeyExclusive().getBytes(UTF_8).length;
+            return ByteBufUtil.utf8Bytes(r.startKeyInclusive())
+                    + ByteBufUtil.utf8Bytes(r.endKeyExclusive());
         }
         return 0;
     }

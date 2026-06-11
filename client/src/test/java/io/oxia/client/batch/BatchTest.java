@@ -64,6 +64,7 @@ import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.WriteResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -267,6 +268,35 @@ class BatchTest {
             assertThat(batch.puts).containsOnly(put);
             assertThat(batch.deletes).containsOnly(delete);
             assertThat(batch.deleteRanges).containsOnly(deleteRange);
+        }
+
+        @Test
+        public void sizeOfMatchesEncodedLength() {
+            // One, two, three and four byte UTF-8 sequences
+            String key = "a-é-世-🚀";
+            int keyBytes = key.getBytes(StandardCharsets.UTF_8).length;
+            byte[] value = new byte[10];
+
+            var sizedPut =
+                    new PutOperation(
+                            new CompletableFuture<>(),
+                            key,
+                            Optional.empty(),
+                            Optional.empty(),
+                            value,
+                            OptionalLong.empty(),
+                            OptionalLong.empty(),
+                            Optional.empty(),
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
+            assertThat(batch.sizeOf(sizedPut)).isEqualTo(keyBytes + value.length);
+
+            var sizedDelete = new DeleteOperation(new CompletableFuture<>(), key, OptionalLong.empty());
+            assertThat(batch.sizeOf(sizedDelete)).isEqualTo(keyBytes);
+
+            var sizedDeleteRange = new DeleteRangeOperation(new CompletableFuture<>(), key, key);
+            assertThat(batch.sizeOf(sizedDeleteRange)).isEqualTo(2 * keyBytes);
         }
 
         @Test
