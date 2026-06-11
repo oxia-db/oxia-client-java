@@ -731,12 +731,19 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Objects.requireNonNull(startKeyInclusive);
             Objects.requireNonNull(endKeyExclusive);
 
+            final var flowControl = consumer instanceof FlowControlledRangeScanConsumer fc ? fc : null;
+
             final Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
             final Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
-                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, timedConsumer);
+                        shardId,
+                        startKeyInclusive,
+                        endKeyExclusive,
+                        secondaryIndexName,
+                        timedConsumer,
+                        flowControl);
                 return;
             }
             final Set<Long> shardIds = shardManager.allShardIds();
@@ -744,7 +751,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                     new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
             for (Long shardId : shardIds) {
                 internalShardRangeScan(
-                        shardId, startKeyInclusive, endKeyExclusive, secondaryIndexName, multiShardConsumer);
+                        shardId,
+                        startKeyInclusive,
+                        endKeyExclusive,
+                        secondaryIndexName,
+                        multiShardConsumer,
+                        flowControl);
             }
         } catch (Exception e) {
             consumer.onError(e);
@@ -756,35 +768,62 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer) {
+            RangeScanConsumer consumer,
+            FlowControlledRangeScanConsumer flowControl) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-        rpcProvider.rangeScan(
-                request,
-                new CancelableStreamObserver<>() {
-                    @Override
-                    protected void handleNext(RangeScanResponse response) {
-                        for (int i = 0; i < response.getRecordsCount(); i++) {
-                            final boolean needNext =
-                                    consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
-                            if (!needNext) {
-                                cancelAndComplete();
-                                return;
-                            }
-                        }
-                    }
+        var observer = new RangeScanShardObserver(consumer, flowControl);
+        rpcProvider.rangeScan(request, observer);
+        if (flowControl != null) {
+            flowControl.onStreamStarted(observer);
+        }
+    }
 
-                    @Override
-                    protected void handleError(Throwable t) {
-                        consumer.onError(t);
-                    }
+    private static final class RangeScanShardObserver
+            extends CancelableStreamObserver<RangeScanResponse>
+            implements FlowControlledRangeScanConsumer.StreamHandle {
+        private final RangeScanConsumer consumer;
+        private final FlowControlledRangeScanConsumer flowControl;
 
-                    @Override
-                    protected void handleComplete() {
-                        consumer.onCompleted();
-                    }
-                });
+        RangeScanShardObserver(
+                RangeScanConsumer consumer, FlowControlledRangeScanConsumer flowControl) {
+            super(flowControl != null);
+            this.consumer = consumer;
+            this.flowControl = flowControl;
+        }
+
+        @Override
+        protected void handleNext(RangeScanResponse response) {
+            for (int i = 0; i < response.getRecordsCount(); i++) {
+                final boolean needNext =
+                        consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
+                if (!needNext) {
+                    cancelAndComplete();
+                    return;
+                }
+            }
+            if (flowControl != null) {
+                flowControl.onStreamIdle(this);
+            }
+        }
+
+        @Override
+        protected void handleError(Throwable t) {
+            consumer.onError(t);
+        }
+
+        @Override
+        protected void handleComplete() {
+            consumer.onCompleted();
+        }
+
+        @Override
+        public void requestNext() {
+            requestNextMessage();
+        }
+
+        // StreamHandle.cancel() is satisfied by CancelableStreamObserver.cancel()
     }
 
     @Override
