@@ -92,9 +92,18 @@ class PendingBytesLimiterTest {
     }
 
     @Test
+    void zeroDisablesTheLimit() {
+        var limiter = new PendingBytesLimiter(0);
+        limiter.acquire(Long.MAX_VALUE);
+        limiter.acquire(Long.MAX_VALUE);
+        assertThat(limiter.pendingBytes()).isZero();
+
+        limiter.release(Long.MAX_VALUE);
+        assertThat(limiter.pendingBytes()).isZero();
+    }
+
+    @Test
     void invalidLimit() {
-        assertThatThrownBy(() -> new PendingBytesLimiter(0))
-                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new PendingBytesLimiter(-1))
                 .isInstanceOf(IllegalArgumentException.class);
     }

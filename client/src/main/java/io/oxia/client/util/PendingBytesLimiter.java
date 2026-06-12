@@ -27,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * thread: the capacity is released when responses are processed, so blocking a transport thread
  * could prevent the release that would unblock it.
  *
- * <p>Within the limit, acquire and release are single compare-and-set operations: the lock is only
+ * <p>Within the limit, acquire and release are single atomic-add operations: the lock is only
  * touched when a thread has to wait for capacity.
  */
 public final class PendingBytesLimiter {
@@ -41,9 +41,10 @@ public final class PendingBytesLimiter {
     // Written under the lock, read without it by release()
     private volatile int waiters;
 
+    /** A limit of {@code 0} disables the mechanism. */
     public PendingBytesLimiter(long maxBytes) {
-        if (maxBytes <= 0) {
-            throw new IllegalArgumentException("maxBytes must be greater than zero: " + maxBytes);
+        if (maxBytes < 0) {
+            throw new IllegalArgumentException("maxBytes must not be negative: " + maxBytes);
         }
         this.maxBytes = maxBytes;
     }
@@ -53,7 +54,10 @@ public final class PendingBytesLimiter {
      * larger than the whole limit is clamped, so that it can still proceed (alone).
      */
     public void acquire(long bytes) {
-        final long required = Math.min(bytes, maxBytes);
+        if (maxBytes == 0) {
+            return;
+        }
+        final long required = clamp(bytes);
         if (tryAcquire(required)) {
             return;
         }
@@ -79,20 +83,22 @@ public final class PendingBytesLimiter {
     }
 
     private boolean tryAcquire(long required) {
-        while (true) {
-            long current = pendingBytes.get();
-            if (current + required > maxBytes) {
-                return false;
-            }
-            if (pendingBytes.compareAndSet(current, current + required)) {
-                return true;
-            }
+        // Optimistic add: a single atomic instruction in the common case. When over the limit,
+        // back the reservation out through release(), which also wakes up any waiter that the
+        // transient over-count might have parked.
+        if (pendingBytes.addAndGet(required) <= maxBytes) {
+            return true;
         }
+        release(required);
+        return false;
     }
 
     /** Returns capacity taken by {@link #acquire}. Must be called with the same byte count. */
     public void release(long bytes) {
-        pendingBytes.addAndGet(-Math.min(bytes, maxBytes));
+        if (maxBytes == 0) {
+            return;
+        }
+        pendingBytes.addAndGet(-clamp(bytes));
         if (waiters > 0) {
             lock.lock();
             try {
@@ -101,6 +107,14 @@ public final class PendingBytesLimiter {
                 lock.unlock();
             }
         }
+    }
+
+    /**
+     * Caps an operation at the whole limit, so that an oversized operation can proceed and
+     * symmetrically release the same amount it acquired.
+     */
+    private long clamp(long bytes) {
+        return Math.min(bytes, maxBytes);
     }
 
     @VisibleForTesting

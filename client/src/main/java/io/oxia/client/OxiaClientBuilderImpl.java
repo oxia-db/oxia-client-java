@@ -117,9 +117,9 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     @Override
     public @NonNull OxiaClientBuilder maxPendingBytes(long maxPendingBytes) {
-        if (maxPendingBytes <= 0) {
+        if (maxPendingBytes < 0) {
             throw new IllegalArgumentException(
-                    "maxPendingBytes must be greater than zero: " + maxPendingBytes);
+                    "maxPendingBytes must not be negative: " + maxPendingBytes);
         }
         this.maxPendingBytes = maxPendingBytes;
         return this;

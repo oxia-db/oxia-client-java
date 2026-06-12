@@ -107,9 +107,9 @@ public interface OxiaClientBuilder {
      * completed. When the limit is reached, further operations block the calling thread until enough
      * pending operations complete, providing backpressure to the application.
      *
-     * <p>Default is <code>256 MiB</code>.
+     * <p>Default is <code>256 MiB</code>. A value of <code>0</code> disables the limit.
      *
-     * @param maxPendingBytes the maximum total size of pending operations
+     * @param maxPendingBytes the maximum total size of pending operations, or 0 to disable
      * @return the builder instance
      */
     OxiaClientBuilder maxPendingBytes(long maxPendingBytes);
