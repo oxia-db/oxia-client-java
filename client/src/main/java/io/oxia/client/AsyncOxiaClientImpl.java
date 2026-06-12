@@ -64,7 +64,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -90,17 +89,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
-        // The threads assembling the operation batches, shared by all the shards
-        final ExecutorService batchingExecutor =
-                Executors.newFixedThreadPool(
-                        config.batchingThreads(), new DefaultThreadFactory("oxia-batcher"));
         var readBatchManager =
-                BatchManager.newReadBatchManager(config, rpcProvider, batchingExecutor, instrumentProvider);
+                BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
         var sessionManager = new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
         shardManager.addCallback(sessionManager);
         var writeBatchManager =
-                BatchManager.newWriteBatchManager(
-                        config, rpcProvider, sessionManager, batchingExecutor, instrumentProvider);
+                BatchManager.newWriteBatchManager(config, rpcProvider, sessionManager, instrumentProvider);
 
         var client =
                 new AsyncOxiaClientImpl(
@@ -114,8 +108,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout(),
-                        config.maxPendingBytes(),
-                        batchingExecutor);
+                        config.maxPendingBytes());
         return shardManager.start().thenApply(v -> client);
     }
 
@@ -129,7 +122,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull SessionManager sessionManager;
     private final long requestTimeoutMs;
     private final @NonNull PendingBytesLimiter pendingBytesLimiter;
-    private final @NonNull ExecutorService batchingExecutor;
     private volatile boolean closed;
 
     private final Counter counterPutBytes;
@@ -166,11 +158,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
             Duration requestTimeout,
-            long maxPendingBytes,
-            @NonNull ExecutorService batchingExecutor) {
+            long maxPendingBytes) {
         this.clientIdentifier = clientIdentifier;
         this.pendingBytesLimiter = new PendingBytesLimiter(maxPendingBytes);
-        this.batchingExecutor = batchingExecutor;
         this.instrumentProvider = instrumentProvider;
         this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
@@ -349,6 +339,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         if (!OptionsUtils.isEphemeral(options)) {
             var op =
                     new PutOperation(
+                            shardId,
                             future,
                             key,
                             partitionKey,
@@ -360,7 +351,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             secondaryIndexes,
                             overrideVersionId,
                             overrideModificationsCount);
-            writeBatchManager.getBatcher(shardId).add(op);
+            writeBatchManager.add(op);
         } else {
             // The put operation is trying to write an ephemeral record. We need to have a valid session
             // id for this
@@ -370,6 +361,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             session -> {
                                 var op =
                                         new PutOperation(
+                                                shardId,
                                                 future,
                                                 key,
                                                 partitionKey,
@@ -381,7 +373,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                                 secondaryIndexes,
                                                 overrideVersionId,
                                                 overrideModificationsCount);
-                                writeBatchManager.getBatcher(shardId).add(op);
+                                writeBatchManager.add(op);
                             })
                     .exceptionally(
                             ex -> {
@@ -418,7 +410,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             pendingBytesLimiter.acquire(size);
             acquiredBytes = size;
 
-            writeBatchManager.getBatcher(shardId).add(new DeleteOperation(callback, key, versionId));
+            writeBatchManager.add(new DeleteOperation(shardId, callback, key, versionId));
         } catch (RuntimeException e) {
             callback.completeExceptionally(e);
         }
@@ -466,20 +458,18 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 // When partition key is present, we only need to send the request to a single shard
                 var shardId = shardManager.getShardForKey(partitionKey.get());
                 callback = new CompletableFuture<>();
-                writeBatchManager
-                        .getBatcher(shardId)
-                        .add(new DeleteRangeOperation(callback, startKeyInclusive, endKeyExclusive));
+                writeBatchManager.add(
+                        new DeleteRangeOperation(shardId, callback, startKeyInclusive, endKeyExclusive));
             } else {
                 // Perform the delete range on all the shards
                 var shardDeletes =
                         shardManager.allShardIds().stream()
-                                .map(writeBatchManager::getBatcher)
                                 .map(
-                                        b -> {
+                                        shardId -> {
                                             var shardCallback = new CompletableFuture<Void>();
-                                            b.add(
+                                            writeBatchManager.add(
                                                     new DeleteRangeOperation(
-                                                            shardCallback, startKeyInclusive, endKeyExclusive));
+                                                            shardId, shardCallback, startKeyInclusive, endKeyExclusive));
                                             return shardCallback;
                                         })
                                 .toArray(CompletableFuture[]::new);
@@ -558,7 +548,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             // Single shard get operation
             long shardId =
                     shardManager.getShardForKey(Optional.ofNullable(options.partitionKey()).orElse(key));
-            readBatchManager.getBatcher(shardId).add(new GetOperation(result, key, options));
+            readBatchManager.add(new GetOperation(shardId, result, key, options));
         }
     }
 
@@ -568,7 +558,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         List<CompletableFuture<GetResult>> futures = new ArrayList<>();
         for (long shardId : shardManager.allShardIds()) {
             CompletableFuture<GetResult> f = new CompletableFuture<>();
-            readBatchManager.getBatcher(shardId).add(new GetOperation(f, key, options));
+            readBatchManager.add(new GetOperation(shardId, f, key, options));
             futures.add(f);
         }
 
@@ -888,8 +878,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         closed = true;
         readBatchManager.close();
         writeBatchManager.close();
-        // Graceful: lets the already-scheduled tasks fail the pending operations
-        batchingExecutor.shutdown();
         sessionManager.close();
         notificationManager.close();
         shardManager.close();

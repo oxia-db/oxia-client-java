@@ -52,12 +52,16 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
     CompletableFuture<R> callback();
 
+    /** The shard this operation is routed to; the batching threads group operations by shard. */
+    long shardId();
+
     default void fail(Throwable t) {
         callback().completeExceptionally(t);
     }
 
     sealed interface ReadOperation<R> extends Operation<R> permits GetOperation {
         record GetOperation(
+                long shardId,
                 @NonNull CompletableFuture<GetResult> callback,
                 @NonNull String key,
                 @NonNull GetOptions options)
@@ -86,6 +90,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
     sealed interface WriteOperation<R> extends Operation<R>
             permits PutOperation, DeleteOperation, DeleteRangeOperation {
         record PutOperation(
+                long shardId,
                 @NonNull CompletableFuture<PutResult> callback,
                 @NonNull String key,
                 @NonNull Optional<String> partitionKey,
@@ -175,6 +180,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
         }
 
         record DeleteOperation(
+                long shardId,
                 @NonNull CompletableFuture<Boolean> callback,
                 @NonNull String key,
                 @NonNull OptionalLong expectedVersionId)
@@ -202,12 +208,14 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 }
             }
 
-            public DeleteOperation(@NonNull CompletableFuture<Boolean> callback, @NonNull String key) {
-                this(callback, key, OptionalLong.empty());
+            public DeleteOperation(
+                    long shardId, @NonNull CompletableFuture<Boolean> callback, @NonNull String key) {
+                this(shardId, callback, key, OptionalLong.empty());
             }
         }
 
         record DeleteRangeOperation(
+                long shardId,
                 @NonNull CompletableFuture<Void> callback,
                 @NonNull String startKeyInclusive,
                 @NonNull String endKeyExclusive)

@@ -26,7 +26,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.oxia.client.api.GetResult;
@@ -35,7 +34,6 @@ import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.batch.BatchManager;
-import io.oxia.client.batch.Batcher;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
@@ -78,7 +76,6 @@ class AsyncOxiaClientImplTest {
     @Mock BatchManager readBatchManager;
     @Mock BatchManager writeBatchManager;
     @Mock SessionManager sessionManager;
-    @Mock Batcher batcher;
 
     AsyncOxiaClientImpl client;
 
@@ -97,8 +94,7 @@ class AsyncOxiaClientImplTest {
                 writeBatchManager,
                 sessionManager,
                 requestTimeout,
-                maxPendingBytes,
-                Executors.newSingleThreadExecutor());
+                maxPendingBytes);
     }
 
     @BeforeEach
@@ -120,8 +116,7 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var value = "hello".getBytes(UTF_8);
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.put(key, value);
         assertThat(result).isNotCompleted();
         assertThat(opCaptor.getValue())
@@ -142,8 +137,7 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var value = "hello".getBytes(UTF_8);
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.put(key, value);
         try {
             result.join();
@@ -160,8 +154,7 @@ class AsyncOxiaClientImplTest {
         var opCaptor = ArgumentCaptor.forClass(PutOperation.class);
         var shardId = 1L;
         when(shardManager.getShardForKey(any())).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
 
         // utf8("a") + 8 value bytes = 9: the first put fits within the 10 bytes limit
         var smallClient = newClient(10);
@@ -194,8 +187,7 @@ class AsyncOxiaClientImplTest {
         var value = "hello".getBytes(UTF_8);
         var throwable = new RuntimeException();
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doThrow(throwable).when(batcher).add(opCaptor.capture());
+        doThrow(throwable).when(writeBatchManager).add(opCaptor.capture());
         var result = client.put(key, value);
         assertThat(result).isCompletedExceptionally();
     }
@@ -228,8 +220,7 @@ class AsyncOxiaClientImplTest {
         var expectedVersionId = 2L;
         var value = "hello".getBytes(UTF_8);
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.put(key, value, Set.of(IfVersionIdEquals(expectedVersionId)));
         assertThat(result).isNotCompleted();
         assertThat(opCaptor.getValue())
@@ -255,8 +246,7 @@ class AsyncOxiaClientImplTest {
         var shardId = 1L;
         var key = "key";
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.delete(key);
         assertThat(result).isNotCompleted();
         assertThat(opCaptor.getValue())
@@ -275,8 +265,7 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var throwable = new RuntimeException();
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doThrow(throwable).when(batcher).add(opCaptor.capture());
+        doThrow(throwable).when(writeBatchManager).add(opCaptor.capture());
         var result = client.delete(key);
         assertThat(result).isNotCompleted();
     }
@@ -286,7 +275,6 @@ class AsyncOxiaClientImplTest {
         var shardId = 1L;
         var key = "key";
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
         var result = client.delete(key);
         try {
             result.join();
@@ -316,8 +304,7 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var expectedVersionId = 2L;
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.delete(key, Set.of(DeleteOption.IfVersionIdEquals(expectedVersionId)));
         assertThat(result).isNotCompleted();
         assertThat(opCaptor.getValue())
@@ -339,97 +326,42 @@ class AsyncOxiaClientImplTest {
 
     @Test
     void deleteRange() {
-        var batcher1 = mock(Batcher.class);
-        var batcher2 = mock(Batcher.class);
-        var batcher3 = mock(Batcher.class);
-        var opCaptor1 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
-        var opCaptor2 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
-        var opCaptor3 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
+        var opCaptor = ArgumentCaptor.forClass(DeleteRangeOperation.class);
         var startInclusive = "a-startInclusive";
         var endExclusive = "z-endExclusive";
         when(shardManager.allShardIds()).thenReturn(Set.of(1L, 2L, 3L));
-        when(writeBatchManager.getBatcher(1L)).thenReturn(batcher1);
-        when(writeBatchManager.getBatcher(2L)).thenReturn(batcher2);
-        when(writeBatchManager.getBatcher(3L)).thenReturn(batcher3);
-        doNothing().when(batcher1).add(opCaptor1.capture());
-        doNothing().when(batcher2).add(opCaptor2.capture());
-        doNothing().when(batcher3).add(opCaptor3.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.deleteRange(startInclusive, endExclusive);
         assertThat(result).isNotCompleted();
 
-        assertThat(opCaptor1.getValue())
-                .satisfies(
+        assertThat(opCaptor.getAllValues()).hasSize(3);
+        assertThat(opCaptor.getAllValues())
+                .extracting(DeleteRangeOperation::shardId)
+                .containsExactlyInAnyOrder(1L, 2L, 3L);
+        opCaptor
+                .getAllValues()
+                .forEach(
                         o -> {
                             assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
                             assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
                             assertThat(o.callback()).isNotCompleted();
                         });
 
-        assertThat(opCaptor2.getValue())
-                .satisfies(
-                        o -> {
-                            assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
-                            assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
-                            assertThat(o.callback()).isNotCompleted();
-                        });
-
-        assertThat(opCaptor3.getValue())
-                .satisfies(
-                        o -> {
-                            assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
-                            assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
-                            assertThat(o.callback()).isNotCompleted();
-                        });
-
-        opCaptor1.getValue().callback().complete(null);
-        opCaptor2.getValue().callback().complete(null);
-        opCaptor3.getValue().callback().complete(null);
+        opCaptor.getAllValues().forEach(o -> o.callback().complete(null));
         assertThat(result).isCompleted();
     }
 
     @Test
     void deleteRangeWithTimeout() {
-        var batcher1 = mock(Batcher.class);
-        var batcher2 = mock(Batcher.class);
-        var batcher3 = mock(Batcher.class);
-        var opCaptor1 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
-        var opCaptor2 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
-        var opCaptor3 = ArgumentCaptor.forClass(DeleteRangeOperation.class);
+        var opCaptor = ArgumentCaptor.forClass(DeleteRangeOperation.class);
         var startInclusive = "a-startInclusive";
         var endExclusive = "z-endExclusive";
         when(shardManager.allShardIds()).thenReturn(Set.of(1L, 2L, 3L));
-        when(writeBatchManager.getBatcher(1L)).thenReturn(batcher1);
-        when(writeBatchManager.getBatcher(2L)).thenReturn(batcher2);
-        when(writeBatchManager.getBatcher(3L)).thenReturn(batcher3);
-        doNothing().when(batcher1).add(opCaptor1.capture());
-        doNothing().when(batcher2).add(opCaptor2.capture());
-        doNothing().when(batcher3).add(opCaptor3.capture());
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
         var result = client.deleteRange(startInclusive, endExclusive);
         assertThat(result).isNotCompleted();
 
-        assertThat(opCaptor1.getValue())
-                .satisfies(
-                        o -> {
-                            assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
-                            assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
-                            assertThat(o.callback()).isNotCompleted();
-                        });
-
-        assertThat(opCaptor2.getValue())
-                .satisfies(
-                        o -> {
-                            assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
-                            assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
-                            assertThat(o.callback()).isNotCompleted();
-                        });
-
-        assertThat(opCaptor3.getValue())
-                .satisfies(
-                        o -> {
-                            assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
-                            assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
-                            assertThat(o.callback()).isNotCompleted();
-                        });
+        assertThat(opCaptor.getAllValues()).hasSize(3);
         try {
             result.join();
             fail("unexpected");
@@ -465,8 +397,7 @@ class AsyncOxiaClientImplTest {
         var shardId = 1L;
         var key = "key";
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(readBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doNothing().when(batcher).add(opCaptor.capture());
+        doNothing().when(readBatchManager).add(opCaptor.capture());
         var result = client.get(key);
         assertThat(result).isNotCompleted();
         assertThat(opCaptor.getValue())
@@ -486,8 +417,7 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var throwable = new RuntimeException();
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(readBatchManager.getBatcher(shardId)).thenReturn(batcher);
-        doThrow(throwable).when(batcher).add(opCaptor.capture());
+        doThrow(throwable).when(readBatchManager).add(opCaptor.capture());
         var result = client.get(key);
         assertThat(result).isCompletedExceptionally();
     }
@@ -497,7 +427,6 @@ class AsyncOxiaClientImplTest {
         var shardId = 1L;
         var key = "key";
         when(shardManager.getShardForKey(key)).thenReturn(shardId);
-        when(readBatchManager.getBatcher(shardId)).thenReturn(batcher);
         var result = client.get(key);
         try {
             result.join();

@@ -213,6 +213,7 @@ class BatchTest {
 
         PutOperation put =
                 new PutOperation(
+                        1L,
                         putCallable,
                         "",
                         Optional.empty(),
@@ -226,6 +227,7 @@ class BatchTest {
                         OptionalLong.empty());
         PutOperation putEphemeral =
                 new PutOperation(
+                        1L,
                         putEphemeralCallable,
                         "",
                         Optional.empty(),
@@ -237,8 +239,8 @@ class BatchTest {
                         Collections.emptyList(),
                         OptionalLong.empty(),
                         OptionalLong.empty());
-        DeleteOperation delete = new DeleteOperation(deleteCallable, "", OptionalLong.of(1));
-        DeleteRangeOperation deleteRange = new DeleteRangeOperation(deleteRangeCallable, "a", "b");
+        DeleteOperation delete = new DeleteOperation(1L, deleteCallable, "", OptionalLong.of(1));
+        DeleteRangeOperation deleteRange = new DeleteRangeOperation(1L, deleteRangeCallable, "a", "b");
 
         @BeforeEach
         void setup() {
@@ -280,6 +282,7 @@ class BatchTest {
 
             var sizedPut =
                     new PutOperation(
+                            1L,
                             new CompletableFuture<>(),
                             key,
                             Optional.empty(),
@@ -293,10 +296,11 @@ class BatchTest {
                             OptionalLong.empty());
             assertThat(batch.sizeOf(sizedPut)).isEqualTo(keyBytes + value.length);
 
-            var sizedDelete = new DeleteOperation(new CompletableFuture<>(), key, OptionalLong.empty());
+            var sizedDelete =
+                    new DeleteOperation(1L, new CompletableFuture<>(), key, OptionalLong.empty());
             assertThat(batch.sizeOf(sizedDelete)).isEqualTo(keyBytes);
 
-            var sizedDeleteRange = new DeleteRangeOperation(new CompletableFuture<>(), key, key);
+            var sizedDeleteRange = new DeleteRangeOperation(1L, new CompletableFuture<>(), key, key);
             assertThat(batch.sizeOf(sizedDeleteRange)).isEqualTo(2 * keyBytes);
         }
 
@@ -437,7 +441,7 @@ class BatchTest {
         CompletableFuture<GetResult> getCallable = new CompletableFuture<>();
         GetOperation get =
                 new GetOperation(
-                        getCallable, "", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+                        1L, getCallable, "", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
 
         @BeforeEach
         void setup() {

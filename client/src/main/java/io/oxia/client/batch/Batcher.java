@@ -17,67 +17,50 @@ package io.oxia.client.batch;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
+import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.RpcProvider;
-import io.oxia.client.metrics.InstrumentProvider;
-import io.oxia.client.session.SessionManager;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.NonNull;
-import lombok.SneakyThrows;
 
 /**
- * Groups the operations of one shard into batches. Producers enqueue into a multi-producer
- * single-consumer queue, and the assembly of batches runs on the shared batching executor: a shard
- * is scheduled when it has operations to process, so the executor threads are shared by all the
- * shards. A partial batch is flushed as soon as the queue is found empty, since there is nothing
- * left to coalesce with.
+ * One batching thread, serving the operations of all the shards assigned to it. Producers enqueue
+ * into the thread's multi-producer single-consumer queue; the thread drains it and groups the
+ * operations into per-shard batches. A batch is sent when full, and any partial batch is flushed as
+ * soon as the queue is found empty, since there is nothing left to coalesce with.
  */
 public class Batcher implements AutoCloseable {
 
     private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
     @NonNull private final ClientConfig config;
-    private final long shardId;
     @NonNull private final BatchFactory batchFactory;
-    @NonNull private final Executor executor;
     @NonNull private final BatchedArrayBlockingQueue<Operation<?>> operations;
 
-    // Single-consumer: guarantees at most one processQueue() task at a time for this shard
-    private final AtomicBoolean scheduled = new AtomicBoolean();
+    // Open batches, grouped by shard. Only accessed by the batcher thread.
+    private final Map<Long, Batch> batchesByShardId = new HashMap<>();
 
-    private final Operation<?>[] localOperations;
-
-    // Only accessed by the processQueue() task, which is serialized by the scheduled flag
-    private Batch currentBatch;
-
+    private final Thread thread;
     private volatile boolean closed;
 
-    Batcher(
-            @NonNull ClientConfig config,
-            long shardId,
-            @NonNull BatchFactory batchFactory,
-            @NonNull Executor executor) {
-        this(config, shardId, batchFactory, executor, DEFAULT_QUEUE_CAPACITY);
+    Batcher(@NonNull ClientConfig config, String name, @NonNull BatchFactory batchFactory) {
+        this(config, name, batchFactory, new BatchedArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY));
     }
 
     Batcher(
             @NonNull ClientConfig config,
-            long shardId,
+            String name,
             @NonNull BatchFactory batchFactory,
-            @NonNull Executor executor,
-            int queueCapacity) {
+            @NonNull BatchedArrayBlockingQueue<Operation<?>> operations) {
         this.config = config;
-        this.shardId = shardId;
         this.batchFactory = batchFactory;
-        this.executor = executor;
-        this.operations = new BatchedArrayBlockingQueue<>(queueCapacity);
-        this.localOperations = new Operation<?>[Math.min(queueCapacity, config.maxRequestsPerBatch())];
+        this.operations = operations;
+
+        this.thread = new DefaultThreadFactory(name).newThread(this::batcherLoop);
+        this.thread.start();
     }
 
-    @SneakyThrows
     public <R> void add(@NonNull Operation<R> operation) {
         if (closed) {
             operation.fail(new IllegalStateException("Batcher has been closed"));
@@ -89,107 +72,94 @@ public class Batcher implements AutoCloseable {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
-        schedule();
     }
 
-    private void schedule() {
-        if (scheduled.compareAndSet(false, true)) {
-            executor.execute(this::processQueue);
-        }
-    }
+    private void batcherLoop() {
+        Operation<?>[] localOperations = new Operation<?>[DEFAULT_QUEUE_CAPACITY];
+        int localOperationsIndex = 0;
+        int localOperationsCount = 0;
 
-    @SneakyThrows
-    private void processQueue() {
-        try {
-            if (closed) {
+        while (true) {
+            try {
+                if (localOperationsIndex >= localOperationsCount) {
+                    if (batchesByShardId.isEmpty()) {
+                        // No pending batches — block until at least one operation arrives.
+                        localOperationsCount = operations.takeAll(localOperations);
+                    } else {
+                        // There are open batches. Non-blocking drain to pick up any operations
+                        // that arrived while we were processing.
+                        localOperationsCount = operations.pollAll(localOperations, 0, NANOSECONDS);
+                        if (localOperationsCount == 0) {
+                            // Queue is empty — no concurrent producers are filling it right
+                            // now. Flush the open batches immediately rather than lingering,
+                            // since there is nothing to batch with.
+                            sendAll();
+
+                            // Block until the next operation arrives.
+                            localOperationsCount = operations.takeAll(localOperations);
+                        }
+                    }
+                    localOperationsIndex = 0;
+                }
+            } catch (InterruptedException e) {
+                // Exiting thread
                 failPendingOperations();
                 return;
             }
 
-            // Process one chunk per task, so that the executor threads are shared fairly among
-            // the shards: when more operations are queued, the shard is re-scheduled below.
-            int count = operations.pollAll(localOperations, 0, NANOSECONDS);
-            for (int i = 0; i < count; i++) {
-                Operation<?> operation = localOperations[i];
-                localOperations[i] = null;
-                try {
-                    if (currentBatch == null) {
-                        currentBatch = batchFactory.getBatch(shardId);
-                    }
-                    if (!currentBatch.canAdd(operation) && currentBatch.size() > 0) {
-                        currentBatch.send();
-                        currentBatch = batchFactory.getBatch(shardId);
-                    }
-                    currentBatch.add(operation);
-                    if (currentBatch.size() >= config.maxRequestsPerBatch()) {
-                        currentBatch.send();
-                        currentBatch = null;
-                    }
-                } catch (Exception e) {
-                    operation.fail(e);
+            Operation<?> operation = localOperations[localOperationsIndex];
+            localOperations[localOperationsIndex++] = null;
+            try {
+                Batch batch = batchesByShardId.get(operation.shardId());
+                if (batch == null) {
+                    batch = batchFactory.getBatch(operation.shardId());
+                    batchesByShardId.put(operation.shardId(), batch);
                 }
-            }
-
-            if (currentBatch != null && currentBatch.size() > 0 && operations.isEmpty()) {
-                // Nothing left to coalesce with: flush the partial batch immediately
-                currentBatch.send();
-                currentBatch = null;
-            }
-        } finally {
-            scheduled.set(false);
-            // Operations enqueued while we were clearing the flag would have lost the
-            // schedule() race: re-check and re-schedule
-            if (!operations.isEmpty() || closed && hasPendingOperations()) {
-                schedule();
+                if (!batch.canAdd(operation) && batch.size() > 0) {
+                    batch.send();
+                    batch = batchFactory.getBatch(operation.shardId());
+                    batchesByShardId.put(operation.shardId(), batch);
+                }
+                batch.add(operation);
+                if (batch.size() >= config.maxRequestsPerBatch()) {
+                    batch.send();
+                    batchesByShardId.remove(operation.shardId());
+                }
+            } catch (Exception e) {
+                operation.fail(e);
+                // Don't leave behind an open batch that the failed operation just created:
+                // it would be flushed empty
+                Batch open = batchesByShardId.get(operation.shardId());
+                if (open != null && open.size() == 0) {
+                    batchesByShardId.remove(operation.shardId());
+                }
             }
         }
     }
 
-    private boolean hasPendingOperations() {
-        return currentBatch != null || !operations.isEmpty();
+    private void sendAll() {
+        batchesByShardId.values().forEach(Batch::send);
+        batchesByShardId.clear();
     }
 
     private void failPendingOperations() {
         var closedException = new IllegalStateException("Batcher has been closed");
-        if (currentBatch != null) {
-            currentBatch.fail(closedException);
-            currentBatch = null;
-        }
+        batchesByShardId.values().forEach(batch -> batch.fail(closedException));
+        batchesByShardId.clear();
         Operation<?> operation;
         while ((operation = operations.poll()) != null) {
             operation.fail(closedException);
         }
     }
 
-    static @NonNull Function<Long, Batcher> newReadBatcherFactory(
-            @NonNull ClientConfig config,
-            @NonNull RpcProvider rpcProvider,
-            @NonNull Executor executor,
-            InstrumentProvider instrumentProvider) {
-        return s ->
-                new Batcher(
-                        config, s, new ReadBatchFactory(rpcProvider, config, instrumentProvider), executor);
-    }
-
-    static @NonNull Function<Long, Batcher> newWriteBatcherFactory(
-            @NonNull ClientConfig config,
-            @NonNull RpcProvider rpcProvider,
-            @NonNull SessionManager sessionManager,
-            @NonNull Executor executor,
-            InstrumentProvider instrumentProvider) {
-        return s ->
-                new Batcher(
-                        config,
-                        s,
-                        new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider),
-                        executor);
-    }
-
     @Override
     public void close() {
         closed = true;
-        // The processQueue() task fails the pending operations; scheduling it here also covers
-        // the case where no task is running
-        schedule();
+        thread.interrupt();
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
