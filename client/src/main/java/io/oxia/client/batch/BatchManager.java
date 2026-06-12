@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,36 +15,33 @@
  */
 package io.oxia.client.batch;
 
-import static lombok.AccessLevel.PACKAGE;
-
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.session.SessionManager;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.function.Function;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 
-@RequiredArgsConstructor
+/**
+ * Routes operations to a fixed set of {@link Batcher} threads. A shard is always served by the same
+ * batcher, so that the per-shard ordering of operations is preserved.
+ */
 public class BatchManager implements AutoCloseable {
 
-    private final ConcurrentMap<Long, Batcher> batchersByShardId = new ConcurrentHashMap<>();
-    private final @NonNull Function<Long, Batcher> batcherFactory;
+    private final Batcher[] batchers;
     private volatile boolean closed;
 
-    public Batcher getBatcher(long shardId) {
+    BatchManager(@NonNull ClientConfig config, String name, @NonNull BatchFactory batchFactory) {
+        this.batchers = new Batcher[config.batchingThreads()];
+        for (int i = 0; i < batchers.length; i++) {
+            batchers[i] = new Batcher(config, name + "-" + i, batchFactory);
+        }
+    }
+
+    public void add(@NonNull Operation<?> operation) {
         if (closed) {
             throw new IllegalStateException("Batch manager is closed");
         }
-        return batchersByShardId.computeIfAbsent(shardId, this::createAndStartBatcher);
-    }
-
-    private Batcher createAndStartBatcher(long shardId) {
-        return batcherFactory.apply(shardId);
+        batchers[(int) Math.floorMod(operation.shardId(), batchers.length)].add(operation);
     }
 
     @Override
@@ -53,19 +50,17 @@ public class BatchManager implements AutoCloseable {
             return;
         }
         closed = true;
-        batchersByShardId.values().forEach(Batcher::close);
-    }
-
-    @RequiredArgsConstructor(access = PACKAGE)
-    public static class ShutdownException extends Exception {
-        @Getter private final @NonNull List<Exception> exceptions;
+        for (Batcher batcher : batchers) {
+            batcher.close();
+        }
     }
 
     public static @NonNull BatchManager newReadBatchManager(
             @NonNull ClientConfig config,
             @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider) {
-        return new BatchManager(Batcher.newReadBatcherFactory(config, rpcProvider, instrumentProvider));
+        return new BatchManager(
+                config, "oxia-read-batcher", new ReadBatchFactory(rpcProvider, config, instrumentProvider));
     }
 
     public static @NonNull BatchManager newWriteBatchManager(
@@ -74,6 +69,8 @@ public class BatchManager implements AutoCloseable {
             @NonNull SessionManager sessionManager,
             @NonNull InstrumentProvider instrumentProvider) {
         return new BatchManager(
-                Batcher.newWriteBatcherFactory(config, rpcProvider, sessionManager, instrumentProvider));
+                config,
+                "oxia-write-batcher",
+                new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider));
     }
 }

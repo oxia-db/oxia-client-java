@@ -27,10 +27,13 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.testcontainers.OxiaContainer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import org.awaitility.Awaitility;
+import org.awaitility.core.ConditionTimeoutException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,7 +58,7 @@ class NotificationIt {
     private static final Queue<Notification> notifications = new LinkedBlockingQueue<>();
 
     @BeforeAll
-    static void beforeAll() {
+    static void beforeAll() throws Exception {
         Resource resource =
                 Resource.getDefault()
                         .merge(
@@ -76,6 +79,30 @@ class NotificationIt {
                         .asyncClient()
                         .join();
         client.notifications(notifications::add);
+
+        // The per-shard notification streams subscribe asynchronously and events written before a
+        // shard's stream is registered are silently missed: there is no readiness signal exposed
+        // to the client. Probe with rounds of sentinel writes spread across the shards until a
+        // whole round is observed, which indicates the streams are up.
+        final int probesPerRound = 50;
+        Awaitility.await()
+                .atMost(Duration.ofSeconds(30))
+                .until(
+                        () -> {
+                            notifications.clear();
+                            for (int i = 0; i < probesPerRound; i++) {
+                                client.put("__warmup-" + UUID.randomUUID(), new byte[0]).join();
+                            }
+                            try {
+                                Awaitility.await()
+                                        .atMost(Duration.ofSeconds(2))
+                                        .until(() -> notifications.size() >= probesPerRound);
+                                return true;
+                            } catch (ConditionTimeoutException e) {
+                                return false;
+                            }
+                        });
+        notifications.clear();
     }
 
     @AfterAll

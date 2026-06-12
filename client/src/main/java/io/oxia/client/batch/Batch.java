@@ -29,5 +29,8 @@ public interface Batch {
 
     void send();
 
+    /** Fails all the operations of a batch that was never sent. */
+    void fail(@NonNull Throwable t);
+
     long getStartTimeNanos();
 }

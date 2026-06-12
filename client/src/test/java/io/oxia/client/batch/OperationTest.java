@@ -65,7 +65,7 @@ class OperationTest {
         CompletableFuture<GetResult> callback = new CompletableFuture<>();
         GetOperation op =
                 new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+                        1L, callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
 
         @Test
         void toProto() {
@@ -133,6 +133,7 @@ class OperationTest {
         byte[] payload = "hello".getBytes(UTF_8);
         PutOperation op =
                 new PutOperation(
+                        1L,
                         callback,
                         "key",
                         Optional.empty(),
@@ -152,6 +153,7 @@ class OperationTest {
                     .isThrownBy(
                             () ->
                                     new PutOperation(
+                                            1L,
                                             callback,
                                             "key",
                                             Optional.empty(),
@@ -167,6 +169,7 @@ class OperationTest {
                     .isThrownBy(
                             () ->
                                     new PutOperation(
+                                            1L,
                                             callback,
                                             "key",
                                             Optional.empty(),
@@ -181,6 +184,7 @@ class OperationTest {
             assertThatThrownBy(
                             () ->
                                     new PutOperation(
+                                            1L,
                                             callback,
                                             "key",
                                             Optional.empty(),
@@ -199,6 +203,7 @@ class OperationTest {
         void toProtoNoExpectedVersion() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -227,6 +232,7 @@ class OperationTest {
         void toProtoExpectedVersion() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -255,6 +261,7 @@ class OperationTest {
         void toProtoPartitionKey() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.of("my-partition-key"),
@@ -283,6 +290,7 @@ class OperationTest {
         void toProtoNoExistingVersion() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -311,6 +319,7 @@ class OperationTest {
         void toProtoEphemeral() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -339,6 +348,7 @@ class OperationTest {
         void toProtoOverrideVersionMetadata() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -367,6 +377,7 @@ class OperationTest {
         void toProtoNoOverrideVersionMetadata() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -408,6 +419,7 @@ class OperationTest {
         void completeKeyAlreadyExists() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -437,6 +449,7 @@ class OperationTest {
         void completeSessionDoesNotExist() {
             var op =
                     new PutOperation(
+                            1L,
                             callback,
                             "key",
                             Optional.empty(),
@@ -507,22 +520,22 @@ class OperationTest {
     @DisplayName("Tests of delete operation")
     class DeleteOperationTests {
         CompletableFuture<Boolean> callback = new CompletableFuture<>();
-        DeleteOperation op = new DeleteOperation(callback, "key", OptionalLong.of(10L));
+        DeleteOperation op = new DeleteOperation(1L, callback, "key", OptionalLong.of(10L));
 
         @Test
         void constructInvalidExpectedVersionId() {
             assertThatNoException()
-                    .isThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(0L)));
+                    .isThrownBy(() -> new DeleteOperation(1L, callback, "key", OptionalLong.of(0L)));
             assertThatThrownBy(
-                            () -> new DeleteOperation(callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
+                            () -> new DeleteOperation(1L, callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
                     .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> new DeleteOperation(callback, "key", OptionalLong.of(-2L)))
+            assertThatThrownBy(() -> new DeleteOperation(1L, callback, "key", OptionalLong.of(-2L)))
                     .isInstanceOf(IllegalArgumentException.class);
         }
 
         @Test
         void toProtoNoExpectedVersion() {
-            var op = new DeleteOperation(callback, "key");
+            var op = new DeleteOperation(1L, callback, "key");
             var request = new DeleteRequest();
             op.toProto(request);
             assertThat(request)
@@ -582,7 +595,7 @@ class OperationTest {
     @DisplayName("Tests of delete range operation")
     class DeleteRangeOperationTests {
         CompletableFuture<Void> callback = new CompletableFuture<>();
-        DeleteRangeOperation op = new DeleteRangeOperation(callback, "a", "b");
+        DeleteRangeOperation op = new DeleteRangeOperation(1L, callback, "a", "b");
 
         @Test
         void toProto() {

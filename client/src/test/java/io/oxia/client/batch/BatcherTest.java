@@ -15,11 +15,11 @@
  */
 package io.oxia.client.batch;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,16 +27,11 @@ import static org.mockito.Mockito.when;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.GetResult;
-import io.oxia.client.api.PutResult;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
 import io.oxia.proto.KeyComparisonType;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Collections;
-import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +45,6 @@ class BatcherTest {
 
     @Mock BatchFactory batchFactory;
     @Mock Batch batch;
-    long shardId = 1L;
     ClientConfig config =
             new ClientConfig(
                     "address",
@@ -58,6 +52,7 @@ class BatcherTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
+                    1,
                     Duration.ofMillis(1000),
                     "client_id",
                     null,
@@ -74,9 +69,9 @@ class BatcherTest {
     Batcher batcher;
 
     @BeforeEach
-    void mocking() {
-        queue = spy(new BatchedArrayBlockingQueue<>(100));
-        batcher = new Batcher(config, shardId, batchFactory, queue);
+    void setup() {
+        queue = new BatchedArrayBlockingQueue<>(100);
+        batcher = new Batcher(config, "test-batcher", batchFactory, queue);
     }
 
     @AfterEach
@@ -84,17 +79,24 @@ class BatcherTest {
         batcher.close();
     }
 
+    private static Operation<?> newOp(long shardId) {
+        return new GetOperation(
+                shardId,
+                new CompletableFuture<GetResult>(),
+                "key",
+                new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+    }
+
     @Test
-    void createBatchAndAdd() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(1);
+    void singleOperationIsFlushedImmediately() {
+        var op = newOp(1L);
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+
         batcher.add(op);
-        // Single operation with empty queue: batch is flushed immediately.
+
+        // Single operation with empty queue: the batch is flushed immediately
         await()
                 .untilAsserted(
                         () -> {
@@ -104,118 +106,90 @@ class BatcherTest {
     }
 
     @Test
-    void sendBatchOnFull() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
+    void sendBatchWhenFull() {
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(config.maxRequestsPerBatch());
-        when(batch.canAdd(any())).thenReturn(true);
-        batcher.add(op);
+
+        batcher.add(newOp(1L));
+
         await().untilAsserted(() -> verify(batch).send());
     }
 
     @Test
-    void addWhenNextDoesNotFit() {
-        var callback = new CompletableFuture<PutResult>();
-        Operation<?> op =
-                new Operation.WriteOperation.PutOperation(
-                        callback,
-                        "key",
-                        Optional.empty(),
-                        Optional.empty(),
-                        "value".getBytes(StandardCharsets.UTF_8),
-                        OptionalLong.empty(),
-                        OptionalLong.empty(),
-                        Optional.empty(),
-                        Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(config.maxRequestsPerBatch(), 1);
+    void sealBatchWhenOperationDoesNotFit() {
+        var op = newOp(1L);
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(false);
-        batcher.add(op);
-        await()
-                .untilAsserted(
-                        () -> {
-                            verify(batchFactory, times(2)).getBatch(shardId);
-                            verify(batch).add(op);
-                        });
-    }
-
-    @Test
-    void sendBatchOnFullThenNewBatch() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(config.maxRequestsPerBatch(), 1);
-        when(batch.canAdd(any())).thenReturn(true);
-        batcher.add(op);
-        await().untilAsserted(() -> verify(batch).send());
-        batcher.add(op);
-        await()
-                .untilAsserted(
-                        () -> {
-                            verify(batchFactory, times(2)).getBatch(shardId);
-                            verify(batch, times(2)).add(op);
-                        });
-    }
-
-    @Test
-    void sendBatchImmediatelyWhenQueueEmpty() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
         when(batch.size()).thenReturn(1);
-        when(batch.canAdd(any())).thenReturn(true);
+
         batcher.add(op);
-        // Single operation with empty queue: flushed immediately without waiting for linger.
+
+        // The operation does not fit in the open batch: the batch is sent and the operation
+        // starts a new one
         await()
                 .untilAsserted(
                         () -> {
+                            verify(batchFactory, times(2)).getBatch(1L);
                             verify(batch).add(op);
+                        });
+    }
+
+    @Test
+    void groupOperationsByShard() {
+        var batch2 = mock(Batch.class);
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batchFactory.getBatch(2L)).thenReturn(batch2);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        when(batch2.canAdd(any())).thenReturn(true);
+        when(batch2.size()).thenReturn(1);
+
+        var op1 = newOp(1L);
+        var op2 = newOp(2L);
+        batcher.add(op1);
+        batcher.add(op2);
+
+        // Operations of different shards are grouped into different batches, all of them
+        // flushed once the queue is empty
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op1);
+                            verify(batch).send();
+                            verify(batch2).add(op2);
+                            verify(batch2).send();
+                        });
+    }
+
+    @Test
+    void failedOperationDoesNotBreakTheBatcher() {
+        var op1 = newOp(1L);
+        var op2 = newOp(1L);
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        doThrow(new RuntimeException("add failed")).when(batch).add(op1);
+        // Empty after the failed add, then one operation
+        when(batch.size()).thenReturn(0, 1);
+
+        batcher.add(op1);
+        await().untilAsserted(() -> assertThat(op1.callback()).isCompletedExceptionally());
+
+        batcher.add(op2);
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op2);
                             verify(batch).send();
                         });
     }
 
     @Test
-    void batchMultipleOpsWhenQueueNotEmpty() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(1, 2, 3);
-        when(batch.canAdd(any())).thenReturn(true);
-        // Add multiple ops quickly so the batcher drains them together.
-        batcher.add(op);
-        batcher.add(op);
-        batcher.add(op);
-        await().untilAsserted(() -> verify(batch, times(3)).add(op));
-        // After draining all 3, queue is empty — batch is flushed.
-        await().untilAsserted(() -> verify(batch).send());
-    }
+    void addAfterCloseFailsImmediately() {
+        batcher.close();
 
-    @Test
-    void unboundedTakeAtStart() throws Exception {
-        var callback = new CompletableFuture<GetResult>();
-        Operation<?> op =
-                new GetOperation(
-                        callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
-
-        when(batchFactory.getBatch(shardId)).thenReturn(batch);
-        when(batch.size()).thenReturn(1);
+        var op = newOp(1L);
         batcher.add(op);
-        var inOrder = inOrder(queue);
-        await()
-                .untilAsserted(
-                        () -> {
-                            inOrder.verify(queue, atLeastOnce()).takeAll(any());
-                        });
+        assertThat(op.callback()).isCompletedExceptionally();
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,52 +19,53 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.ClientConfig;
-import io.oxia.client.grpc.RpcProvider;
-import io.oxia.client.metrics.InstrumentProvider;
-import io.oxia.client.session.SessionManager;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
-import io.oxia.client.util.BatchedBlockingQueue;
-import java.util.function.Function;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.NonNull;
-import lombok.SneakyThrows;
 
+/**
+ * One batching thread, serving the operations of all the shards assigned to it. Producers enqueue
+ * into the thread's multi-producer single-consumer queue; the thread drains it and groups the
+ * operations into per-shard batches. A batch is sent when full, and any partial batch is flushed as
+ * soon as the queue is found empty, since there is nothing left to coalesce with.
+ */
 public class Batcher implements AutoCloseable {
 
-    private static final int DEFAULT_INITIAL_QUEUE_CAPACITY = 10_000;
+    private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
     @NonNull private final ClientConfig config;
-    private final long shardId;
     @NonNull private final BatchFactory batchFactory;
-    @NonNull private final BatchedBlockingQueue<Operation<?>> operations;
+    @NonNull private final BatchedArrayBlockingQueue<Operation<?>> operations;
+
+    // Open batches, grouped by shard. Only accessed by the batcher thread.
+    private final Map<Long, Batch> batchesByShardId = new HashMap<>();
 
     private final Thread thread;
+    private volatile boolean closed;
 
-    Batcher(@NonNull ClientConfig config, long shardId, @NonNull BatchFactory batchFactory) {
-        this(
-                config,
-                shardId,
-                batchFactory,
-                new BatchedArrayBlockingQueue<>(DEFAULT_INITIAL_QUEUE_CAPACITY));
+    Batcher(@NonNull ClientConfig config, String name, @NonNull BatchFactory batchFactory) {
+        this(config, name, batchFactory, new BatchedArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY));
     }
 
     Batcher(
             @NonNull ClientConfig config,
-            long shardId,
+            String name,
             @NonNull BatchFactory batchFactory,
             @NonNull BatchedArrayBlockingQueue<Operation<?>> operations) {
         this.config = config;
-        this.shardId = shardId;
         this.batchFactory = batchFactory;
         this.operations = operations;
 
-        this.thread =
-                new DefaultThreadFactory(String.format("batcher-shard-%d", shardId))
-                        .newThread(this::batcherLoop);
+        this.thread = new DefaultThreadFactory(name).newThread(this::batcherLoop);
         this.thread.start();
     }
 
-    @SneakyThrows
     public <R> void add(@NonNull Operation<R> operation) {
+        if (closed) {
+            operation.fail(new IllegalStateException("Batcher has been closed"));
+            return;
+        }
         try {
             operations.put(operation);
         } catch (InterruptedException e) {
@@ -73,30 +74,26 @@ public class Batcher implements AutoCloseable {
         }
     }
 
-    public void batcherLoop() {
-        Batch batch = null;
-
-        Operation<?>[] localOperations = new Operation<?>[DEFAULT_INITIAL_QUEUE_CAPACITY];
+    private void batcherLoop() {
+        Operation<?>[] localOperations = new Operation<?>[DEFAULT_QUEUE_CAPACITY];
         int localOperationsIndex = 0;
         int localOperationsCount = 0;
 
         while (true) {
-
             try {
                 if (localOperationsIndex >= localOperationsCount) {
-                    if (batch == null) {
-                        // No pending batch — block until at least one operation arrives.
+                    if (batchesByShardId.isEmpty()) {
+                        // No pending batches — block until at least one operation arrives.
                         localOperationsCount = operations.takeAll(localOperations);
                     } else {
-                        // We have a pending batch. Non-blocking drain to pick up any
-                        // operations that arrived while we were processing.
+                        // There are open batches. Non-blocking drain to pick up any operations
+                        // that arrived while we were processing.
                         localOperationsCount = operations.pollAll(localOperations, 0, NANOSECONDS);
                         if (localOperationsCount == 0) {
                             // Queue is empty — no concurrent producers are filling it right
-                            // now. Flush the current batch immediately rather than lingering,
+                            // now. Flush the open batches immediately rather than lingering,
                             // since there is nothing to batch with.
-                            batch.send();
-                            batch = null;
+                            sendAll();
 
                             // Block until the next operation arrives.
                             localOperationsCount = operations.takeAll(localOperations);
@@ -106,55 +103,58 @@ public class Batcher implements AutoCloseable {
                 }
             } catch (InterruptedException e) {
                 // Exiting thread
+                failPendingOperations();
                 return;
             }
 
-            if (localOperationsIndex < localOperationsCount) {
+            Operation<?> operation = localOperations[localOperationsIndex];
+            localOperations[localOperationsIndex++] = null;
+            try {
+                Batch batch = batchesByShardId.get(operation.shardId());
                 if (batch == null) {
-                    batch = batchFactory.getBatch(shardId);
+                    batch = batchFactory.getBatch(operation.shardId());
+                    batchesByShardId.put(operation.shardId(), batch);
                 }
-
-                Operation<?> operation = localOperations[localOperationsIndex++];
-                try {
-                    if (!batch.canAdd(operation)) {
-                        batch.send();
-                        batch = batchFactory.getBatch(shardId);
-                    }
-                    batch.add(operation);
-                } catch (Exception e) {
-                    operation.fail(e);
+                if (!batch.canAdd(operation) && batch.size() > 0) {
+                    batch.send();
+                    batch = batchFactory.getBatch(operation.shardId());
+                    batchesByShardId.put(operation.shardId(), batch);
                 }
-            }
-
-            if (batch != null && batch.size() == config.maxRequestsPerBatch()) {
-                batch.send();
-                batch = null;
+                batch.add(operation);
+                if (batch.size() >= config.maxRequestsPerBatch()) {
+                    batch.send();
+                    batchesByShardId.remove(operation.shardId());
+                }
+            } catch (Exception e) {
+                operation.fail(e);
+                // Don't leave behind an open batch that the failed operation just created:
+                // it would be flushed empty
+                Batch open = batchesByShardId.get(operation.shardId());
+                if (open != null && open.size() == 0) {
+                    batchesByShardId.remove(operation.shardId());
+                }
             }
         }
     }
 
-    static @NonNull Function<Long, Batcher> newReadBatcherFactory(
-            @NonNull ClientConfig config,
-            @NonNull RpcProvider rpcProvider,
-            InstrumentProvider instrumentProvider) {
-        return s ->
-                new Batcher(config, s, new ReadBatchFactory(rpcProvider, config, instrumentProvider));
+    private void sendAll() {
+        batchesByShardId.values().forEach(Batch::send);
+        batchesByShardId.clear();
     }
 
-    static @NonNull Function<Long, Batcher> newWriteBatcherFactory(
-            @NonNull ClientConfig config,
-            @NonNull RpcProvider rpcProvider,
-            @NonNull SessionManager sessionManager,
-            InstrumentProvider instrumentProvider) {
-        return s ->
-                new Batcher(
-                        config,
-                        s,
-                        new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider));
+    private void failPendingOperations() {
+        var closedException = new IllegalStateException("Batcher has been closed");
+        batchesByShardId.values().forEach(batch -> batch.fail(closedException));
+        batchesByShardId.clear();
+        Operation<?> operation;
+        while ((operation = operations.poll()) != null) {
+            operation.fail(closedException);
+        }
     }
 
     @Override
     public void close() {
+        closed = true;
         thread.interrupt();
         try {
             thread.join();

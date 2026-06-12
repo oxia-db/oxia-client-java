@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2025 The Oxia Authors
+ * Copyright © 2022-2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,22 @@
  */
 package io.oxia.client.batch;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import java.util.function.Function;
+import io.oxia.client.ClientConfig;
+import io.oxia.client.OxiaClientBuilderImpl;
+import io.oxia.client.api.GetResult;
+import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
+import io.oxia.client.options.GetOptions;
+import io.oxia.proto.KeyComparisonType;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,48 +40,72 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class BatchManagerTest {
 
-    @Mock Function<Long, Batcher> batcherFactory;
-    @Mock Batcher batcher;
-    long shardId = 1;
+    @Mock BatchFactory batchFactory;
+    @Mock Batch batch;
+
+    ClientConfig config =
+            new ClientConfig(
+                    "address",
+                    Duration.ofMillis(100),
+                    10,
+                    1024 * 1024,
+                    256L * 1024 * 1024,
+                    2,
+                    Duration.ofMillis(1000),
+                    "client_id",
+                    null,
+                    OxiaClientBuilderImpl.DefaultNamespace,
+                    null,
+                    false,
+                    Duration.ofMillis(100),
+                    Duration.ofSeconds(30),
+                    Duration.ofSeconds(10),
+                    Duration.ofSeconds(5),
+                    1);
+
     BatchManager manager;
 
     @BeforeEach
-    void mocking() {
-        manager = new BatchManager(batcherFactory);
+    void setup() {
+        manager = new BatchManager(config, "test-batcher", batchFactory);
     }
 
-    @Test
-    void computeAbsentBatcher() {
-        when(batcherFactory.apply(shardId)).thenReturn(batcher);
-        var computed = manager.getBatcher(shardId);
-        verify(batcherFactory).apply(shardId);
-        assertThat(computed).isSameAs(batcher);
-    }
-
-    @Test
-    void getPrecomputedBatcher() {
-        when(batcherFactory.apply(shardId)).thenReturn(batcher);
-        var computed = manager.getBatcher(shardId);
-        verify(batcherFactory).apply(shardId);
-        var cached = manager.getBatcher(shardId);
-        verifyNoMoreInteractions(batcherFactory);
-        assertThat(computed).isSameAs(batcher);
-        assertThat(cached).isSameAs(batcher);
-    }
-
-    @Test
-    void getBatcherWhenClosed() throws Exception {
+    @AfterEach
+    void teardown() throws Exception {
         manager.close();
-        assertThatThrownBy(() -> manager.getBatcher(shardId))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Batch manager is closed");
+    }
+
+    private static Operation<?> newOp(long shardId) {
+        return new GetOperation(
+                shardId,
+                new CompletableFuture<GetResult>(),
+                "key",
+                new GetOptions(null, true, KeyComparisonType.EQUAL, null));
     }
 
     @Test
-    void closeClean() throws Exception {
-        when(batcherFactory.apply(shardId)).thenReturn(batcher);
-        manager.getBatcher(shardId);
+    void routesOperationsByShard() {
+        when(batchFactory.getBatch(anyLong())).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+
+        // More shards than batching threads: every operation is still processed
+        for (long shardId = 0; shardId < 4; shardId++) {
+            manager.add(newOp(shardId));
+        }
+
+        await()
+                .untilAsserted(
+                        () -> {
+                            for (long shardId = 0; shardId < 4; shardId++) {
+                                verify(batchFactory).getBatch(shardId);
+                            }
+                        });
+    }
+
+    @Test
+    void addAfterCloseThrows() throws Exception {
         manager.close();
-        verify(batcher).close();
+        assertThatThrownBy(() -> manager.add(newOp(1L))).isInstanceOf(IllegalStateException.class);
     }
 }

@@ -67,6 +67,11 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
     }
 
     @Override
+    public void fail(@NonNull Throwable batchError) {
+        gets.forEach(g -> g.fail(batchError));
+    }
+
+    @Override
     public void onNext(ReadResponse response) {
         for (int i = 0; i < response.getGetsCount(); i++) {
             GetResponse gr = response.getGetAt(i);
@@ -78,7 +83,7 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
 
     @Override
     public void onError(Throwable batchError) {
-        gets.forEach(g -> g.fail(batchError));
+        fail(batchError);
         factory.getReadRequestLatencyHistogram().recordFailure(System.nanoTime() - startSendTimeNanos);
     }
 

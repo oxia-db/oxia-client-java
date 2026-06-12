@@ -339,6 +339,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         if (!OptionsUtils.isEphemeral(options)) {
             var op =
                     new PutOperation(
+                            shardId,
                             future,
                             key,
                             partitionKey,
@@ -350,7 +351,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             secondaryIndexes,
                             overrideVersionId,
                             overrideModificationsCount);
-            writeBatchManager.getBatcher(shardId).add(op);
+            writeBatchManager.add(op);
         } else {
             // The put operation is trying to write an ephemeral record. We need to have a valid session
             // id for this
@@ -360,6 +361,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             session -> {
                                 var op =
                                         new PutOperation(
+                                                shardId,
                                                 future,
                                                 key,
                                                 partitionKey,
@@ -371,7 +373,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                                 secondaryIndexes,
                                                 overrideVersionId,
                                                 overrideModificationsCount);
-                                writeBatchManager.getBatcher(shardId).add(op);
+                                writeBatchManager.add(op);
                             })
                     .exceptionally(
                             ex -> {
@@ -408,7 +410,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             pendingBytesLimiter.acquire(size);
             acquiredBytes = size;
 
-            writeBatchManager.getBatcher(shardId).add(new DeleteOperation(callback, key, versionId));
+            writeBatchManager.add(new DeleteOperation(shardId, callback, key, versionId));
         } catch (RuntimeException e) {
             callback.completeExceptionally(e);
         }
@@ -456,20 +458,18 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 // When partition key is present, we only need to send the request to a single shard
                 var shardId = shardManager.getShardForKey(partitionKey.get());
                 callback = new CompletableFuture<>();
-                writeBatchManager
-                        .getBatcher(shardId)
-                        .add(new DeleteRangeOperation(callback, startKeyInclusive, endKeyExclusive));
+                writeBatchManager.add(
+                        new DeleteRangeOperation(shardId, callback, startKeyInclusive, endKeyExclusive));
             } else {
                 // Perform the delete range on all the shards
                 var shardDeletes =
                         shardManager.allShardIds().stream()
-                                .map(writeBatchManager::getBatcher)
                                 .map(
-                                        b -> {
+                                        shardId -> {
                                             var shardCallback = new CompletableFuture<Void>();
-                                            b.add(
+                                            writeBatchManager.add(
                                                     new DeleteRangeOperation(
-                                                            shardCallback, startKeyInclusive, endKeyExclusive));
+                                                            shardId, shardCallback, startKeyInclusive, endKeyExclusive));
                                             return shardCallback;
                                         })
                                 .toArray(CompletableFuture[]::new);
@@ -548,7 +548,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             // Single shard get operation
             long shardId =
                     shardManager.getShardForKey(Optional.ofNullable(options.partitionKey()).orElse(key));
-            readBatchManager.getBatcher(shardId).add(new GetOperation(result, key, options));
+            readBatchManager.add(new GetOperation(shardId, result, key, options));
         }
     }
 
@@ -558,7 +558,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         List<CompletableFuture<GetResult>> futures = new ArrayList<>();
         for (long shardId : shardManager.allShardIds()) {
             CompletableFuture<GetResult> f = new CompletableFuture<>();
-            readBatchManager.getBatcher(shardId).add(new GetOperation(f, key, options));
+            readBatchManager.add(new GetOperation(shardId, f, key, options));
             futures.add(f);
         }
 
