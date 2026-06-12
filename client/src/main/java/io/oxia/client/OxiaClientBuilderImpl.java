@@ -48,6 +48,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     public static final int DefaultMaxRequestsPerBatch = 1000;
     public static final int DefaultMaxBatchSize = 128 * 1024;
+    public static final long DefaultMaxPendingBytes = 256L * 1024 * 1024;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
     public static final String DefaultNamespace = "default";
@@ -63,6 +64,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     protected Duration batchLinger = DefaultBatchLinger;
 
     protected int maxRequestsPerBatch = DefaultMaxRequestsPerBatch;
+    protected long maxPendingBytes = DefaultMaxPendingBytes;
     @NonNull protected Duration sessionTimeout = DefaultSessionTimeout;
 
     protected String clientIdentifier = randomClientIdentifier();
@@ -110,6 +112,16 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "MaxRequestsPerBatch must be greater than zero: " + maxRequestsPerBatch);
         }
         this.maxRequestsPerBatch = maxRequestsPerBatch;
+        return this;
+    }
+
+    @Override
+    public @NonNull OxiaClientBuilder maxPendingBytes(long maxPendingBytes) {
+        if (maxPendingBytes < 0) {
+            throw new IllegalArgumentException(
+                    "maxPendingBytes must not be negative: " + maxPendingBytes);
+        }
+        this.maxPendingBytes = maxPendingBytes;
         return this;
     }
 
@@ -276,6 +288,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 requestTimeout,
                 maxRequestsPerBatch,
                 DefaultMaxBatchSize,
+                maxPendingBytes,
                 sessionTimeout,
                 clientIdentifierSupplier.get(),
                 openTelemetry,

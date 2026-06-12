@@ -71,6 +71,7 @@ class SessionTest {
                         Duration.ZERO,
                         1,
                         1024 * 1024,
+                        256L * 1024 * 1024,
                         sessionTimeout,
                         clientId,
                         null,
