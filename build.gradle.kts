@@ -40,6 +40,18 @@ allprojects {
     repositories {
         mavenCentral()
     }
+
+    // The spotbugs configuration exists in the root project too, so the forced
+    // versions must apply to all projects, not just subprojects
+    plugins.withId("com.github.spotbugs") {
+        configurations.named("spotbugs") {
+            resolutionStrategy {
+                force("org.apache.logging.log4j:log4j-core:${rootProject.libs.versions.log4j.get()}")
+                force("org.apache.ant:ant:1.10.15")
+                force("org.apache.bcel:bcel:6.12.0")
+            }
+        }
+    }
 }
 
 subprojects {
@@ -164,14 +176,6 @@ subprojects {
     spotbugs {
         excludeFilter.set(rootProject.file("etc/findbugsExclude.xml"))
         onlyAnalyze.set(listOf("io.oxia.client.*"))
-    }
-
-    configurations.named("spotbugs") {
-        resolutionStrategy {
-            force("org.apache.logging.log4j:log4j-core:${rootProject.libs.versions.log4j.get()}")
-            force("org.apache.ant:ant:1.10.15")
-            force("org.apache.bcel:bcel:6.12.0")
-        }
     }
 
     jacoco {

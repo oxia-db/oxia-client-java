@@ -2,7 +2,7 @@
 grpc = "1.75.0"
 netty = "4.1.131.Final"
 lightproto = "0.6.6"
-opentelemetry = "1.57.0"
+opentelemetry = "1.63.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
 testcontainers = "1.20.4"
@@ -40,7 +40,7 @@ jmh-plugin = "0.7.3"
 # BOMs
 grpc-bom = { module = "io.grpc:grpc-bom", version.ref = "grpc" }
 opentelemetry-bom = { module = "io.opentelemetry:opentelemetry-bom", version.ref = "opentelemetry" }
-opentelemetry-bom-alpha = { module = "io.opentelemetry:opentelemetry-bom-alpha", version = "1.57.0-alpha" }
+opentelemetry-bom-alpha = { module = "io.opentelemetry:opentelemetry-bom-alpha", version = "1.63.0-alpha" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 
 # Compile dependencies
