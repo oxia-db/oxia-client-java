@@ -24,6 +24,7 @@ import io.oxia.client.session.SessionManager;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import lombok.Getter;
 import lombok.NonNull;
@@ -64,16 +65,20 @@ public class BatchManager implements AutoCloseable {
     public static @NonNull BatchManager newReadBatchManager(
             @NonNull ClientConfig config,
             @NonNull RpcProvider rpcProvider,
+            @NonNull Executor executor,
             @NonNull InstrumentProvider instrumentProvider) {
-        return new BatchManager(Batcher.newReadBatcherFactory(config, rpcProvider, instrumentProvider));
+        return new BatchManager(
+                Batcher.newReadBatcherFactory(config, rpcProvider, executor, instrumentProvider));
     }
 
     public static @NonNull BatchManager newWriteBatchManager(
             @NonNull ClientConfig config,
             @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
+            @NonNull Executor executor,
             @NonNull InstrumentProvider instrumentProvider) {
         return new BatchManager(
-                Batcher.newWriteBatcherFactory(config, rpcProvider, sessionManager, instrumentProvider));
+                Batcher.newWriteBatcherFactory(
+                        config, rpcProvider, sessionManager, executor, instrumentProvider));
     }
 }

@@ -27,6 +27,7 @@ public record ClientConfig(
         int maxRequestsPerBatch,
         int maxBatchSize,
         long maxPendingBytes,
+        int batchingThreads,
         @NonNull Duration sessionTimeout,
         @NonNull String clientIdentifier,
         OpenTelemetry openTelemetry,

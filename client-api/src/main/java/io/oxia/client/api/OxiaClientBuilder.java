@@ -115,6 +115,17 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder maxPendingBytes(long maxPendingBytes);
 
     /**
+     * Specify the number of threads dedicated to assembling operation batches, shared by all the
+     * shards.
+     *
+     * <p>Default is <code>1</code>.
+     *
+     * @param batchingThreads the number of batching threads
+     * @return the builder instance
+     */
+    OxiaClientBuilder batchingThreads(int batchingThreads);
+
+    /**
      * Specify the Oxia namesace to use for this client instance.
      *
      * <p>Default is <code>"default"</code>.

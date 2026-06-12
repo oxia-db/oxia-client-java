@@ -64,6 +64,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -89,12 +90,17 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
+        // The threads assembling the operation batches, shared by all the shards
+        final ExecutorService batchingExecutor =
+                Executors.newFixedThreadPool(
+                        config.batchingThreads(), new DefaultThreadFactory("oxia-batcher"));
         var readBatchManager =
-                BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
+                BatchManager.newReadBatchManager(config, rpcProvider, batchingExecutor, instrumentProvider);
         var sessionManager = new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
         shardManager.addCallback(sessionManager);
         var writeBatchManager =
-                BatchManager.newWriteBatchManager(config, rpcProvider, sessionManager, instrumentProvider);
+                BatchManager.newWriteBatchManager(
+                        config, rpcProvider, sessionManager, batchingExecutor, instrumentProvider);
 
         var client =
                 new AsyncOxiaClientImpl(
@@ -108,7 +114,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout(),
-                        config.maxPendingBytes());
+                        config.maxPendingBytes(),
+                        batchingExecutor);
         return shardManager.start().thenApply(v -> client);
     }
 
@@ -122,6 +129,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull SessionManager sessionManager;
     private final long requestTimeoutMs;
     private final @NonNull PendingBytesLimiter pendingBytesLimiter;
+    private final @NonNull ExecutorService batchingExecutor;
     private volatile boolean closed;
 
     private final Counter counterPutBytes;
@@ -158,9 +166,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
             Duration requestTimeout,
-            long maxPendingBytes) {
+            long maxPendingBytes,
+            @NonNull ExecutorService batchingExecutor) {
         this.clientIdentifier = clientIdentifier;
         this.pendingBytesLimiter = new PendingBytesLimiter(maxPendingBytes);
+        this.batchingExecutor = batchingExecutor;
         this.instrumentProvider = instrumentProvider;
         this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
@@ -878,6 +888,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         closed = true;
         readBatchManager.close();
         writeBatchManager.close();
+        // Graceful: lets the already-scheduled tasks fail the pending operations
+        batchingExecutor.shutdown();
         sessionManager.close();
         notificationManager.close();
         shardManager.close();

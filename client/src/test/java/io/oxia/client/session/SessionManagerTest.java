@@ -64,6 +64,7 @@ class SessionManagerTest {
                         1,
                         1024,
                         256L * 1024 * 1024,
+                        1,
                         Duration.ofSeconds(10),
                         "client",
                         null,
