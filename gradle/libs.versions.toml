@@ -34,6 +34,7 @@ shadow = "9.4.1"
 spotless = "8.3.0"
 spotbugs-plugin = "6.1.12"
 maven-publish-plugin = "0.36.0"
+jmh-plugin = "0.7.3"
 
 [libraries]
 # BOMs
@@ -105,3 +106,4 @@ shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs-plugin" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish-plugin" }
+jmh = { id = "me.champeau.jmh", version.ref = "jmh-plugin" }
