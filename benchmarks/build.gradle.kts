@@ -15,13 +15,19 @@
  */
 
 plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+    alias(libs.plugins.jmh)
 }
 
-rootProject.name = "oxia-java"
+dependencies {
+    jmh(project(":client"))
+}
 
-include("client-api")
-include("client")
-include("perf")
+jmh {
+    // Reports allocations (gc.alloc.rate.norm) along with the timings
+    profilers.set(listOf("gc"))
+}
 
-include("benchmarks")
+// The JMH-generated sources don't pass the static analysis
+tasks.withType<com.github.spotbugs.snom.SpotBugsTask>().configureEach {
+    enabled = false
+}
