@@ -43,7 +43,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
-    @Deprecated(since = "0.8.0", forRemoval = true)
+    @Deprecated(since = "0.9.0", forRemoval = true)
     public static final Duration DefaultBatchLinger = Duration.ofMillis(5);
 
     public static final int DefaultMaxRequestsPerBatch = 1000;
@@ -58,7 +58,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     @NonNull protected Duration requestTimeout = DefaultRequestTimeout;
 
     // Unused, but kept so that loadConfig() keeps accepting the "batchLinger" property
-    @Deprecated(since = "0.8.0", forRemoval = true)
+    @Deprecated(since = "0.9.0", forRemoval = true)
     @NonNull
     protected Duration batchLinger = DefaultBatchLinger;
 
@@ -93,7 +93,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         return this;
     }
 
-    @Deprecated(since = "0.8.0", forRemoval = true)
+    @Deprecated(since = "0.9.0", forRemoval = true)
     @Override
     public @NonNull OxiaClientBuilder batchLinger(@NonNull Duration batchLinger) {
         if (batchLinger.isNegative() || batchLinger.equals(ZERO)) {

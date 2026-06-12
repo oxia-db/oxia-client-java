@@ -89,7 +89,7 @@ public interface OxiaClientBuilder {
      * @deprecated Batching is adaptive: operations are grouped while a batch is in progress and a
      *     batch is flushed as soon as no more operations are pending, so this setting has no effect.
      */
-    @Deprecated(since = "0.8.0", forRemoval = true)
+    @Deprecated(since = "0.9.0", forRemoval = true)
     OxiaClientBuilder batchLinger(Duration batchLinger);
 
     /**
