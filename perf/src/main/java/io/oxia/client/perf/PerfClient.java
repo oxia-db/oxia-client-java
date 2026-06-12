@@ -85,7 +85,6 @@ public class PerfClient {
 
     AsyncOxiaClient client =
         OxiaClientBuilder.create(arguments.serviceAddr)
-            .batchLinger(Duration.ofMillis(arguments.batchLingerMs))
             .maxRequestsPerBatch(arguments.maxRequestsPerBatch)
             .requestTimeout(Duration.ofMillis(arguments.requestTimeoutMs))
             .namespace(arguments.namespace)

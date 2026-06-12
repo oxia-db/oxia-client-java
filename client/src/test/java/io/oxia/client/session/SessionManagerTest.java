@@ -61,7 +61,6 @@ class SessionManagerTest {
                 new ClientConfig(
                         "address",
                         Duration.ofSeconds(1),
-                        Duration.ofMillis(1),
                         1,
                         1024,
                         Duration.ofSeconds(10),

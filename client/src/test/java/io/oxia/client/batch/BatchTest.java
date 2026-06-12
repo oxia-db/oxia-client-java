@@ -99,7 +99,6 @@ class BatchTest {
             new ClientConfig(
                     "address",
                     Duration.ofMillis(100),
-                    Duration.ofMillis(1000),
                     10,
                     1024 * 1024,
                     Duration.ofMillis(1000),
@@ -540,7 +539,6 @@ class BatchTest {
         ClientConfig config =
                 new ClientConfig(
                         "address",
-                        ZERO,
                         ZERO,
                         1,
                         1024 * 1024,
