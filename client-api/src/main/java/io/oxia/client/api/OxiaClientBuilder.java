@@ -103,6 +103,18 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder maxRequestsPerBatch(int maxRequestsPerBatch);
 
     /**
+     * Specify the maximum total size of the operations that the client has accepted and not yet
+     * completed. When the limit is reached, further operations block the calling thread until enough
+     * pending operations complete, providing backpressure to the application.
+     *
+     * <p>Default is <code>256 MiB</code>.
+     *
+     * @param maxPendingBytes the maximum total size of pending operations
+     * @return the builder instance
+     */
+    OxiaClientBuilder maxPendingBytes(long maxPendingBytes);
+
+    /**
      * Specify the Oxia namesace to use for this client instance.
      *
      * <p>Default is <code>"default"</code>.

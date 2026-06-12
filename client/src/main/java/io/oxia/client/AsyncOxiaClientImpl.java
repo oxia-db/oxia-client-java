@@ -16,6 +16,7 @@
 package io.oxia.client;
 
 import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.buffer.ByteBufUtil;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.api.AsyncOxiaClient;
@@ -47,6 +48,7 @@ import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
+import io.oxia.client.util.PendingBytesLimiter;
 import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
@@ -105,7 +107,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         readBatchManager,
                         writeBatchManager,
                         sessionManager,
-                        config.requestTimeout());
+                        config.requestTimeout(),
+                        config.maxPendingBytes());
         return shardManager.start().thenApply(v -> client);
     }
 
@@ -118,6 +121,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull BatchManager writeBatchManager;
     private final @NonNull SessionManager sessionManager;
     private final long requestTimeoutMs;
+    private final @NonNull PendingBytesLimiter pendingBytesLimiter;
     private volatile boolean closed;
 
     private final Counter counterPutBytes;
@@ -153,8 +157,10 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager readBatchManager,
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
-            Duration requestTimeout) {
+            Duration requestTimeout,
+            long maxPendingBytes) {
         this.clientIdentifier = clientIdentifier;
+        this.pendingBytesLimiter = new PendingBytesLimiter(maxPendingBytes);
         this.instrumentProvider = instrumentProvider;
         this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
@@ -281,19 +287,28 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long startTime = System.nanoTime();
         CompletableFuture<PutResult> callback;
 
+        long acquiredBytes = 0;
         try {
             checkIfClosed();
             Objects.requireNonNull(key);
             Objects.requireNonNull(value);
 
+            long size = ByteBufUtil.utf8Bytes(key) + value.length;
+            pendingBytesLimiter.acquire(size);
+            acquiredBytes = size;
+
             callback = internalPut(key, value, options);
         } catch (RuntimeException e) {
             callback = CompletableFuture.failedFuture(e);
         }
+        final long pendingBytes = acquiredBytes;
         return callback
                 .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
                 .whenComplete(
                         (putResult, throwable) -> {
+                            if (pendingBytes > 0) {
+                                pendingBytesLimiter.release(pendingBytes);
+                            }
                             gaugePendingPutRequests.decrement();
                             gaugePendingPutBytes.add(-value.length);
 
@@ -380,6 +395,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         gaugePendingDeleteRequests.increment();
 
         var callback = new CompletableFuture<Boolean>();
+        long acquiredBytes = 0;
         try {
             checkIfClosed();
             Objects.requireNonNull(key);
@@ -387,14 +403,23 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             OptionalLong versionId = OptionsUtils.getVersionId(options);
             var partitionKey = OptionsUtils.getPartitionKey(options);
             var shardId = shardManager.getShardForKey(partitionKey.orElse(key));
+
+            long size = ByteBufUtil.utf8Bytes(key);
+            pendingBytesLimiter.acquire(size);
+            acquiredBytes = size;
+
             writeBatchManager.getBatcher(shardId).add(new DeleteOperation(callback, key, versionId));
         } catch (RuntimeException e) {
             callback.completeExceptionally(e);
         }
+        final long pendingBytes = acquiredBytes;
         return callback
                 .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
                 .whenComplete(
                         (putResult, throwable) -> {
+                            if (pendingBytes > 0) {
+                                pendingBytesLimiter.release(pendingBytes);
+                            }
                             gaugePendingDeleteRequests.decrement();
                             if (throwable == null) {
                                 histogramDeleteLatency.recordSuccess(System.nanoTime() - startTime);
@@ -416,10 +441,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long startTime = System.nanoTime();
         gaugePendingDeleteRangeRequests.increment();
         CompletableFuture<Void> callback;
+        long acquiredBytes = 0;
         try {
             checkIfClosed();
             Objects.requireNonNull(startKeyInclusive);
             Objects.requireNonNull(endKeyExclusive);
+
+            long size = ByteBufUtil.utf8Bytes(startKeyInclusive) + ByteBufUtil.utf8Bytes(endKeyExclusive);
+            pendingBytesLimiter.acquire(size);
+            acquiredBytes = size;
 
             var partitionKey = OptionsUtils.getPartitionKey(options);
             if (partitionKey.isPresent()) {
@@ -448,10 +478,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         } catch (RuntimeException e) {
             callback = CompletableFuture.failedFuture(e);
         }
+        final long pendingBytes = acquiredBytes;
         return callback
                 .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
                 .whenComplete(
                         (putResult, throwable) -> {
+                            if (pendingBytes > 0) {
+                                pendingBytesLimiter.release(pendingBytes);
+                            }
                             gaugePendingDeleteRangeRequests.decrement();
                             if (throwable == null) {
                                 histogramDeleteRangeLatency.recordSuccess(System.nanoTime() - startTime);
@@ -472,17 +506,27 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long startTime = System.nanoTime();
         gaugePendingGetRequests.increment();
         var callback = new CompletableFuture<GetResult>();
+        long acquiredBytes = 0;
         try {
             checkIfClosed();
             Objects.requireNonNull(key);
+
+            long size = ByteBufUtil.utf8Bytes(key);
+            pendingBytesLimiter.acquire(size);
+            acquiredBytes = size;
+
             internalGet(key, internalOptions, callback);
         } catch (RuntimeException e) {
             callback.completeExceptionally(e);
         }
+        final long pendingBytes = acquiredBytes;
         return callback
                 .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
                 .whenComplete(
                         (getResult, throwable) -> {
+                            if (pendingBytes > 0) {
+                                pendingBytesLimiter.release(pendingBytes);
+                            }
                             gaugePendingGetRequests.decrement();
                             if (throwable == null) {
                                 if (getResult != null) {

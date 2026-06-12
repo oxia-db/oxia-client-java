@@ -20,6 +20,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Optional.empty;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -63,6 +64,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -81,21 +83,26 @@ class AsyncOxiaClientImplTest {
     AsyncOxiaClientImpl client;
 
     private final Duration requestTimeout = Duration.ofSeconds(1);
+    private static final long maxPendingBytes = 256L * 1024 * 1024;
+
+    private AsyncOxiaClientImpl newClient(long maxPendingBytes) {
+        return new AsyncOxiaClientImpl(
+                "client-identity",
+                Executors.newSingleThreadScheduledExecutor(),
+                InstrumentProvider.NOOP,
+                rpcProvider,
+                shardManager,
+                notificationManager,
+                readBatchManager,
+                writeBatchManager,
+                sessionManager,
+                requestTimeout,
+                maxPendingBytes);
+    }
 
     @BeforeEach
     void setUp() {
-        client =
-                new AsyncOxiaClientImpl(
-                        "client-identity",
-                        Executors.newSingleThreadScheduledExecutor(),
-                        InstrumentProvider.NOOP,
-                        rpcProvider,
-                        shardManager,
-                        notificationManager,
-                        readBatchManager,
-                        writeBatchManager,
-                        sessionManager,
-                        requestTimeout);
+        client = newClient(maxPendingBytes);
     }
 
     @AfterEach
@@ -143,6 +150,38 @@ class AsyncOxiaClientImplTest {
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
             assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void putBlocksWhenPendingBytesLimitIsReached() throws Exception {
+        var opCaptor = ArgumentCaptor.forClass(PutOperation.class);
+        var shardId = 1L;
+        when(shardManager.getShardForKey(any())).thenReturn(shardId);
+        when(writeBatchManager.getBatcher(shardId)).thenReturn(batcher);
+        doNothing().when(batcher).add(opCaptor.capture());
+
+        // utf8("a") + 8 value bytes = 9: the first put fits within the 10 bytes limit
+        var smallClient = newClient(10);
+        try {
+            var first = smallClient.put("a", new byte[8]);
+            assertThat(first).isNotCompleted();
+
+            var thread = new Thread(() -> smallClient.put("b", new byte[8]));
+            thread.start();
+            await().until(() -> thread.getState() == Thread.State.WAITING);
+            assertThat(opCaptor.getAllValues()).hasSize(1);
+
+            // Completing the first operation frees capacity and unblocks the second put
+            opCaptor
+                    .getValue()
+                    .callback()
+                    .complete(new PutResult("a", new Version(1, 2, 3, 4, empty(), empty())));
+            thread.join();
+            assertThat(opCaptor.getAllValues()).hasSize(2);
+        } finally {
+            smallClient.close();
         }
     }
 
