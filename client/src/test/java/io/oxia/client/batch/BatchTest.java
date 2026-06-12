@@ -465,11 +465,13 @@ class BatchTest {
         public void toProto() {
             batch.add(get);
             var request = batch.toProto();
+            var expectedGet = new io.oxia.proto.GetRequest();
+            get.toProto(expectedGet);
             assertThat(request)
                     .satisfies(
                             r -> {
                                 assertThat(r.getGetsCount()).isEqualTo(1);
-                                assertThat(r.getGetAt(0).toByteArray()).isEqualTo(get.toProto().toByteArray());
+                                assertThat(r.getGetAt(0).toByteArray()).isEqualTo(expectedGet.toByteArray());
                             });
         }
 

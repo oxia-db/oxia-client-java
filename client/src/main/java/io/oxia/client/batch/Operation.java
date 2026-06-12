@@ -66,15 +66,14 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull String key,
                 @NonNull GetOptions options)
                 implements ReadOperation<GetResult> {
-            GetRequest toProto() {
-                var req = new GetRequest();
+            /** Fills in the given request with this operation's fields. */
+            void toProto(GetRequest req) {
                 req.setKey(key)
                         .setComparisonType(options.comparisonType())
                         .setIncludeValue(options.includeValue());
                 if (options.secondaryIndexName() != null) {
                     req.setSecondaryIndexName(options.secondaryIndexName());
                 }
-                return req;
             }
 
             void complete(@NonNull GetResponse response) {
@@ -124,6 +123,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 }
             }
 
+            /** Fills in the given request with this operation's fields. */
             void toProto(PutRequest req) {
                 req.setKey(key).setValue(value);
                 partitionKey.ifPresent(req::setPartitionKey);
@@ -193,6 +193,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 }
             }
 
+            /** Fills in the given request with this operation's fields. */
             void toProto(DeleteRequest req) {
                 req.setKey(key);
                 expectedVersionId.ifPresent(req::setExpectedVersionId);
@@ -220,6 +221,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull String startKeyInclusive,
                 @NonNull String endKeyExclusive)
                 implements WriteOperation<Void> {
+            /** Fills in the given request with this operation's fields. */
             void toProto(DeleteRangeRequest req) {
                 req.setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
             }

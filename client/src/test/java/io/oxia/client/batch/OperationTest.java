@@ -39,6 +39,7 @@ import io.oxia.proto.DeleteRangeRequest;
 import io.oxia.proto.DeleteRangeResponse;
 import io.oxia.proto.DeleteRequest;
 import io.oxia.proto.DeleteResponse;
+import io.oxia.proto.GetRequest;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.PutRequest;
@@ -69,7 +70,8 @@ class OperationTest {
 
         @Test
         void toProto() {
-            var request = op.toProto();
+            var request = new GetRequest();
+            op.toProto(request);
             assertThat(request.getKey()).isEqualTo(op.key());
         }
 
