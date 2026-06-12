@@ -104,7 +104,7 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
         var req = new ReadRequest();
         req.setShard(getShardId());
         for (var g : gets) {
-            req.addGet().copyFrom(g.toProto());
+            g.toProto(req.addGet());
         }
         return req;
     }
