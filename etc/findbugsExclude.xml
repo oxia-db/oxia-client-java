@@ -29,6 +29,12 @@
     <Bug pattern="URF_UNREAD_FIELD" />
   </Match>
   <Match>
+    <!-- Deprecated, kept only so that loadConfig() keeps accepting the "batchLinger" property -->
+    <Class name="io.oxia.client.OxiaClientBuilderImpl" />
+    <Field name="batchLinger" />
+    <Bug pattern="URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD" />
+  </Match>
+  <Match>
     <Package name="io.oxia.client" />
     <Bug pattern="CT_CONSTRUCTOR_THROW" />
   </Match>

@@ -24,7 +24,6 @@ import lombok.NonNull;
 public record ClientConfig(
         @NonNull String serviceAddress,
         @NonNull Duration requestTimeout,
-        @NonNull Duration batchLinger,
         int maxRequestsPerBatch,
         int maxBatchSize,
         @NonNull Duration sessionTimeout,

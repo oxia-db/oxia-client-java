@@ -84,16 +84,12 @@ public interface OxiaClientBuilder {
     /**
      * Specify the maximum time to wait for a batch to be sent.
      *
-     * <p>Default is <code>5 millis</code>
-     *
-     * <p>A larger linger time might help in creating batches with more ops in them and thus might
-     * improve the overall throughput.
-     *
-     * <p>A shorter linger time might help in minimizing the latency.
-     *
      * @param batchLinger the batch linger duration
      * @return the builder instance
+     * @deprecated Batching is adaptive: operations are grouped while a batch is in progress and a
+     *     batch is flushed as soon as no more operations are pending, so this setting has no effect.
      */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     OxiaClientBuilder batchLinger(Duration batchLinger);
 
     /**

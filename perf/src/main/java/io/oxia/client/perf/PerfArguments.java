@@ -59,11 +59,6 @@ public class PerfArguments {
     int valueSize = 128;
 
     @Parameter(
-            names = {"--batch-linger-ms"},
-            description = "Batch linger time")
-    long batchLingerMs = OxiaClientBuilderImpl.DefaultBatchLinger.toMillis();
-
-    @Parameter(
             names = {"--max-requests-per-batch"},
             description = "Maximum requests per batch")
     int maxRequestsPerBatch = OxiaClientBuilderImpl.DefaultMaxRequestsPerBatch;
