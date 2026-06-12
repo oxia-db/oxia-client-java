@@ -61,6 +61,13 @@ public class SessionManager
 
     @NonNull
     public CompletableFuture<Session> getSession(long shardId) {
+        // Lock-free fast path: this runs on every ephemeral put, and compute() locks the map
+        // bin even when the session already exists
+        final CompletableFuture<Session> existing = sessions.get(shardId);
+        if (isUsable(existing)) {
+            return existing;
+        }
+
         final Lock rLock = closedLock.readLock();
         try {
             rLock.lock();
@@ -68,22 +75,20 @@ public class SessionManager
                 return failedFuture(new IllegalStateException("Session manager is closed"));
             }
             return sessions.compute(
-                    shardId,
-                    (key, existing) -> {
-                        if (existing != null && !existing.isCompletedExceptionally()) {
-                            if (!existing.isDone()) {
-                                return existing;
-                            }
-                            final Session session = existing.join();
-                            if (!session.isClosed()) { // ignore closed session
-                                return existing;
-                            }
-                        }
-                        return createSession(shardId);
-                    });
+                    shardId, (key, current) -> isUsable(current) ? current : createSession(shardId));
         } finally {
             rLock.unlock();
         }
+    }
+
+    private static boolean isUsable(CompletableFuture<Session> sessionFuture) {
+        if (sessionFuture == null || sessionFuture.isCompletedExceptionally()) {
+            return false;
+        }
+        if (!sessionFuture.isDone()) {
+            return true;
+        }
+        return !sessionFuture.join().isClosed(); // ignore closed sessions
     }
 
     @Override
