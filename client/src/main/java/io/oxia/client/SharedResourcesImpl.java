@@ -232,6 +232,7 @@ public class SharedResourcesImpl implements SharedResources {
                             OxiaClientBuilderImpl.DefaultMaxRequestsPerBatch,
                             OxiaClientBuilderImpl.DefaultMaxBatchSize,
                             OxiaClientBuilderImpl.DefaultMaxPendingBytes,
+                            OxiaClientBuilderImpl.DefaultBatchingThreads,
                             OxiaClientBuilderImpl.DefaultSessionTimeout,
                             "oxia-shared-resources",
                             openTelemetry,
