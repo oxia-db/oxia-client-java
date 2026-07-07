@@ -27,6 +27,10 @@ public class CompositeConsumer<T> implements Consumer<T> {
         callbacks.add(callback);
     }
 
+    public void remove(Consumer<T> callback) {
+        callbacks.remove(callback);
+    }
+
     @Override
     public void accept(T t) {
         for (Consumer<T> callback : callbacks) {

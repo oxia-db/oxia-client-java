@@ -108,8 +108,55 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout(),
-                        config.maxPendingBytes());
+                        config.maxPendingBytes(),
+                        true);
         return shardManager.start().thenApply(v -> client);
+    }
+
+    /**
+     * Create a client that borrows its executor, connection pool and shard-assignment stream from a
+     * shared {@link SharedResourcesImpl} pool. Closing the returned client only tears down its own
+     * per-client state (sessions, notifications, batchers); the shared resources live until the pool
+     * itself is closed.
+     */
+    static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(
+            @NonNull ClientConfig config, @NonNull SharedResourcesImpl sharedResources) {
+        final ScheduledExecutorService asyncExecutor = sharedResources.executor();
+        final var connectionManager = sharedResources.connectionManager();
+        var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
+        return sharedResources
+                .getOrCreateShardManager(config)
+                .thenApply(
+                        shardManager -> {
+                            var rpcProvider =
+                                    RpcProvider.create(
+                                            config, asyncExecutor, connectionManager, shardManager::leader);
+                            var notificationManager =
+                                    new NotificationManager(
+                                            asyncExecutor, rpcProvider, shardManager, instrumentProvider);
+                            shardManager.addCallback(notificationManager);
+                            var readBatchManager =
+                                    BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
+                            var sessionManager =
+                                    new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
+                            shardManager.addCallback(sessionManager);
+                            var writeBatchManager =
+                                    BatchManager.newWriteBatchManager(
+                                            config, rpcProvider, sessionManager, instrumentProvider);
+                            return new AsyncOxiaClientImpl(
+                                    config.clientIdentifier(),
+                                    asyncExecutor,
+                                    instrumentProvider,
+                                    rpcProvider,
+                                    shardManager,
+                                    notificationManager,
+                                    readBatchManager,
+                                    writeBatchManager,
+                                    sessionManager,
+                                    config.requestTimeout(),
+                                    config.maxPendingBytes(),
+                                    false);
+                        });
     }
 
     private final @NonNull String clientIdentifier;
@@ -147,6 +194,13 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private final ScheduledExecutorService scheduledExecutor;
 
+    /**
+     * Whether this client owns the {@link #scheduledExecutor} and {@link #shardManager}. {@code true}
+     * for standalone clients (they close them on {@link #close()}); {@code false} for clients backed
+     * by a shared-resources pool (which owns and closes them).
+     */
+    private final boolean ownsResources;
+
     AsyncOxiaClientImpl(
             @NonNull String clientIdentifier,
             @NonNull ScheduledExecutorService scheduledExecutor,
@@ -158,7 +212,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
             Duration requestTimeout,
-            long maxPendingBytes) {
+            long maxPendingBytes,
+            boolean ownsResources) {
         this.clientIdentifier = clientIdentifier;
         this.pendingBytesLimiter = new PendingBytesLimiter(maxPendingBytes);
         this.instrumentProvider = instrumentProvider;
@@ -169,6 +224,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         this.writeBatchManager = writeBatchManager;
         this.sessionManager = sessionManager;
         this.scheduledExecutor = scheduledExecutor;
+        this.ownsResources = ownsResources;
         this.requestTimeoutMs = requestTimeout.toMillis();
 
         counterPutBytes =
@@ -876,13 +932,24 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             return;
         }
         closed = true;
+        if (!ownsResources) {
+            // Detach from the shared shard-assignment stream so it stops dispatching to this client.
+            shardManager.removeCallback(sessionManager);
+            shardManager.removeCallback(notificationManager);
+        }
         readBatchManager.close();
         writeBatchManager.close();
         sessionManager.close();
         notificationManager.close();
-        shardManager.close();
+        if (ownsResources) {
+            shardManager.close();
+        }
+        // In shared mode the RpcProvider does not own the connection pool, so this only closes the
+        // per-client write streams; the shared connections stay open for other clients.
         rpcProvider.close();
-        scheduledExecutor.shutdownNow();
+        if (ownsResources) {
+            scheduledExecutor.shutdownNow();
+        }
     }
 
     private void checkIfClosed() {

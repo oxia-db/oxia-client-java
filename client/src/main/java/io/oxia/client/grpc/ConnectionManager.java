@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 
-class ConnectionManager implements AutoCloseable {
+public class ConnectionManager implements AutoCloseable {
     private static final Logger log = Logger.get(ConnectionManager.class);
 
     @VisibleForTesting final Map<Key, Connection> connections = new ConcurrentHashMap<>();
@@ -32,7 +32,7 @@ class ConnectionManager implements AutoCloseable {
     private final ClientConfig clientConfig;
     private final ScheduledExecutorService executor;
 
-    ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
+    public ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
         this.executor = executor;
@@ -60,6 +60,11 @@ class ConnectionManager implements AutoCloseable {
                             .log("Creating managed GRPC connection");
                     return connection;
                 });
+    }
+
+    /** The number of currently-open connections. Exposed to demonstrate connection sharing. */
+    public int getConnectionCount() {
+        return connections.size();
     }
 
     @Override

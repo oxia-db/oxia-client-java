@@ -33,6 +33,20 @@ public interface RpcProvider extends AutoCloseable {
         return new GrpcRpcProvider(clientConfig, asyncExecutor, shardLeaderProvider);
     }
 
+    /**
+     * Create an {@link RpcProvider} that routes over an externally-owned {@link ConnectionManager}.
+     *
+     * <p>The provider will <b>not</b> close the connection manager when it is closed; the owner (for
+     * example a shared-resources pool) is responsible for that.
+     */
+    static RpcProvider create(
+            @NonNull ClientConfig clientConfig,
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull ConnectionManager connectionManager,
+            @NonNull LongFunction<String> shardLeaderProvider) {
+        return new GrpcRpcProvider(clientConfig, asyncExecutor, connectionManager, shardLeaderProvider);
+    }
+
     void getShardAssignments(
             @NonNull ShardAssignmentsRequest request, @NonNull StreamObserver<ShardAssignments> observer);
 

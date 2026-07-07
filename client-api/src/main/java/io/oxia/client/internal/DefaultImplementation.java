@@ -16,7 +16,9 @@
 package io.oxia.client.internal;
 
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.SharedResources;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 
 /**
  * This class loads the implementation for {@link OxiaClientBuilder} and allows you to decouple the
@@ -29,6 +31,12 @@ public class DefaultImplementation {
     private static final Constructor<?> CONSTRUCTOR;
 
     private static final String IMPL_CLASS_NAME = "io.oxia.client.OxiaClientBuilderImpl";
+
+    private static final String SHARED_RESOURCES_IMPL_CLASS_NAME =
+            "io.oxia.client.SharedResourcesImpl";
+
+    private static final Method SHARED_RESOURCES_BUILDER =
+            ReflectionUtils.getStaticMethod(SHARED_RESOURCES_IMPL_CLASS_NAME, "builder");
 
     static {
         Constructor<?> impl;
@@ -52,5 +60,15 @@ public class DefaultImplementation {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Access the actual implementation of the {@link SharedResources.Builder}.
+     *
+     * @return a new builder for a shared-resources pool
+     */
+    public static SharedResources.Builder getSharedResourcesBuilder() {
+        return ReflectionUtils.catchExceptions(
+                () -> (SharedResources.Builder) SHARED_RESOURCES_BUILDER.invoke(null));
     }
 }

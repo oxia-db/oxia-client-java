@@ -251,6 +251,26 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder enableTls(boolean enableTls);
 
     /**
+     * Build this client on top of a shared {@link SharedResources} pool.
+     *
+     * <p>The client will use the pool's background thread pool, gRPC connection pool and
+     * shard-assignment stream instead of creating its own, so that many clients in the same process
+     * share a single transport footprint. Closing the client only releases its own per-client state
+     * (sessions, notifications, batching); the shared resources live until the pool is closed.
+     *
+     * <p>Transport-level settings (TLS, authentication, connection keep-alive and pool size) are
+     * taken from the pool. Setting any of them on this builder together with {@code sharedResources}
+     * is a configuration error and makes {@link #asyncClient()} / {@link #syncClient()} throw an
+     * {@link IllegalArgumentException}. Per-client settings such as namespace, client identifier and
+     * timeouts still apply.
+     *
+     * @param sharedResources the shared resources pool, or {@code null} to build a standalone client
+     *     that owns its own resources
+     * @return the builder instance
+     */
+    OxiaClientBuilder sharedResources(SharedResources sharedResources);
+
+    /**
      * Load the configuration from the specified configuration file.
      *
      * @param configPath the path of the configuration file

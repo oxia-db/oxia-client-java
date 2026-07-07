@@ -249,4 +249,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
         callbacks.add(callback);
     }
+
+    public void removeCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
+        callbacks.remove(callback);
+    }
 }
