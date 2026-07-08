@@ -23,6 +23,7 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.AsyncOxiaClient;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.SharedResources;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.UnsupportedAuthenticationException;
@@ -32,7 +33,9 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -86,6 +89,15 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
 
     protected int maxConnectionsPerNode = DefaultMaxConnectionPerNode;
+
+    @Nullable protected SharedResources sharedResources;
+
+    /**
+     * Names of the transport-level settings that were explicitly configured on this builder. These
+     * are owned by the {@link #sharedResources} pool when one is attached, so setting them here is a
+     * configuration error that {@link #asyncClient()} rejects.
+     */
+    private final Set<String> explicitTransportSettings = new LinkedHashSet<>();
 
     @Override
     public @NonNull OxiaClientBuilder requestTimeout(@NonNull Duration requestTimeout) {
@@ -179,6 +191,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     @Override
     public OxiaClientBuilder authentication(Authentication authentication) {
         this.authentication = authentication;
+        explicitTransportSettings.add("authentication");
         return this;
     }
 
@@ -196,18 +209,21 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "maxConnectionPerNode must be greater than zero: " + connections);
         }
         this.maxConnectionsPerNode = connections;
+        explicitTransportSettings.add("maxConnectionPerNode");
         return this;
     }
 
     @Override
     public OxiaClientBuilder connectionKeepAliveTimeout(Duration connectionKeepAliveTimeout) {
         this.connectionKeepAliveTimeout = connectionKeepAliveTimeout;
+        explicitTransportSettings.add("connectionKeepAliveTimeout");
         return this;
     }
 
     @Override
     public OxiaClientBuilder connectionKeepAliveTime(Duration keepAliveTime) {
         this.connectionKeepAliveTime = keepAliveTime;
+        explicitTransportSettings.add("connectionKeepAliveTime");
         return this;
     }
 
@@ -217,12 +233,20 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         this.authPluginClassName = authPluginClassName;
         this.authParams = authParamsString;
         this.authentication = AuthenticationFactory.create(authPluginClassName, authParamsString);
+        explicitTransportSettings.add("authentication");
         return this;
     }
 
     @Override
     public OxiaClientBuilder enableTls(boolean enableTls) {
         this.enableTls = enableTls;
+        explicitTransportSettings.add("enableTls");
+        return this;
+    }
+
+    @Override
+    public OxiaClientBuilder sharedResources(SharedResources sharedResources) {
+        this.sharedResources = sharedResources;
         return this;
     }
 
@@ -270,6 +294,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 } else {
                     field.set(this, properties.getProperty(name));
                 }
+                recordExplicitTransportSetting(name);
             } catch (NoSuchFieldException | IllegalAccessException e) {
                 throw new IllegalArgumentException("Invalid configuration property: " + name);
             }
@@ -289,8 +314,33 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         return this;
     }
 
+    /** Record, by builder-property name, that a shared-resources-owned transport setting was set. */
+    private void recordExplicitTransportSetting(String propertyName) {
+        switch (propertyName) {
+            case "enableTls", "connectionKeepAliveTime", "connectionKeepAliveTimeout" ->
+                    explicitTransportSettings.add(propertyName);
+            case "maxConnectionsPerNode" -> explicitTransportSettings.add("maxConnectionPerNode");
+            case "authPluginClassName", "authParams" -> explicitTransportSettings.add("authentication");
+            default -> {
+                // Not a transport-level setting owned by the shared-resources pool.
+            }
+        }
+    }
+
     @Override
     public @NonNull CompletableFuture<AsyncOxiaClient> asyncClient() {
+        if (sharedResources != null) {
+            if (!explicitTransportSettings.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Transport-level settings "
+                                + explicitTransportSettings
+                                + " are governed by the shared-resources pool and must not also be set on a "
+                                + "client that uses sharedResources(...); configure them on "
+                                + "SharedResources.builder() instead.");
+            }
+            return AsyncOxiaClientImpl.newInstance(
+                    getClientConfig(), (SharedResourcesImpl) sharedResources);
+        }
         return AsyncOxiaClientImpl.newInstance(getClientConfig());
     }
 

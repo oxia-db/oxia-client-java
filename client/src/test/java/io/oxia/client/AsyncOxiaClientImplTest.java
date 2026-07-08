@@ -94,7 +94,8 @@ class AsyncOxiaClientImplTest {
                 writeBatchManager,
                 sessionManager,
                 requestTimeout,
-                maxPendingBytes);
+                maxPendingBytes,
+                true);
     }
 
     @BeforeEach

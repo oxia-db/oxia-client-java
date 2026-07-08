@@ -64,6 +64,7 @@ final class GrpcRpcProvider implements RpcProvider {
 
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
+    private final boolean ownsConnectionManager;
     private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
     private final Map<Long, ManagedWriteStream> writeStreams;
@@ -72,9 +73,32 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull ClientConfig clientConfig,
             @NonNull ScheduledExecutorService asyncExecutor,
             @NonNull LongFunction<String> shardLeaderProvider) {
+        this(
+                clientConfig,
+                asyncExecutor,
+                new ConnectionManager(clientConfig, asyncExecutor),
+                shardLeaderProvider,
+                true);
+    }
+
+    GrpcRpcProvider(
+            @NonNull ClientConfig clientConfig,
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull ConnectionManager connectionManager,
+            @NonNull LongFunction<String> shardLeaderProvider) {
+        this(clientConfig, asyncExecutor, connectionManager, shardLeaderProvider, false);
+    }
+
+    private GrpcRpcProvider(
+            @NonNull ClientConfig clientConfig,
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull ConnectionManager connectionManager,
+            @NonNull LongFunction<String> shardLeaderProvider,
+            boolean ownsConnectionManager) {
         this.clientConfig = clientConfig;
         this.asyncExecutor = asyncExecutor;
-        this.connectionManager = new ConnectionManager(clientConfig, asyncExecutor);
+        this.connectionManager = connectionManager;
+        this.ownsConnectionManager = ownsConnectionManager;
         this.shardLeaderProvider = shardLeaderProvider;
         this.writeStreams = Maps.newConcurrentMap();
     }
@@ -385,7 +409,9 @@ final class GrpcRpcProvider implements RpcProvider {
             writeStreams.values().forEach(ManagedWriteStream::close);
             writeStreams.clear();
         } finally {
-            connectionManager.close();
+            if (ownsConnectionManager) {
+                connectionManager.close();
+            }
         }
     }
 

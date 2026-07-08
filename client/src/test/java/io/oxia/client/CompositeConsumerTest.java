@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 class CompositeConsumerTest {
@@ -41,5 +42,26 @@ class CompositeConsumerTest {
         }
         assertThat(received1).isEqualTo(expected);
         assertThat(received2).isEqualTo(expected);
+    }
+
+    @Test
+    void removedCallbackStopsReceivingEvents() {
+        var composite = new CompositeConsumer<Integer>();
+        List<Integer> received1 = new ArrayList<>();
+        List<Integer> received2 = new ArrayList<>();
+        Consumer<Integer> callback1 = received1::add;
+        composite.add(callback1);
+        composite.add(received2::add);
+
+        composite.accept(1);
+        composite.remove(callback1);
+        composite.accept(2);
+
+        // Removing an absent callback is a no-op.
+        composite.remove(callback1);
+        composite.accept(3);
+
+        assertThat(received1).containsExactly(1);
+        assertThat(received2).containsExactly(1, 2, 3);
     }
 }
