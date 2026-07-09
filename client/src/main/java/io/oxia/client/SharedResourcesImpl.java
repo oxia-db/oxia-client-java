@@ -22,6 +22,7 @@ import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.SharedResources;
+import io.oxia.client.batch.BatcherPool;
 import io.oxia.client.grpc.ConnectionManager;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -58,6 +59,8 @@ public class SharedResourcesImpl implements SharedResources {
 
     private final ScheduledExecutorService executor;
     private final ConnectionManager connectionManager;
+    private final BatcherPool readBatcherPool;
+    private final BatcherPool writeBatcherPool;
     private final OpenTelemetry openTelemetry;
     private final Map<NamespaceKey, SharedNamespace> namespaces = new ConcurrentHashMap<>();
     private volatile boolean closed;
@@ -71,6 +74,10 @@ public class SharedResourcesImpl implements SharedResources {
                 Executors.newScheduledThreadPool(
                         numWorkerThreads, new DefaultThreadFactory("oxia-client-shared"));
         this.connectionManager = new ConnectionManager(transportConfig, executor);
+        this.readBatcherPool =
+                new BatcherPool("oxia-shared-read-batcher", transportConfig.batchingThreads());
+        this.writeBatcherPool =
+                new BatcherPool("oxia-shared-write-batcher", transportConfig.batchingThreads());
         this.openTelemetry = transportConfig.openTelemetry();
     }
 
@@ -80,6 +87,14 @@ public class SharedResourcesImpl implements SharedResources {
 
     ConnectionManager connectionManager() {
         return connectionManager;
+    }
+
+    BatcherPool readBatcherPool() {
+        return readBatcherPool;
+    }
+
+    BatcherPool writeBatcherPool() {
+        return writeBatcherPool;
     }
 
     /** The number of currently-open shared connections. Exposed to demonstrate connection sharing. */
@@ -145,6 +160,8 @@ public class SharedResourcesImpl implements SharedResources {
         } catch (Exception e) {
             log.warn().exception(e).log("Failed to close shared connection manager");
         }
+        readBatcherPool.close();
+        writeBatcherPool.close();
         executor.shutdownNow();
     }
 
@@ -156,6 +173,7 @@ public class SharedResourcesImpl implements SharedResources {
     /** Builder for {@link SharedResourcesImpl}. */
     public static final class Builder implements SharedResources.Builder {
         private int numWorkerThreads = Runtime.getRuntime().availableProcessors();
+        private int batchingThreads = OxiaClientBuilderImpl.DefaultBatchingThreads;
         private boolean enableTls = OxiaClientBuilderImpl.DefaultEnableTls;
         private Authentication authentication;
         private Duration connectionKeepAliveTime = Duration.ofSeconds(10);
@@ -172,6 +190,16 @@ public class SharedResourcesImpl implements SharedResources {
                         "numWorkerThreads must be greater than zero: " + numWorkerThreads);
             }
             this.numWorkerThreads = numWorkerThreads;
+            return this;
+        }
+
+        @Override
+        public SharedResources.Builder batchingThreads(int batchingThreads) {
+            if (batchingThreads <= 0) {
+                throw new IllegalArgumentException(
+                        "batchingThreads must be greater than zero: " + batchingThreads);
+            }
+            this.batchingThreads = batchingThreads;
             return this;
         }
 
@@ -232,7 +260,7 @@ public class SharedResourcesImpl implements SharedResources {
                             OxiaClientBuilderImpl.DefaultMaxRequestsPerBatch,
                             OxiaClientBuilderImpl.DefaultMaxBatchSize,
                             OxiaClientBuilderImpl.DefaultMaxPendingBytes,
-                            OxiaClientBuilderImpl.DefaultBatchingThreads,
+                            batchingThreads,
                             OxiaClientBuilderImpl.DefaultSessionTimeout,
                             "oxia-shared-resources",
                             openTelemetry,

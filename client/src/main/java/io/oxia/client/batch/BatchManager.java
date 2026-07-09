@@ -22,26 +22,32 @@ import io.oxia.client.session.SessionManager;
 import lombok.NonNull;
 
 /**
- * Routes operations to a fixed set of {@link Batcher} threads. A shard is always served by the same
- * batcher, so that the per-shard ordering of operations is preserved.
+ * Per-client entry point into the batching layer. It binds a client's {@link BatchFactory} (its
+ * {@code RpcProvider}, session and config) to a {@link BatcherPool} and routes the client's
+ * operations onto it.
+ *
+ * <p>The pool may be private to this client (standalone client — the manager owns and closes it) or
+ * shared across many clients (a {@link io.oxia.client.api.SharedResources} pool — closing this
+ * manager only flushes and fails this client's pending operations, leaving the pool running).
  */
 public class BatchManager implements AutoCloseable {
 
-    private final Batcher[] batchers;
+    private final @NonNull BatchFactory factory;
+    private final @NonNull BatcherPool pool;
+    private final boolean ownsPool;
     private volatile boolean closed;
 
-    BatchManager(@NonNull ClientConfig config, String name, @NonNull BatchFactory batchFactory) {
-        this.batchers = new Batcher[config.batchingThreads()];
-        for (int i = 0; i < batchers.length; i++) {
-            batchers[i] = new Batcher(config, name + "-" + i, batchFactory);
-        }
+    BatchManager(@NonNull BatchFactory factory, @NonNull BatcherPool pool, boolean ownsPool) {
+        this.factory = factory;
+        this.pool = pool;
+        this.ownsPool = ownsPool;
     }
 
     public void add(@NonNull Operation<?> operation) {
         if (closed) {
             throw new IllegalStateException("Batch manager is closed");
         }
-        batchers[(int) Math.floorMod(operation.shardId(), batchers.length)].add(operation);
+        pool.route(factory, operation);
     }
 
     @Override
@@ -50,27 +56,34 @@ public class BatchManager implements AutoCloseable {
             return;
         }
         closed = true;
-        for (Batcher batcher : batchers) {
-            batcher.close();
+        if (ownsPool) {
+            pool.close();
+        } else {
+            // Shared pool: only tear down this client's pending operations, not the pool.
+            pool.closeFactory(factory).join();
         }
     }
 
     public static @NonNull BatchManager newReadBatchManager(
             @NonNull ClientConfig config,
             @NonNull RpcProvider rpcProvider,
-            @NonNull InstrumentProvider instrumentProvider) {
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull BatcherPool pool,
+            boolean ownsPool) {
         return new BatchManager(
-                config, "oxia-read-batcher", new ReadBatchFactory(rpcProvider, config, instrumentProvider));
+                new ReadBatchFactory(rpcProvider, config, instrumentProvider), pool, ownsPool);
     }
 
     public static @NonNull BatchManager newWriteBatchManager(
             @NonNull ClientConfig config,
             @NonNull RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
-            @NonNull InstrumentProvider instrumentProvider) {
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull BatcherPool pool,
+            boolean ownsPool) {
         return new BatchManager(
-                config,
-                "oxia-write-batcher",
-                new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider));
+                new WriteBatchFactory(rpcProvider, sessionManager, config, instrumentProvider),
+                pool,
+                ownsPool);
     }
 }

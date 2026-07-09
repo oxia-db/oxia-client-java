@@ -83,6 +83,17 @@ public interface SharedResources extends AutoCloseable {
         Builder numWorkerThreads(int numWorkerThreads);
 
         /**
+         * Set the number of shared batch-assembly threads (reads and writes each get this many).
+         *
+         * <p>These threads are shared by every client built on this pool, so the total number of
+         * batching threads stays fixed no matter how many clients are created. Default is {@code 1}.
+         *
+         * @param batchingThreads the number of shared batching threads
+         * @return the builder instance
+         */
+        Builder batchingThreads(int batchingThreads);
+
+        /**
          * Configure whether to enable TLS for the shared connections.
          *
          * <p>Default is {@code false}.

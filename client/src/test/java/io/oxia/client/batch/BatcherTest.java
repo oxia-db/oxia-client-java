@@ -29,7 +29,6 @@ import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.options.GetOptions;
-import io.oxia.client.util.BatchedArrayBlockingQueue;
 import io.oxia.proto.KeyComparisonType;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -65,18 +64,20 @@ class BatcherTest {
                     Duration.ofSeconds(5),
                     1);
 
-    BatchedArrayBlockingQueue<Operation<?>> queue;
     Batcher batcher;
 
     @BeforeEach
     void setup() {
-        queue = new BatchedArrayBlockingQueue<>(100);
-        batcher = new Batcher(config, "test-batcher", batchFactory, queue);
+        batcher = new Batcher("test-batcher");
     }
 
     @AfterEach
     void teardown() {
         batcher.close();
+    }
+
+    private void add(Operation<?> operation) {
+        batcher.add(batchFactory, operation);
     }
 
     private static Operation<?> newOp(long shardId) {
@@ -90,11 +91,12 @@ class BatcherTest {
     @Test
     void singleOperationIsFlushedImmediately() {
         var op = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(1);
 
-        batcher.add(op);
+        add(op);
 
         // Single operation with empty queue: the batch is flushed immediately
         await()
@@ -107,11 +109,12 @@ class BatcherTest {
 
     @Test
     void sendBatchWhenFull() {
+        when(batchFactory.getConfig()).thenReturn(config);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(config.maxRequestsPerBatch());
 
-        batcher.add(newOp(1L));
+        add(newOp(1L));
 
         await().untilAsserted(() -> verify(batch).send());
     }
@@ -119,11 +122,12 @@ class BatcherTest {
     @Test
     void sealBatchWhenOperationDoesNotFit() {
         var op = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(false);
         when(batch.size()).thenReturn(1);
 
-        batcher.add(op);
+        add(op);
 
         // The operation does not fit in the open batch: the batch is sent and the operation
         // starts a new one
@@ -138,6 +142,7 @@ class BatcherTest {
     @Test
     void groupOperationsByShard() {
         var batch2 = mock(Batch.class);
+        when(batchFactory.getConfig()).thenReturn(config);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batchFactory.getBatch(2L)).thenReturn(batch2);
         when(batch.canAdd(any())).thenReturn(true);
@@ -147,8 +152,8 @@ class BatcherTest {
 
         var op1 = newOp(1L);
         var op2 = newOp(2L);
-        batcher.add(op1);
-        batcher.add(op2);
+        add(op1);
+        add(op2);
 
         // Operations of different shards are grouped into different batches, all of them
         // flushed once the queue is empty
@@ -166,16 +171,17 @@ class BatcherTest {
     void failedOperationDoesNotBreakTheBatcher() {
         var op1 = newOp(1L);
         var op2 = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         doThrow(new RuntimeException("add failed")).when(batch).add(op1);
         // Empty after the failed add, then one operation
         when(batch.size()).thenReturn(0, 1);
 
-        batcher.add(op1);
+        add(op1);
         await().untilAsserted(() -> assertThat(op1.callback()).isCompletedExceptionally());
 
-        batcher.add(op2);
+        add(op2);
         await()
                 .untilAsserted(
                         () -> {
@@ -189,7 +195,7 @@ class BatcherTest {
         batcher.close();
 
         var op = newOp(1L);
-        batcher.add(op);
+        add(op);
         assertThat(op.callback()).isCompletedExceptionally();
     }
 }

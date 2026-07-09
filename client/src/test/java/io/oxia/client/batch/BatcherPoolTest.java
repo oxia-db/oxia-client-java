@@ -1,5 +1,5 @@
 /*
- * Copyright © 2022-2026 The Oxia Authors
+ * Copyright © 2026 The Oxia Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,8 @@
  */
 package io.oxia.client.batch;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,10 +36,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class BatchManagerTest {
+class BatcherPoolTest {
 
-    @Mock BatchFactory batchFactory;
-    @Mock Batch batch;
+    // Two factories stand in for two different client instances sharing one pool.
+    @Mock BatchFactory factoryA;
+    @Mock BatchFactory factoryB;
+    @Mock Batch batchA;
+    @Mock Batch batchB;
 
     ClientConfig config =
             new ClientConfig(
@@ -50,7 +51,7 @@ class BatchManagerTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
-                    2,
+                    1,
                     Duration.ofMillis(1000),
                     "client_id",
                     null,
@@ -64,17 +65,15 @@ class BatchManagerTest {
                     1);
 
     BatcherPool pool;
-    BatchManager manager;
 
     @BeforeEach
     void setup() {
-        pool = new BatcherPool("test-batcher", config.batchingThreads());
-        manager = new BatchManager(batchFactory, pool, true);
+        pool = new BatcherPool("test-shared-batcher", 2);
     }
 
     @AfterEach
-    void teardown() throws Exception {
-        manager.close();
+    void teardown() {
+        pool.close();
     }
 
     private static Operation<?> newOp(long shardId) {
@@ -86,29 +85,47 @@ class BatchManagerTest {
     }
 
     @Test
-    void routesOperationsByShard() {
-        when(batchFactory.getConfig()).thenReturn(config);
-        when(batchFactory.getBatch(anyLong())).thenReturn(batch);
-        when(batch.canAdd(any())).thenReturn(true);
-        when(batch.size()).thenReturn(1);
+    void oneThreadPoolServesMultipleClients() {
+        when(factoryA.getConfig()).thenReturn(config);
+        when(factoryB.getConfig()).thenReturn(config);
+        when(factoryA.getBatch(1L)).thenReturn(batchA);
+        when(factoryB.getBatch(1L)).thenReturn(batchB);
+        when(batchA.canAdd(any())).thenReturn(true);
+        when(batchA.size()).thenReturn(1);
+        when(batchB.canAdd(any())).thenReturn(true);
+        when(batchB.size()).thenReturn(1);
 
-        // More shards than batching threads: every operation is still processed
-        for (long shardId = 0; shardId < 4; shardId++) {
-            manager.add(newOp(shardId));
-        }
+        // Both operations target shard 1, so they land on the same batcher thread, but each is
+        // batched through its own client's factory.
+        pool.route(factoryA, newOp(1L));
+        pool.route(factoryB, newOp(1L));
 
         await()
                 .untilAsserted(
                         () -> {
-                            for (long shardId = 0; shardId < 4; shardId++) {
-                                verify(batchFactory).getBatch(shardId);
-                            }
+                            verify(factoryA).getBatch(1L);
+                            verify(batchA).send();
+                            verify(factoryB).getBatch(1L);
+                            verify(batchB).send();
                         });
     }
 
     @Test
-    void addAfterCloseThrows() throws Exception {
-        manager.close();
-        assertThatThrownBy(() -> manager.add(newOp(1L))).isInstanceOf(IllegalStateException.class);
+    void closingOneClientKeepsThePoolRunningForOthers() {
+        when(factoryB.getConfig()).thenReturn(config);
+        when(factoryB.getBatch(1L)).thenReturn(batchB);
+        when(batchB.canAdd(any())).thenReturn(true);
+        when(batchB.size()).thenReturn(1);
+
+        // A closing client only detaches itself; the shared pool stays up.
+        pool.closeFactory(factoryA).join();
+
+        pool.route(factoryB, newOp(1L));
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(factoryB).getBatch(1L);
+                            verify(batchB).send();
+                        });
     }
 }

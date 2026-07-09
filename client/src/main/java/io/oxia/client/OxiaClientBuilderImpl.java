@@ -146,6 +146,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "batchingThreads must be greater than zero: " + batchingThreads);
         }
         this.batchingThreads = batchingThreads;
+        explicitTransportSettings.add("batchingThreads");
         return this;
     }
 
@@ -317,7 +318,10 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     /** Record, by builder-property name, that a shared-resources-owned transport setting was set. */
     private void recordExplicitTransportSetting(String propertyName) {
         switch (propertyName) {
-            case "enableTls", "connectionKeepAliveTime", "connectionKeepAliveTimeout" ->
+            case "enableTls",
+                    "connectionKeepAliveTime",
+                    "connectionKeepAliveTimeout",
+                    "batchingThreads" ->
                     explicitTransportSettings.add(propertyName);
             case "maxConnectionsPerNode" -> explicitTransportSettings.add("maxConnectionPerNode");
             case "authPluginClassName", "authParams" -> explicitTransportSettings.add("authentication");
@@ -332,7 +336,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         if (sharedResources != null) {
             if (!explicitTransportSettings.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "Transport-level settings "
+                        "The settings "
                                 + explicitTransportSettings
                                 + " are governed by the shared-resources pool and must not also be set on a "
                                 + "client that uses sharedResources(...); configure them on "
