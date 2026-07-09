@@ -32,6 +32,7 @@ import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.client.batch.BatchManager;
+import io.oxia.client.batch.BatcherPool;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
@@ -89,12 +90,16 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
+        var readBatcherPool = new BatcherPool("oxia-read-batcher", config.batchingThreads());
         var readBatchManager =
-                BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
+                BatchManager.newReadBatchManager(
+                        config, rpcProvider, instrumentProvider, readBatcherPool, true);
         var sessionManager = new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
         shardManager.addCallback(sessionManager);
+        var writeBatcherPool = new BatcherPool("oxia-write-batcher", config.batchingThreads());
         var writeBatchManager =
-                BatchManager.newWriteBatchManager(config, rpcProvider, sessionManager, instrumentProvider);
+                BatchManager.newWriteBatchManager(
+                        config, rpcProvider, sessionManager, instrumentProvider, writeBatcherPool, true);
 
         var client =
                 new AsyncOxiaClientImpl(
@@ -136,13 +141,23 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                             asyncExecutor, rpcProvider, shardManager, instrumentProvider);
                             shardManager.addCallback(notificationManager);
                             var readBatchManager =
-                                    BatchManager.newReadBatchManager(config, rpcProvider, instrumentProvider);
+                                    BatchManager.newReadBatchManager(
+                                            config,
+                                            rpcProvider,
+                                            instrumentProvider,
+                                            sharedResources.readBatcherPool(),
+                                            false);
                             var sessionManager =
                                     new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
                             shardManager.addCallback(sessionManager);
                             var writeBatchManager =
                                     BatchManager.newWriteBatchManager(
-                                            config, rpcProvider, sessionManager, instrumentProvider);
+                                            config,
+                                            rpcProvider,
+                                            sessionManager,
+                                            instrumentProvider,
+                                            sharedResources.writeBatcherPool(),
+                                            false);
                             return new AsyncOxiaClientImpl(
                                     config.clientIdentifier(),
                                     asyncExecutor,

@@ -46,6 +46,8 @@ class SharedResourcesIT {
         // Baseline of dedicated "oxia-client-async" threads created by any standalone clients running
         // in this JVM, so the assertion below is robust to other test classes.
         long asyncThreadsBefore = threadCount("oxia-client-async");
+        long readBatcherThreadsBefore = threadCount("oxia-read-batcher");
+        long writeBatcherThreadsBefore = threadCount("oxia-write-batcher");
 
         try (SharedResources shared = SharedResources.builder().numWorkerThreads(2).build()) {
             AsyncOxiaClient c1 =
@@ -71,6 +73,13 @@ class SharedResourcesIT {
             // the shared pool's threads are present.
             assertThat(threadCount("oxia-client-async")).isEqualTo(asyncThreadsBefore);
             assertThat(threadCount("oxia-client-shared")).isGreaterThan(0);
+
+            // The batcher threads are shared too: the pooled clients spawned no dedicated read/write
+            // batcher threads, and the shared pool's batcher threads are present.
+            assertThat(threadCount("oxia-read-batcher")).isEqualTo(readBatcherThreadsBefore);
+            assertThat(threadCount("oxia-write-batcher")).isEqualTo(writeBatcherThreadsBefore);
+            assertThat(threadCount("oxia-shared-read-batcher")).isGreaterThan(0);
+            assertThat(threadCount("oxia-shared-write-batcher")).isGreaterThan(0);
 
             // Connections are shared and actually open.
             assertThat(((SharedResourcesImpl) shared).getConnectionCount()).isGreaterThan(0);

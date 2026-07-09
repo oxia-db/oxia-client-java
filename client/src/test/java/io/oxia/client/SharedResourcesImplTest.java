@@ -28,6 +28,8 @@ class SharedResourcesImplTest {
         var builder = SharedResourcesImpl.builder();
         assertThatThrownBy(() -> builder.numWorkerThreads(0))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.batchingThreads(0))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> builder.maxConnectionPerNode(0))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -106,6 +108,16 @@ class SharedResourcesImplTest {
                                             .asyncClient())
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("maxConnectionPerNode");
+
+            // Batching threads are governed by the pool too.
+            assertThatThrownBy(
+                            () ->
+                                    new OxiaClientBuilderImpl("localhost:6648")
+                                            .batchingThreads(4)
+                                            .sharedResources(shared)
+                                            .asyncClient())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("batchingThreads");
         }
     }
 
