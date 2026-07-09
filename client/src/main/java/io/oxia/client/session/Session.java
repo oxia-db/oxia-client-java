@@ -83,7 +83,7 @@ public class Session {
                         .attr("clientIdentity", config.clientIdentifier())
                         .build();
 
-        log.info("Session created");
+        log.debug("Session created");
 
         this.sessionsOpened =
                 instrumentProvider.newCounter(
@@ -174,7 +174,7 @@ public class Session {
                         log.warn().exceptionMessage(error).log("Session closed failed.");
                         return;
                     }
-                    log.info("Session closed");
+                    log.debug("Session closed");
                 });
     }
 }
