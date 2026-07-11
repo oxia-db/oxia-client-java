@@ -28,6 +28,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.grpc.CallCredentials;
@@ -102,6 +104,7 @@ class BatchTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
+                    4,
                     1,
                     Duration.ofMillis(1000),
                     "client_id",
@@ -432,6 +435,101 @@ class BatchTest {
         public void shardId() {
             assertThat(batch.getShardId()).isEqualTo(shardId);
         }
+
+        // Config with a single-slot in-flight window, to exercise the dispatch window.
+        private WriteBatchFactory factoryWithWindow() {
+            var windowConfig =
+                    new ClientConfig(
+                            "address",
+                            Duration.ofMillis(100),
+                            10,
+                            1024 * 1024,
+                            256L * 1024 * 1024,
+                            1,
+                            1,
+                            Duration.ofMillis(1000),
+                            "client_id",
+                            null,
+                            OxiaClientBuilderImpl.DefaultNamespace,
+                            authentication,
+                            authentication != null,
+                            Duration.ofMillis(100),
+                            Duration.ofSeconds(30),
+                            Duration.ofSeconds(10),
+                            Duration.ofSeconds(5),
+                            1);
+            return new WriteBatchFactory(
+                    mock(RpcProvider.class),
+                    mock(SessionManager.class),
+                    windowConfig,
+                    InstrumentProvider.NOOP);
+        }
+
+        @Test
+        public void releasesWindowSlotOnResponse() {
+            var factory = factoryWithWindow();
+            var window = factory.getWriteWindow(shardId);
+            batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 1024 * 1024);
+            batch.add(put);
+
+            var responseFuture = new CompletableFuture<WriteResponse>();
+            when(writeStream.send(any())).thenReturn(responseFuture);
+
+            // The dispatched batch holds the only window slot: the next batch parks.
+            window.send(batch);
+            var parked = mock(Batch.class);
+            window.sendOrPark(parked);
+            verify(parked, never()).send();
+
+            var resp = new WriteResponse();
+            resp.addPut().setStatus(OK).setVersion();
+            responseFuture.complete(resp);
+
+            // Completing the in-flight batch released the slot and flushed the parked batch.
+            verify(parked).send();
+            assertThat(putCallable).isCompleted();
+        }
+
+        @Test
+        public void releasesWindowSlotOnFailure() {
+            var factory = factoryWithWindow();
+            var window = factory.getWriteWindow(shardId);
+            batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 1024 * 1024);
+            batch.add(put);
+
+            var responseFuture = new CompletableFuture<WriteResponse>();
+            when(writeStream.send(any())).thenReturn(responseFuture);
+
+            window.send(batch);
+            var parked = mock(Batch.class);
+            window.sendOrPark(parked);
+            verify(parked, never()).send();
+
+            responseFuture.completeExceptionally(Status.UNAVAILABLE.asRuntimeException());
+
+            verify(parked).send();
+            assertThat(putCallable).isCompletedExceptionally();
+        }
+
+        @Test
+        public void releasesWindowSlotOnSynchronousFailure() {
+            var rpcProvider = mock(RpcProvider.class);
+            when(rpcProvider.getWriteStream(shardId))
+                    .thenThrow(OxiaStatusException.shardNotFound(shardId));
+
+            var factory = factoryWithWindow();
+            var window = factory.getWriteWindow(shardId);
+            batch = new WriteBatch(factory, rpcProvider, sessionManager, shardId, 1024 * 1024);
+            batch.add(put);
+
+            window.send(batch);
+            assertThat(putCallable).isCompletedExceptionally();
+
+            // The slot was released despite the dispatch failing synchronously.
+            var next = mock(Batch.class);
+            window.sendOrPark(next);
+            verify(next).send();
+        }
     }
 
     @Nested
@@ -551,6 +649,7 @@ class BatchTest {
                         1,
                         1024 * 1024,
                         256L * 1024 * 1024,
+                        4,
                         1,
                         ZERO,
                         "client_id",

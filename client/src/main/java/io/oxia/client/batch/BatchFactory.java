@@ -31,4 +31,12 @@ abstract class BatchFactory {
     private final @NonNull ClientConfig config;
 
     public abstract Batch getBatch(long shardId);
+
+    /** The in-flight dispatch window for the given shard, or null when dispatch is unwindowed. */
+    WriteWindow getWriteWindow(long shardId) {
+        return null;
+    }
+
+    /** Fail every batch still held back by this factory's dispatch windows — the client closes. */
+    void failWindows(Throwable error) {}
 }

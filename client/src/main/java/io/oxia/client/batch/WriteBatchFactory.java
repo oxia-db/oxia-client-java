@@ -21,12 +21,17 @@ import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.session.SessionManager;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import lombok.NonNull;
 
 class WriteBatchFactory extends BatchFactory {
     final @NonNull SessionManager sessionManager;
 
     final LatencyHistogram writeRequestLatencyHistogram;
+
+    // In-flight dispatch window per shard, created lazily on first use.
+    private final ConcurrentMap<Long, WriteWindow> writeWindows = new ConcurrentHashMap<>();
 
     public WriteBatchFactory(
             @NonNull RpcProvider rpcProvider,
@@ -46,5 +51,16 @@ class WriteBatchFactory extends BatchFactory {
     @Override
     public Batch getBatch(long shardId) {
         return new WriteBatch(this, rpcProvider, sessionManager, shardId, getConfig().maxBatchSize());
+    }
+
+    @Override
+    WriteWindow getWriteWindow(long shardId) {
+        return writeWindows.computeIfAbsent(
+                shardId, s -> new WriteWindow(getConfig().maxWriteBatchesInFlight()));
+    }
+
+    @Override
+    void failWindows(Throwable error) {
+        writeWindows.values().forEach(window -> window.fail(error));
     }
 }
