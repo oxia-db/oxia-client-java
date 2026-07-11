@@ -52,6 +52,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultMaxRequestsPerBatch = 1000;
     public static final int DefaultMaxBatchSize = 128 * 1024;
     public static final long DefaultMaxPendingBytes = 256L * 1024 * 1024;
+    public static final int DefaultMaxWriteBatchesInFlight = 4;
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
@@ -69,6 +70,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     protected int maxRequestsPerBatch = DefaultMaxRequestsPerBatch;
     protected long maxPendingBytes = DefaultMaxPendingBytes;
+    protected int maxWriteBatchesInFlight = DefaultMaxWriteBatchesInFlight;
     protected int batchingThreads = DefaultBatchingThreads;
     @NonNull protected Duration sessionTimeout = DefaultSessionTimeout;
 
@@ -136,6 +138,16 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "maxPendingBytes must not be negative: " + maxPendingBytes);
         }
         this.maxPendingBytes = maxPendingBytes;
+        return this;
+    }
+
+    @Override
+    public @NonNull OxiaClientBuilder maxWriteBatchesInFlight(int maxWriteBatchesInFlight) {
+        if (maxWriteBatchesInFlight <= 0) {
+            throw new IllegalArgumentException(
+                    "maxWriteBatchesInFlight must be greater than zero: " + maxWriteBatchesInFlight);
+        }
+        this.maxWriteBatchesInFlight = maxWriteBatchesInFlight;
         return this;
     }
 
@@ -355,6 +367,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 maxRequestsPerBatch,
                 DefaultMaxBatchSize,
                 maxPendingBytes,
+                maxWriteBatchesInFlight,
                 batchingThreads,
                 sessionTimeout,
                 clientIdentifierSupplier.get(),

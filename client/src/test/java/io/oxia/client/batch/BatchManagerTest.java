@@ -50,6 +50,7 @@ class BatchManagerTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
+                    4,
                     2,
                     Duration.ofMillis(1000),
                     "client_id",
@@ -110,5 +111,11 @@ class BatchManagerTest {
     void addAfterCloseThrows() throws Exception {
         manager.close();
         assertThatThrownBy(() -> manager.add(newOp(1L))).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void closeFailsWindowHeldBatches() throws Exception {
+        manager.close();
+        verify(batchFactory).failWindows(any(IllegalStateException.class));
     }
 }

@@ -62,6 +62,9 @@ public class BatchManager implements AutoCloseable {
             // Shared pool: only tear down this client's pending operations, not the pool.
             pool.closeFactory(factory).join();
         }
+        // Batches held back by the dispatch windows were never handed to the batchers: fail their
+        // operations here so they complete promptly.
+        factory.failWindows(new IllegalStateException("Batch manager is closed"));
     }
 
     public static @NonNull BatchManager newReadBatchManager(

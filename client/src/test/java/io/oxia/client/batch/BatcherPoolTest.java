@@ -51,6 +51,7 @@ class BatcherPoolTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
+                    4,
                     1,
                     Duration.ofMillis(1000),
                     "client_id",

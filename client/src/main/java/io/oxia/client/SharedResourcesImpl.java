@@ -260,6 +260,7 @@ public class SharedResourcesImpl implements SharedResources {
                             OxiaClientBuilderImpl.DefaultMaxRequestsPerBatch,
                             OxiaClientBuilderImpl.DefaultMaxBatchSize,
                             OxiaClientBuilderImpl.DefaultMaxPendingBytes,
+                            OxiaClientBuilderImpl.DefaultMaxWriteBatchesInFlight,
                             batchingThreads,
                             OxiaClientBuilderImpl.DefaultSessionTimeout,
                             "oxia-shared-resources",

@@ -20,6 +20,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,6 +52,7 @@ class BatcherTest {
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
+                    4,
                     1,
                     Duration.ofMillis(1000),
                     "client_id",
@@ -197,5 +199,97 @@ class BatcherTest {
         var op = newOp(1L);
         add(op);
         assertThat(op.callback()).isCompletedExceptionally();
+    }
+
+    @Test
+    void accumulatesIntoOpenBatchWhileWindowExhausted() {
+        var window = new WriteWindow(1);
+        var batch2 = mock(Batch.class);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getWriteWindow(1L)).thenReturn(window);
+        when(batchFactory.getBatch(1L)).thenReturn(batch, batch2);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        when(batch2.canAdd(any())).thenReturn(true);
+        when(batch2.size()).thenReturn(1, 2);
+
+        var op = newOp(1L);
+        // The first batch is flushed immediately and takes the only window slot.
+        add(op);
+        await().untilAsserted(() -> verify(batch).send());
+
+        // Window exhausted: operations accumulate into the open batch instead of being flushed.
+        add(op);
+        add(op);
+        await().untilAsserted(() -> verify(batch2, times(2)).add(op));
+        verify(batch2, never()).send();
+
+        // Completing the in-flight batch frees the slot and flushes the accumulated batch.
+        window.release();
+        await().untilAsserted(() -> verify(batch2).send());
+    }
+
+    @Test
+    void fullBatchIsQueuedWhileWindowExhausted() {
+        var window = new WriteWindow(1);
+        var batch2 = mock(Batch.class);
+        var batch3 = mock(Batch.class);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getWriteWindow(1L)).thenReturn(window);
+        when(batchFactory.getBatch(1L)).thenReturn(batch, batch2, batch3);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        when(batch2.canAdd(any())).thenReturn(true);
+        when(batch2.size()).thenReturn(config.maxRequestsPerBatch());
+        when(batch3.canAdd(any())).thenReturn(true);
+        when(batch3.size()).thenReturn(1);
+
+        var op = newOp(1L);
+        add(op);
+        await().untilAsserted(() -> verify(batch).send());
+
+        // A batch that fills up while the window is exhausted is queued, not dispatched...
+        add(op);
+        await().untilAsserted(() -> verify(batch2).add(op));
+        verify(batch2, never()).send();
+
+        // ...and the batcher thread moves on to later operations without blocking.
+        add(op);
+        await().untilAsserted(() -> verify(batch3).add(op));
+        verify(batch3, never()).send();
+
+        // Freed slots dispatch the queued full batch first, then the parked open batch.
+        window.release();
+        await().untilAsserted(() -> verify(batch2).send());
+        verify(batch3, never()).send();
+        window.release();
+        await().untilAsserted(() -> verify(batch3).send());
+    }
+
+    @Test
+    void exhaustedWindowDoesNotBlockOtherShards() {
+        var window1 = new WriteWindow(1);
+        var window2 = new WriteWindow(1);
+        var shard2Batch = mock(Batch.class);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getWriteWindow(1L)).thenReturn(window1);
+        when(batchFactory.getWriteWindow(2L)).thenReturn(window2);
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batchFactory.getBatch(2L)).thenReturn(shard2Batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1, 2);
+        when(shard2Batch.canAdd(any())).thenReturn(true);
+        when(shard2Batch.size()).thenReturn(1);
+
+        // Exhaust shard 1's window: the first batch holds the only slot, the second one parks.
+        add(newOp(1L));
+        await().untilAsserted(() -> verify(batch).send());
+        add(newOp(1L));
+        await().untilAsserted(() -> verify(batch, times(2)).add(any()));
+
+        // Shard 2 flows on the same batcher thread: its own window has a free slot.
+        add(newOp(2L));
+        await().untilAsserted(() -> verify(shard2Batch).send());
+        verify(batch, times(1)).send();
     }
 }

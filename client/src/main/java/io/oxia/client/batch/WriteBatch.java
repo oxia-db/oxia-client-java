@@ -39,6 +39,7 @@ final class WriteBatch extends BatchBase implements Batch {
     final List<Operation.WriteOperation.DeleteRangeOperation> deleteRanges = new ArrayList<>();
 
     private final SessionManager sessionManager;
+    private final WriteWindow window;
     private final int maxBatchSize;
     private int byteSize;
     private long bytes;
@@ -53,6 +54,7 @@ final class WriteBatch extends BatchBase implements Batch {
         super(rpcProvider, shardId);
         this.factory = factory;
         this.sessionManager = sessionManager;
+        this.window = factory.getWriteWindow(shardId);
         this.byteSize = 0;
         this.maxBatchSize = maxBatchSize;
     }
@@ -102,6 +104,9 @@ final class WriteBatch extends BatchBase implements Batch {
                     .send(this::toProto)
                     .whenComplete(
                             (response, ex) -> {
+                                // Free the window slot first, so the next batch is dispatched
+                                // before the operation callbacks below run.
+                                window.release();
                                 if (ex != null) {
                                     handleError(ex);
                                 } else {
@@ -109,6 +114,7 @@ final class WriteBatch extends BatchBase implements Batch {
                                 }
                             });
         } catch (Throwable t) {
+            window.release();
             handleError(t);
         }
     }

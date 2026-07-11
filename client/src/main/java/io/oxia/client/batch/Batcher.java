@@ -144,17 +144,23 @@ final class Batcher implements AutoCloseable {
         try {
             Batch batch = openBatches.get(key);
             if (batch == null) {
-                batch = factory.getBatch(operation.shardId());
+                // Take back a batch parked in the shard's dispatch window, if any: it must keep
+                // accumulating, and stay ahead of newer operations, until a slot frees up.
+                WriteWindow window = factory.getWriteWindow(operation.shardId());
+                batch = window != null ? window.reclaim() : null;
+                if (batch == null) {
+                    batch = factory.getBatch(operation.shardId());
+                }
                 openBatches.put(key, batch);
             }
             if (!batch.canAdd(operation) && batch.size() > 0) {
-                batch.send();
+                send(factory, operation.shardId(), batch);
                 batch = factory.getBatch(operation.shardId());
                 openBatches.put(key, batch);
             }
             batch.add(operation);
             if (batch.size() >= factory.getConfig().maxRequestsPerBatch()) {
-                batch.send();
+                send(factory, operation.shardId(), batch);
                 openBatches.remove(key);
             }
         } catch (Exception e) {
@@ -182,8 +188,29 @@ final class Batcher implements AutoCloseable {
                         });
     }
 
+    // Dispatch a batch that takes no more operations, through the shard's window when it has one.
+    private static void send(BatchFactory factory, long shardId, Batch batch) {
+        WriteWindow window = factory.getWriteWindow(shardId);
+        if (window == null) {
+            batch.send();
+        } else {
+            window.send(batch);
+        }
+    }
+
     private void sendAll() {
-        openBatches.values().forEach(Batch::send);
+        openBatches.forEach(
+                (key, batch) -> {
+                    // If the shard's window is exhausted, the batch is parked instead: it is
+                    // flushed when an in-flight request completes, or reclaimed to accumulate
+                    // more operations.
+                    WriteWindow window = key.factory().getWriteWindow(key.shardId());
+                    if (window == null) {
+                        batch.send();
+                    } else {
+                        window.sendOrPark(batch);
+                    }
+                });
         openBatches.clear();
     }
 

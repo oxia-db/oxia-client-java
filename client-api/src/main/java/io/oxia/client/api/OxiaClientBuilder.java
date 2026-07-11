@@ -115,6 +115,20 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder maxPendingBytes(long maxPendingBytes);
 
     /**
+     * Specify the maximum number of write batches that can be in flight to the server for each shard.
+     *
+     * <p>While a shard's window is exhausted, operations keep accumulating into the shard's open
+     * batch (up to the batch limits) instead of being flushed as new small requests, so the batch
+     * size automatically adapts to the rate at which the server is processing write requests.
+     *
+     * <p>Default is <code>4</code>.
+     *
+     * @param maxWriteBatchesInFlight the maximum number of in-flight write batches per shard
+     * @return the builder instance
+     */
+    OxiaClientBuilder maxWriteBatchesInFlight(int maxWriteBatchesInFlight);
+
+    /**
      * Specify the number of threads dedicated to assembling operation batches, shared by all the
      * shards.
      *
