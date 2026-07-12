@@ -39,7 +39,7 @@ final class WriteBatch extends BatchBase implements Batch {
     final List<Operation.WriteOperation.DeleteRangeOperation> deleteRanges = new ArrayList<>();
 
     private final SessionManager sessionManager;
-    private final WriteWindow window;
+    private final DispatchWindow window;
     private final int maxBatchSize;
     private int byteSize;
     private long bytes;
@@ -54,7 +54,7 @@ final class WriteBatch extends BatchBase implements Batch {
         super(rpcProvider, shardId);
         this.factory = factory;
         this.sessionManager = sessionManager;
-        this.window = factory.getWriteWindow(shardId);
+        this.window = factory.getDispatchWindow(shardId);
         this.byteSize = 0;
         this.maxBatchSize = maxBatchSize;
     }

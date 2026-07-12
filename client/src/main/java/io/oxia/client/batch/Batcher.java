@@ -146,7 +146,7 @@ final class Batcher implements AutoCloseable {
             if (batch == null) {
                 // Take back a batch parked in the shard's dispatch window, if any: it must keep
                 // accumulating, and stay ahead of newer operations, until a slot frees up.
-                WriteWindow window = factory.getWriteWindow(operation.shardId());
+                DispatchWindow window = factory.getDispatchWindow(operation.shardId());
                 batch = window != null ? window.reclaim() : null;
                 if (batch == null) {
                     batch = factory.getBatch(operation.shardId());
@@ -190,7 +190,7 @@ final class Batcher implements AutoCloseable {
 
     // Dispatch a batch that takes no more operations, through the shard's window when it has one.
     private static void send(BatchFactory factory, long shardId, Batch batch) {
-        WriteWindow window = factory.getWriteWindow(shardId);
+        DispatchWindow window = factory.getDispatchWindow(shardId);
         if (window == null) {
             batch.send();
         } else {
@@ -204,7 +204,7 @@ final class Batcher implements AutoCloseable {
                     // If the shard's window is exhausted, the batch is parked instead: it is
                     // flushed when an in-flight request completes, or reclaimed to accumulate
                     // more operations.
-                    WriteWindow window = key.factory().getWriteWindow(key.shardId());
+                    DispatchWindow window = key.factory().getDispatchWindow(key.shardId());
                     if (window == null) {
                         batch.send();
                     } else {

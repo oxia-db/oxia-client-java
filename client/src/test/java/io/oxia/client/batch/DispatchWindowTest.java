@@ -22,11 +22,11 @@ import static org.mockito.Mockito.verify;
 
 import org.junit.jupiter.api.Test;
 
-class WriteWindowTest {
+class DispatchWindowTest {
 
     @Test
     void dispatchesWhileWindowHasSlots() {
-        var window = new WriteWindow(2);
+        var window = new DispatchWindow(2);
         var batch1 = mock(Batch.class);
         var batch2 = mock(Batch.class);
 
@@ -39,7 +39,7 @@ class WriteWindowTest {
 
     @Test
     void queuesFullBatchesWhileExhaustedAndDispatchesInOrder() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch1 = mock(Batch.class);
         var batch2 = mock(Batch.class);
         var batch3 = mock(Batch.class);
@@ -61,7 +61,7 @@ class WriteWindowTest {
 
     @Test
     void sendOrParkDispatchesWhenSlotAvailable() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch = mock(Batch.class);
 
         window.sendOrPark(batch);
@@ -71,7 +71,7 @@ class WriteWindowTest {
 
     @Test
     void releaseFlushesParkedBatch() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch1 = mock(Batch.class);
         var batch2 = mock(Batch.class);
 
@@ -90,7 +90,7 @@ class WriteWindowTest {
 
     @Test
     void parkedBatchFlushedAfterQueuedBatches() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var inflight = mock(Batch.class);
         var full = mock(Batch.class);
         var open = mock(Batch.class);
@@ -109,7 +109,7 @@ class WriteWindowTest {
 
     @Test
     void reclaimTakesBackParkedBatch() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch1 = mock(Batch.class);
         var batch2 = mock(Batch.class);
 
@@ -130,7 +130,7 @@ class WriteWindowTest {
 
     @Test
     void failsHeldBackBatches() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var inflight = mock(Batch.class);
         var full = mock(Batch.class);
         var open = mock(Batch.class);
