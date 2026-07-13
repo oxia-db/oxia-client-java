@@ -292,7 +292,8 @@ public final class ManagedWriteStream implements AutoCloseable {
 
     private void initWithRecovery(OxiaStatusException leaderHint) {
         subStreamObserver = new ManagedSubWriteStream(this, rpcProvider, shardId, leaderHint);
-        log.info().attr("pendingWrites", inflightWrites.size()).log("Opened write stream");
+        log.debug(
+                event -> event.attr("pendingWrites", inflightWrites.size()).log("Opened write stream"));
         log.debug(
                 event ->
                         event
