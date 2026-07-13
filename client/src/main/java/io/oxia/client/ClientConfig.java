@@ -28,6 +28,7 @@ public record ClientConfig(
         int maxBatchSize,
         long maxPendingBytes,
         int maxWriteBatchesInFlight,
+        int maxReadBatchesInFlight,
         int batchingThreads,
         @NonNull Duration sessionTimeout,
         @NonNull String clientIdentifier,

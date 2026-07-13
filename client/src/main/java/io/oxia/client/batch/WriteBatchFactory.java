@@ -31,7 +31,7 @@ class WriteBatchFactory extends BatchFactory {
     final LatencyHistogram writeRequestLatencyHistogram;
 
     // In-flight dispatch window per shard, created lazily on first use.
-    private final ConcurrentMap<Long, WriteWindow> writeWindows = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, DispatchWindow> windows = new ConcurrentHashMap<>();
 
     public WriteBatchFactory(
             @NonNull RpcProvider rpcProvider,
@@ -54,13 +54,13 @@ class WriteBatchFactory extends BatchFactory {
     }
 
     @Override
-    WriteWindow getWriteWindow(long shardId) {
-        return writeWindows.computeIfAbsent(
-                shardId, s -> new WriteWindow(getConfig().maxWriteBatchesInFlight()));
+    DispatchWindow getDispatchWindow(long shardId) {
+        return windows.computeIfAbsent(
+                shardId, s -> new DispatchWindow(getConfig().maxWriteBatchesInFlight()));
     }
 
     @Override
     void failWindows(Throwable error) {
-        writeWindows.values().forEach(window -> window.fail(error));
+        windows.values().forEach(window -> window.fail(error));
     }
 }

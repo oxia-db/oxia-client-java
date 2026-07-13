@@ -20,12 +20,17 @@ import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.LatencyHistogram;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import lombok.Getter;
 import lombok.NonNull;
 
 class ReadBatchFactory extends BatchFactory {
 
     @Getter private final LatencyHistogram readRequestLatencyHistogram;
+
+    // In-flight dispatch window per shard, created lazily on first use.
+    private final ConcurrentMap<Long, DispatchWindow> windows = new ConcurrentHashMap<>();
 
     public ReadBatchFactory(
             @NonNull RpcProvider rpcProvider,
@@ -43,5 +48,16 @@ class ReadBatchFactory extends BatchFactory {
     @Override
     public Batch getBatch(long shardId) {
         return new ReadBatch(this, rpcProvider, shardId);
+    }
+
+    @Override
+    DispatchWindow getDispatchWindow(long shardId) {
+        return windows.computeIfAbsent(
+                shardId, s -> new DispatchWindow(getConfig().maxReadBatchesInFlight()));
+    }
+
+    @Override
+    void failWindows(Throwable error) {
+        windows.values().forEach(window -> window.fail(error));
     }
 }

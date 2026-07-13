@@ -21,14 +21,14 @@ import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Bounded in-flight window for the write batches of one (client, shard) pair.
+ * Bounded in-flight window for the batches of one (client, shard) pair.
  *
- * <p>The window limits how many write batches may be outstanding on the shard's write stream at any
- * time, so that batching adapts to the rate at which the server is servicing requests: while the
- * window is exhausted, the shard's open batch keeps accumulating operations (up to the batch
- * limits) instead of being flushed as a new tiny request. A fast server keeps the window open and
- * batches stay small, minimizing latency; a saturated server exhausts the window and batches grow,
- * maximizing throughput.
+ * <p>The window limits how many batches may be outstanding to the server at any time, so that
+ * batching adapts to the rate at which the server is servicing requests: while the window is
+ * exhausted, the shard's open batch keeps accumulating operations (up to the batch limits) instead
+ * of being flushed as a new tiny request. A fast server keeps the window open and batches stay
+ * small, minimizing latency; a saturated server exhausts the window and batches grow, maximizing
+ * throughput.
  *
  * <p>No method ever blocks: the batcher thread is shared with other shards and clients, so a slow
  * shard must not stall it. Batches that cannot be dispatched are held back — full batches in a FIFO
@@ -37,7 +37,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * through {@link #reclaim} before opening a new batch for the shard, so the parked batch always
  * carries the youngest operations and dispatch order matches submission order.
  */
-final class WriteWindow {
+final class DispatchWindow {
 
     private final ReentrantLock lock = new ReentrantLock();
     private final int maxBatchesInFlight;
@@ -49,7 +49,7 @@ final class WriteWindow {
     // Open batch parked at idle, awaiting either a slot or more operations.
     private Batch parkedBatch;
 
-    WriteWindow(int maxBatchesInFlight) {
+    DispatchWindow(int maxBatchesInFlight) {
         this.maxBatchesInFlight = maxBatchesInFlight;
     }
 
@@ -115,7 +115,7 @@ final class WriteWindow {
             if (next != null) {
                 batchesInFlight++;
                 // Send while holding the lock: a slot freed concurrently must not let the batcher
-                // dispatch a newer batch ahead of this one on the write stream.
+                // dispatch a newer batch ahead of this one.
                 next.send();
             }
         } finally {

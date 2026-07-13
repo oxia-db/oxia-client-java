@@ -73,6 +73,7 @@ class SessionTest {
                         1024 * 1024,
                         256L * 1024 * 1024,
                         4,
+                        4,
                         1,
                         sessionTimeout,
                         clientId,

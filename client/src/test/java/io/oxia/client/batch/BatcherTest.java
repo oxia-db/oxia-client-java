@@ -53,6 +53,7 @@ class BatcherTest {
                     1024 * 1024,
                     256L * 1024 * 1024,
                     4,
+                    4,
                     1,
                     Duration.ofMillis(1000),
                     "client_id",
@@ -203,10 +204,10 @@ class BatcherTest {
 
     @Test
     void accumulatesIntoOpenBatchWhileWindowExhausted() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch2 = mock(Batch.class);
         when(batchFactory.getConfig()).thenReturn(config);
-        when(batchFactory.getWriteWindow(1L)).thenReturn(window);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(window);
         when(batchFactory.getBatch(1L)).thenReturn(batch, batch2);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(1);
@@ -231,11 +232,11 @@ class BatcherTest {
 
     @Test
     void fullBatchIsQueuedWhileWindowExhausted() {
-        var window = new WriteWindow(1);
+        var window = new DispatchWindow(1);
         var batch2 = mock(Batch.class);
         var batch3 = mock(Batch.class);
         when(batchFactory.getConfig()).thenReturn(config);
-        when(batchFactory.getWriteWindow(1L)).thenReturn(window);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(window);
         when(batchFactory.getBatch(1L)).thenReturn(batch, batch2, batch3);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(1);
@@ -268,12 +269,12 @@ class BatcherTest {
 
     @Test
     void exhaustedWindowDoesNotBlockOtherShards() {
-        var window1 = new WriteWindow(1);
-        var window2 = new WriteWindow(1);
+        var window1 = new DispatchWindow(1);
+        var window2 = new DispatchWindow(1);
         var shard2Batch = mock(Batch.class);
         when(batchFactory.getConfig()).thenReturn(config);
-        when(batchFactory.getWriteWindow(1L)).thenReturn(window1);
-        when(batchFactory.getWriteWindow(2L)).thenReturn(window2);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(window1);
+        when(batchFactory.getDispatchWindow(2L)).thenReturn(window2);
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batchFactory.getBatch(2L)).thenReturn(shard2Batch);
         when(batch.canAdd(any())).thenReturn(true);

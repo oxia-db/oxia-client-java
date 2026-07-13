@@ -53,6 +53,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultMaxBatchSize = 128 * 1024;
     public static final long DefaultMaxPendingBytes = 256L * 1024 * 1024;
     public static final int DefaultMaxWriteBatchesInFlight = 4;
+    public static final int DefaultMaxReadBatchesInFlight = 4;
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
@@ -71,6 +72,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     protected int maxRequestsPerBatch = DefaultMaxRequestsPerBatch;
     protected long maxPendingBytes = DefaultMaxPendingBytes;
     protected int maxWriteBatchesInFlight = DefaultMaxWriteBatchesInFlight;
+    protected int maxReadBatchesInFlight = DefaultMaxReadBatchesInFlight;
     protected int batchingThreads = DefaultBatchingThreads;
     @NonNull protected Duration sessionTimeout = DefaultSessionTimeout;
 
@@ -148,6 +150,16 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "maxWriteBatchesInFlight must be greater than zero: " + maxWriteBatchesInFlight);
         }
         this.maxWriteBatchesInFlight = maxWriteBatchesInFlight;
+        return this;
+    }
+
+    @Override
+    public @NonNull OxiaClientBuilder maxReadBatchesInFlight(int maxReadBatchesInFlight) {
+        if (maxReadBatchesInFlight <= 0) {
+            throw new IllegalArgumentException(
+                    "maxReadBatchesInFlight must be greater than zero: " + maxReadBatchesInFlight);
+        }
+        this.maxReadBatchesInFlight = maxReadBatchesInFlight;
         return this;
     }
 
@@ -368,6 +380,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 DefaultMaxBatchSize,
                 maxPendingBytes,
                 maxWriteBatchesInFlight,
+                maxReadBatchesInFlight,
                 batchingThreads,
                 sessionTimeout,
                 clientIdentifierSupplier.get(),

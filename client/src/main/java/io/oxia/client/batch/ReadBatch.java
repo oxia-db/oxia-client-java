@@ -32,12 +32,14 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
 
     @VisibleForTesting final List<Operation.ReadOperation.GetOperation> gets = new ArrayList<>();
 
+    private final DispatchWindow window;
     private int responseIndex = 0;
     long startSendTimeNanos;
 
     ReadBatch(ReadBatchFactory factory, RpcProvider rpcProvider, long shardId) {
         super(rpcProvider, shardId);
         this.factory = factory;
+        this.window = factory.getDispatchWindow(shardId);
     }
 
     @Override
@@ -83,12 +85,16 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
 
     @Override
     public void onError(Throwable batchError) {
+        // Free the window slot first, so the next batch is dispatched before the operation
+        // callbacks below run.
+        window.release();
         fail(batchError);
         factory.getReadRequestLatencyHistogram().recordFailure(System.nanoTime() - startSendTimeNanos);
     }
 
     @Override
     public void onCompleted() {
+        window.release();
         // complete pending request if the server close stream without any response
         gets.forEach(
                 g -> {
