@@ -350,7 +350,8 @@ public final class ManagedWriteStream implements AutoCloseable {
                 log.warn().exceptionMessage(ex).log("Failed to close write stream");
             }
         }
-        log.info().attr("pendingWrites", inflightWrites.size()).log("Closing write stream");
+        log.debug(
+                event -> event.attr("pendingWrites", inflightWrites.size()).log("Closing write stream"));
         final var inflightsToFail = new ArrayList<>(inflightWrites);
         inflightWrites.clear();
         return inflightsToFail;
