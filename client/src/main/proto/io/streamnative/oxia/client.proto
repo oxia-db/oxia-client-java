@@ -127,6 +127,18 @@ message ShardAssignmentsRequest {
 }
 
 /**
+ * The hint about the current leader of a shard, returned as a detail of
+ * `node is not leader` errors by Oxia servers before 0.17.0.
+ */
+message LeaderHint {
+  // The shard id
+  int64 shard = 1;
+
+  // The current shard leader, e.g. `host:port`
+  string leader_address = 2;
+}
+
+/**
  * The response to a shard assignments request.
  */
 message ShardAssignments {
