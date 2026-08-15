@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.grpc.OxiaStatusCode.NODE_IS_NOT_LEADER;
 import static io.oxia.client.grpc.OxiaStatusCode.RESOURCE_UNAVAILABLE;
 import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
@@ -26,6 +27,7 @@ import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.oxia.client.util.CompletableFutures;
+import io.oxia.proto.LeaderHint;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeoutException;
@@ -138,6 +140,28 @@ public class OxiaStatusException extends RuntimeException {
                 metadata = info.getMetadataMap();
                 break;
             } catch (InvalidProtocolBufferException ignored) {
+            }
+        }
+        // parse the legacy leader hint detail sent by Oxia servers before 0.17.0
+        if (!metadata.containsKey("leader")) {
+            for (var detail : grpcStatus.getDetailsList()) {
+                if (!detail.getTypeUrl().endsWith(".LeaderHint")) {
+                    continue;
+                }
+                try {
+                    var hint = new LeaderHint();
+                    hint.parseFrom(detail.getValue().toByteArray());
+                    if (statusCode == UNKNOWN) {
+                        statusCode = NODE_IS_NOT_LEADER;
+                    }
+                    metadata =
+                            Map.of(
+                                    "shard", Long.toString(hint.getShard()),
+                                    "leader", hint.getLeaderAddress());
+                } catch (RuntimeException ignored) {
+                    // Ignore malformed hint details
+                }
+                break;
             }
         }
         // parse from the grpc standard code

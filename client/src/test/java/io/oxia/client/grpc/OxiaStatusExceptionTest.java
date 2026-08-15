@@ -19,11 +19,13 @@ import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import com.google.rpc.ErrorInfo;
 import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.protobuf.ProtoUtils;
 import io.grpc.protobuf.StatusProto;
+import io.oxia.proto.LeaderHint;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -61,6 +63,30 @@ class OxiaStatusExceptionTest {
                         Status.UNKNOWN.withDescription("node is not leader for shard 1").asRuntimeException());
 
         assertThat(error.getStatusCode()).isEqualTo(OxiaStatusCode.NODE_IS_NOT_LEADER);
+        assertThat(error.isRetryable()).isTrue();
+    }
+
+    @Test
+    void convertsLegacy016LeaderHintDetail() {
+        var leaderHint = new LeaderHint().setShard(1).setLeaderAddress("server-1:6648");
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.UNKNOWN.value())
+                        .setMessage("node is not leader for shard 1")
+                        .addDetails(
+                                Any.newBuilder()
+                                        .setTypeUrl("type.googleapis.com/io.oxia.proto.v1.LeaderHint")
+                                        .setValue(ByteString.copyFrom(leaderHint.toByteArray())))
+                        .build();
+
+        var error = OxiaStatusException.from(StatusProto.toStatusRuntimeException(grpcStatus));
+
+        assertThat(error.getStatusCode()).isEqualTo(OxiaStatusCode.NODE_IS_NOT_LEADER);
+        assertThat(error.getMetadata())
+                .containsEntry("shard", "1")
+                .containsEntry("leader", "server-1:6648");
+        assertThat(error.getLeaderHint(1)).contains("server-1:6648");
+        assertThat(error.getLeaderHint(2)).isEmpty();
         assertThat(error.isRetryable()).isTrue();
     }
 
