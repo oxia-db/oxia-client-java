@@ -57,6 +57,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
+    public static final Duration DefaultShardAssignmentsTimeout = Duration.ofSeconds(90);
     public static final String DefaultNamespace = "default";
     public static final boolean DefaultEnableTls = false;
     public static final int DefaultMaxConnectionPerNode = 1;
@@ -91,6 +92,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     protected Duration connectionKeepAliveTime = Duration.ofSeconds(10);
     protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
+    @NonNull protected Duration shardAssignmentsTimeout = DefaultShardAssignmentsTimeout;
 
     protected int maxConnectionsPerNode = DefaultMaxConnectionPerNode;
 
@@ -253,6 +255,16 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
+    public OxiaClientBuilder shardAssignmentsTimeout(@NonNull Duration shardAssignmentsTimeout) {
+        if (shardAssignmentsTimeout.isNegative() || shardAssignmentsTimeout.equals(ZERO)) {
+            throw new IllegalArgumentException(
+                    "shardAssignmentsTimeout must be greater than zero: " + shardAssignmentsTimeout);
+        }
+        this.shardAssignmentsTimeout = shardAssignmentsTimeout;
+        return this;
+    }
+
+    @Override
     public OxiaClientBuilder authentication(String authPluginClassName, String authParamsString)
             throws UnsupportedAuthenticationException {
         this.authPluginClassName = authPluginClassName;
@@ -392,7 +404,8 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 connectionBackoffMaxDelay,
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
-                maxConnectionsPerNode);
+                maxConnectionsPerNode,
+                shardAssignmentsTimeout);
     }
 
     @Override

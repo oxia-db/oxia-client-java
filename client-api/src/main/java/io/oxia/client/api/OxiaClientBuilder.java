@@ -260,6 +260,22 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder connectionKeepAliveTime(Duration connectionKeepAlive);
 
     /**
+     * Configure the maximum time the client will wait for a shard-assignments update on the {@code
+     * GetShardAssignments} stream before it recreates the stream.
+     *
+     * <p>The servers push a full snapshot whenever the shard assignments change. If no update is
+     * received within this timeout the client assumes the stream is stale or half-open, cancels it
+     * and opens a fresh stream to re-fetch the assignments.
+     *
+     * <p>Default is <code>90 sec</code>. Size this to at least 3x the server's assignment push
+     * cadence.
+     *
+     * @param shardAssignmentsTimeout the shard assignments stream timeout
+     * @return the builder instance
+     */
+    OxiaClientBuilder shardAssignmentsTimeout(Duration shardAssignmentsTimeout);
+
+    /**
      * Configure the authentication plugin and its parameters.
      *
      * @param authPluginClassName the class name of the authentication plugin

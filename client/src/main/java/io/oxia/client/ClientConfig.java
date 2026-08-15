@@ -40,4 +40,64 @@ public record ClientConfig(
         @NonNull Duration connectionBackoffMaxDelay,
         Duration connectionKeepAliveTime,
         Duration connectionKeepAliveTimeout,
-        int maxConnectionPerNode) {}
+        int maxConnectionPerNode,
+        @Nullable Duration shardAssignmentsTimeout) {
+
+    /**
+     * Default maximum time the client will wait for a shard-assignments update before recreating the
+     * {@code GetShardAssignments} stream. The servers push a full snapshot on every assignment
+     * change, so an interval of 3x the expected push cadence is a safe default.
+     */
+    public static final Duration DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT = Duration.ofSeconds(90);
+
+    public ClientConfig {
+        shardAssignmentsTimeout =
+                shardAssignmentsTimeout != null
+                        ? shardAssignmentsTimeout
+                        : DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT;
+    }
+
+    /** Backwards-compatible constructor for call sites that predate the shard-assignments timeout. */
+    public ClientConfig(
+            @NonNull String serviceAddress,
+            @NonNull Duration requestTimeout,
+            int maxRequestsPerBatch,
+            int maxBatchSize,
+            long maxPendingBytes,
+            int maxWriteBatchesInFlight,
+            int maxReadBatchesInFlight,
+            int batchingThreads,
+            @NonNull Duration sessionTimeout,
+            @NonNull String clientIdentifier,
+            OpenTelemetry openTelemetry,
+            @NonNull String namespace,
+            @Nullable Authentication authentication,
+            boolean enableTls,
+            @NonNull Duration connectionBackoffMinDelay,
+            @NonNull Duration connectionBackoffMaxDelay,
+            Duration connectionKeepAliveTime,
+            Duration connectionKeepAliveTimeout,
+            int maxConnectionPerNode) {
+        this(
+                serviceAddress,
+                requestTimeout,
+                maxRequestsPerBatch,
+                maxBatchSize,
+                maxPendingBytes,
+                maxWriteBatchesInFlight,
+                maxReadBatchesInFlight,
+                batchingThreads,
+                sessionTimeout,
+                clientIdentifier,
+                openTelemetry,
+                namespace,
+                authentication,
+                enableTls,
+                connectionBackoffMinDelay,
+                connectionBackoffMaxDelay,
+                connectionKeepAliveTime,
+                connectionKeepAliveTimeout,
+                maxConnectionPerNode,
+                DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
+    }
+}

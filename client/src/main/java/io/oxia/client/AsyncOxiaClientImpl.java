@@ -85,7 +85,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var rpcProvider =
                 RpcProvider.create(config, asyncExecutor, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(asyncExecutor, rpcProvider, instrumentProvider, config.namespace());
+                new ShardManager(
+                        asyncExecutor,
+                        rpcProvider,
+                        instrumentProvider,
+                        config.namespace(),
+                        config.shardAssignmentsTimeout());
         shardManagerRef.set(shardManager);
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);

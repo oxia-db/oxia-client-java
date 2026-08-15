@@ -19,6 +19,7 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -38,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -205,6 +207,113 @@ public class ShardManagerTest {
         }
 
         @Test
+        void recreatesStreamWhenNoAssignmentsReceivedForWatchdogInterval() {
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(200));
+
+            var leader0 = assignment(0, "leader0");
+            var leader1 = assignment(0, "leader1");
+            var stubCalls = new AtomicInteger();
+
+            doAnswer(
+                            invocation -> {
+                                if (stubCalls.getAndIncrement() == 0) {
+                                    // The first stream delivers one snapshot and then goes silent:
+                                    // this reproduces the zombie-stream scenario where the server
+                                    // half of the stream is gone but the client never receives a
+                                    // terminal event.
+                                    manager.onNext(assignments(leader0));
+                                } else {
+                                    // The recreated stream delivers the current snapshot.
+                                    manager.onNext(assignments(leader1));
+                                }
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+
+            // Without the watchdog the stale assignment would be kept forever.
+            await()
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(() -> assertThat(manager.leader(0)).isEqualTo("leader1"));
+            assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2);
+            verify(rpcProvider).cancelShardAssignments();
+        }
+
+        @Test
+        void recreatesStreamWhenFirstSnapshotNeverArrives() {
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(200));
+
+            var assignment = assignment(0, "leader0");
+            var stubCalls = new AtomicInteger();
+
+            doAnswer(
+                            invocation -> {
+                                // The first attempt never delivers anything (half-open stream).
+                                if (stubCalls.getAndIncrement() > 0) {
+                                    manager.onNext(assignments(assignment));
+                                }
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            manager.start();
+
+            await()
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(() -> assertThat(manager.allShardIds()).contains(0L));
+            assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2);
+            verify(rpcProvider).cancelShardAssignments();
+        }
+
+        @Test
+        void doesNotRecreateStreamWhileReceivingUpdates() throws Exception {
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(500));
+
+            var assignment = assignment(0, "leader0");
+            var stubCalls = new AtomicInteger();
+
+            doAnswer(
+                            invocation -> {
+                                stubCalls.incrementAndGet();
+                                // Keep the stream healthy by delivering updates more often than the
+                                // watchdog interval.
+                                asyncExecutor.scheduleWithFixedDelay(
+                                        () -> manager.onNext(assignments(assignment)), 100, 100, TimeUnit.MILLISECONDS);
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            manager.start();
+
+            Thread.sleep(1200);
+            assertThat(stubCalls.get()).isEqualTo(1);
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+        }
+
+        @Test
         void get() {
             assertThatThrownBy(() -> manager.getShardForKey("a"))
                     .isInstanceOf(OxiaStatusException.class)
@@ -231,6 +340,19 @@ public class ShardManagerTest {
                                 assertThat(oxiaError.getStatusCode()).isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND);
                                 assertThat(oxiaError.getMetadata()).containsEntry("shard", "1");
                             });
+        }
+
+        private ShardAssignments assignments(ShardAssignment assignment) {
+            var sa = new ShardAssignments();
+            sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+            return sa;
+        }
+
+        private ShardAssignment assignment(long shardId, String leader) {
+            var assignment = new ShardAssignment();
+            assignment.setShard(shardId).setLeader(leader);
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            return assignment;
         }
 
         @Test

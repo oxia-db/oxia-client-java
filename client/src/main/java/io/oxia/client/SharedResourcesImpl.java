@@ -133,7 +133,12 @@ public class SharedResourcesImpl implements SharedResources {
                 RpcProvider.create(
                         config, executor, connectionManager, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(executor, rpcProvider, instrumentProvider, config.namespace());
+                new ShardManager(
+                        executor,
+                        rpcProvider,
+                        instrumentProvider,
+                        config.namespace(),
+                        config.shardAssignmentsTimeout());
         shardManagerRef.set(shardManager);
         return new SharedNamespace(rpcProvider, shardManager, shardManager.start());
     }

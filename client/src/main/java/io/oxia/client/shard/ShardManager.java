@@ -38,12 +38,14 @@ import io.oxia.client.util.Backoff;
 import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -60,6 +62,14 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private final Backoff backoff = new Backoff();
     private final CompletableFuture<Void> initialAssignmentsFuture;
 
+    private static final Duration DEFAULT_WATCHDOG_INTERVAL = Duration.ofSeconds(90);
+
+    private final long watchdogIntervalNanos;
+    private ScheduledFuture<?> watchdogTask;
+    private boolean watchdogStarted;
+
+    private volatile long lastUpdateNanos;
+
     private volatile boolean closed;
 
     private final Counter shardAssignmentsEvents;
@@ -69,11 +79,22 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
+        this(asyncExecutor, rpcProvider, instrumentProvider, namespace, DEFAULT_WATCHDOG_INTERVAL);
+    }
+
+    public ShardManager(
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull RpcProvider rpcProvider,
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull String namespace,
+            @NonNull Duration watchdogInterval) {
         this.rpcProvider = rpcProvider;
         this.asyncExecutor = asyncExecutor;
         this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
         this.callbacks = new CompositeConsumer<>();
         this.initialAssignmentsFuture = new CompletableFuture<>();
+        this.watchdogIntervalNanos = watchdogInterval.toNanos();
+        this.lastUpdateNanos = System.nanoTime();
         this.log =
                 Logger.get(ShardManager.class).with().attr("namespace", assignments.getNamespace()).build();
 
@@ -88,6 +109,11 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @Override
     public void close() {
         closed = true;
+        synchronized (this) {
+            if (watchdogTask != null) {
+                watchdogTask.cancel(false);
+            }
+        }
     }
 
     public CompletableFuture<Void> start() {
@@ -95,11 +121,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         req.setNamespace(assignments.getNamespace());
 
         rpcProvider.getShardAssignments(req, this);
+        startWatchdog();
         return initialAssignmentsFuture;
     }
 
     @Override
     public void onNext(ShardAssignments assignments) {
+        lastUpdateNanos = System.nanoTime();
         shardAssignmentsEvents.increment();
         updateAssignments(assignments);
         backoff.reset();
@@ -114,6 +142,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
+        lastUpdateNanos = System.nanoTime();
         final var oxiaError = OxiaStatusException.from(error);
         if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
             log.error("Namespace not found");
@@ -141,6 +170,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
+        lastUpdateNanos = System.nanoTime();
         log.warn("Stream closed while receiving shard assignments");
         asyncExecutor.schedule(
                 () -> {
@@ -175,6 +205,45 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var changes = computeShardLeaderChanges(assignments.allShards(), updatedMap);
         assignments.update(changes);
         callbacks.accept(changes);
+    }
+
+    private void checkForStaleStream() {
+        if (closed) {
+            return;
+        }
+
+        final long lastUpdate = lastUpdateNanos;
+        if (System.nanoTime() - lastUpdate < watchdogIntervalNanos) {
+            return;
+        }
+
+        // No shard-assignments update for longer than the watchdog interval. The stream is either
+        // half-open (its server-side handler died without delivering a terminal event) or silently
+        // stalled. Cancel it and open a fresh stream to re-fetch the assignments.
+        lastUpdateNanos = System.nanoTime();
+        log.warn(
+                "No shard assignments received for "
+                        + watchdogIntervalNanos / 1_000_000
+                        + " ms, recreating the stream");
+        try {
+            rpcProvider.cancelShardAssignments();
+        } catch (Throwable t) {
+            log.warn().exceptionMessage(t).log("Failed to cancel the shard assignments stream");
+        }
+        start();
+    }
+
+    private synchronized void startWatchdog() {
+        if (closed || watchdogStarted) {
+            return;
+        }
+        watchdogStarted = true;
+        watchdogTask =
+                asyncExecutor.scheduleWithFixedDelay(
+                        this::checkForStaleStream,
+                        watchdogIntervalNanos / 2,
+                        watchdogIntervalNanos / 2,
+                        TimeUnit.NANOSECONDS);
     }
 
     @VisibleForTesting
