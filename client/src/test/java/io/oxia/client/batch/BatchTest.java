@@ -118,7 +118,8 @@ class BatchTest {
                     Duration.ofSeconds(30),
                     Duration.ofSeconds(10),
                     Duration.ofSeconds(5),
-                    1);
+                    1,
+                    ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
 
     private final OxiaClientImplBase serviceImpl =
             mock(
@@ -460,7 +461,8 @@ class BatchTest {
                             Duration.ofSeconds(30),
                             Duration.ofSeconds(10),
                             Duration.ofSeconds(5),
-                            1);
+                            1,
+                            ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
             return new WriteBatchFactory(
                     mock(RpcProvider.class),
                     mock(SessionManager.class),
@@ -663,7 +665,8 @@ class BatchTest {
                             Duration.ofSeconds(30),
                             Duration.ofSeconds(10),
                             Duration.ofSeconds(5),
-                            1);
+                            1,
+                            ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
             return new ReadBatchFactory(mock(RpcProvider.class), windowConfig, InstrumentProvider.NOOP);
         }
 
@@ -760,7 +763,8 @@ class BatchTest {
                         Duration.ofSeconds(30),
                         Duration.ofSeconds(10),
                         Duration.ofSeconds(5),
-                        1);
+                        1,
+                        ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
 
         @Nested
         @DisplayName("Tests of write batch factory")

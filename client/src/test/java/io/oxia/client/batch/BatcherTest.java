@@ -65,7 +65,8 @@ class BatcherTest {
                     Duration.ofSeconds(30),
                     Duration.ofSeconds(10),
                     Duration.ofSeconds(5),
-                    1);
+                    1,
+                    ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
 
     Batcher batcher;
 

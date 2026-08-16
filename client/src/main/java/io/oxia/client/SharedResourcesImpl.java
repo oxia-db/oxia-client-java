@@ -278,7 +278,8 @@ public class SharedResourcesImpl implements SharedResources {
                             connectionBackoffMaxDelay,
                             connectionKeepAliveTime,
                             connectionKeepAliveTimeout,
-                            maxConnectionPerNode);
+                            maxConnectionPerNode,
+                            ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
             return new SharedResourcesImpl(numWorkerThreads, transportConfig);
         }
     }
