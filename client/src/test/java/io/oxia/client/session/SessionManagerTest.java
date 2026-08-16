@@ -78,7 +78,7 @@ class SessionManagerTest {
                         Duration.ofSeconds(10),
                         Duration.ofSeconds(3),
                         1,
-                        ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
+                        ClientConfig.DEFAULT_LONG_LIVED_STREAM_REFRESH_INTERVAL);
         manager = new SessionManager(executor, config, rpcProvider, InstrumentProvider.NOOP);
     }
 

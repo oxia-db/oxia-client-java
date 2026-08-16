@@ -42,6 +42,7 @@ import io.oxia.client.metrics.Counter;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
+import java.time.Duration;
 import java.util.OptionalLong;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -94,11 +95,14 @@ class ShardNotificationReceiverTest {
     @Mock RpcProvider rpcProvider;
     @Mock Consumer<Notification> notificationCallback;
     @Mock NotificationManager notificationManager;
+    ScheduledExecutorService executor;
 
     @BeforeEach
     void beforeEach() throws Exception {
         requests.set(0);
         responses.clear();
+        executor = Executors.newSingleThreadScheduledExecutor();
+        when(notificationManager.getExecutor()).thenReturn(executor);
         server =
                 InProcessServerBuilder.forName(serverName)
                         .directExecutor()
@@ -118,6 +122,7 @@ class ShardNotificationReceiverTest {
 
     @AfterEach
     void afterEach() throws Exception {
+        executor.shutdownNow();
         channel.shutdownNow();
         server.shutdownNow();
     }
@@ -139,7 +144,8 @@ class ShardNotificationReceiverTest {
                         shardId,
                         notificationCallback,
                         notificationManager,
-                        OptionalLong.empty())) {
+                        OptionalLong.empty(),
+                        Duration.ofSeconds(60))) {
             await()
                     .untilAsserted(
                             () -> {
@@ -159,7 +165,8 @@ class ShardNotificationReceiverTest {
                         shardId,
                         notificationCallback,
                         notificationManager,
-                        OptionalLong.empty())) {
+                        OptionalLong.empty(),
+                        Duration.ofSeconds(60))) {
             await()
                     .untilAsserted(
                             () -> {
@@ -186,7 +193,8 @@ class ShardNotificationReceiverTest {
                         shardId,
                         notificationCallback,
                         notificationManager,
-                        OptionalLong.empty())) {
+                        OptionalLong.empty(),
+                        Duration.ofSeconds(60))) {
             await()
                     .untilAsserted(
                             () -> {
@@ -209,7 +217,8 @@ class ShardNotificationReceiverTest {
                         shardId,
                         notificationCallback,
                         notificationManager,
-                        OptionalLong.empty())) {
+                        OptionalLong.empty(),
+                        Duration.ofSeconds(60))) {
             await()
                     .untilAsserted(
                             () -> {

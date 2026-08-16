@@ -70,6 +70,8 @@ final class GrpcRpcProvider implements RpcProvider {
     private final Map<Long, ManagedWriteStream> writeStreams;
     private final AtomicReference<CancelableStreamObserver<ShardAssignments>> shardAssignmentsStream =
             new AtomicReference<>();
+    private final Map<Long, CancelableStreamObserver<NotificationBatch>> notificationStreams =
+            Maps.newConcurrentMap();
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -185,9 +187,40 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var cancelable =
+                                        new CancelableStreamObserver<NotificationBatch>() {
+                                            @Override
+                                            protected void handleNext(NotificationBatch value) {
+                                                guardedObserver.onNext(value);
+                                            }
+
+                                            @Override
+                                            protected void handleError(Throwable t) {
+                                                notificationStreams.remove(request.getShard());
+                                                guardedObserver.onError(t);
+                                            }
+
+                                            @Override
+                                            protected void handleComplete() {
+                                                notificationStreams.remove(request.getShard());
+                                                guardedObserver.onCompleted();
+                                            }
+                                        };
                                 final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                        ManagedObservers.toBarrierClientResponseObserver(cancelable, barrierFuture);
+                                // If the attempt times out or fails before delivering the first
+                                // batch, cancel the underlying call so it does not linger as a
+                                // half-open stream.
+                                barrierFuture.whenComplete(
+                                        (unused, error) -> {
+                                            if (error != null) {
+                                                cancelable.cancel();
+                                            }
+                                        });
+                                notificationStreams.put(request.getShard(), cancelable);
                                 try {
                                     connectionManager
                                             .getConnection(getLeader(request.getShard(), hint))
@@ -205,6 +238,14 @@ final class GrpcRpcProvider implements RpcProvider {
                             });
         } catch (Throwable error) {
             guardedObserver.onError(OxiaStatusException.from(error));
+        }
+    }
+
+    @Override
+    public void cancelNotifications(long shardId) {
+        final var stream = notificationStreams.remove(shardId);
+        if (stream != null) {
+            stream.cancel();
         }
     }
 

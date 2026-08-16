@@ -53,11 +53,18 @@ public interface RpcProvider extends AutoCloseable {
     /**
      * Cancel the currently active shard-assignments stream, if any.
      *
-     * <p>Invoked by the {@code ShardManager} when it detects that the stream has become stale (no
-     * assignments update received for a configurable period). Cancelling the underlying call forces
-     * the stream to terminate so a fresh stream can be created.
+     * <p>Invoked by the {@code ShardManager} when it refreshes the long-lived stream. Cancelling the
+     * underlying call forces the stream to terminate so a fresh stream can be created.
      */
     default void cancelShardAssignments() {}
+
+    /**
+     * Cancel the currently active notifications stream for the given shard, if any.
+     *
+     * <p>Invoked by the {@code ShardNotificationReceiver} when it refreshes the long-lived stream.
+     * The receiver resumes from its last received offset, so no notifications are lost.
+     */
+    default void cancelNotifications(long shardId) {}
 
     void getNotifications(
             @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer);

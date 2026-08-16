@@ -57,7 +57,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
-    public static final Duration DefaultShardAssignmentsTimeout = Duration.ofSeconds(90);
+    public static final Duration DefaultLongLivedStreamRefreshInterval = Duration.ofSeconds(60);
     public static final String DefaultNamespace = "default";
     public static final boolean DefaultEnableTls = false;
     public static final int DefaultMaxConnectionPerNode = 1;
@@ -92,7 +92,9 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     protected Duration connectionKeepAliveTime = Duration.ofSeconds(10);
     protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
-    @NonNull protected Duration shardAssignmentsTimeout = DefaultShardAssignmentsTimeout;
+
+    @NonNull
+    protected Duration longLivedStreamRefreshInterval = DefaultLongLivedStreamRefreshInterval;
 
     protected int maxConnectionsPerNode = DefaultMaxConnectionPerNode;
 
@@ -255,12 +257,15 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
-    public OxiaClientBuilder shardAssignmentsTimeout(@NonNull Duration shardAssignmentsTimeout) {
-        if (shardAssignmentsTimeout.isNegative() || shardAssignmentsTimeout.equals(ZERO)) {
+    public OxiaClientBuilder longLivedStreamRefreshInterval(
+            @NonNull Duration longLivedStreamRefreshInterval) {
+        if (longLivedStreamRefreshInterval.isNegative()
+                || longLivedStreamRefreshInterval.equals(ZERO)) {
             throw new IllegalArgumentException(
-                    "shardAssignmentsTimeout must be greater than zero: " + shardAssignmentsTimeout);
+                    "longLivedStreamRefreshInterval must be greater than zero: "
+                            + longLivedStreamRefreshInterval);
         }
-        this.shardAssignmentsTimeout = shardAssignmentsTimeout;
+        this.longLivedStreamRefreshInterval = longLivedStreamRefreshInterval;
         return this;
     }
 
@@ -405,7 +410,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
                 maxConnectionsPerNode,
-                shardAssignmentsTimeout);
+                longLivedStreamRefreshInterval);
     }
 
     @Override

@@ -41,12 +41,17 @@ public record ClientConfig(
         Duration connectionKeepAliveTime,
         Duration connectionKeepAliveTimeout,
         int maxConnectionPerNode,
-        @NonNull Duration shardAssignmentsTimeout) {
+        @NonNull Duration longLivedStreamRefreshInterval) {
 
     /**
-     * Default maximum time the client will wait for a shard-assignments update before recreating the
-     * {@code GetShardAssignments} stream. The servers push a full snapshot on every assignment
-     * change, so an interval of 3x the expected push cadence is a safe default.
+     * Default interval at which the client re-establishes long-lived streams such as {@code
+     * GetShardAssignments} and {@code GetNotifications}.
+     *
+     * <p>Re-establishing the streams on a fixed schedule bounds the lifetime of any silent or
+     * half-open stream. In particular, when the traffic crosses an L7 (HTTP/2-terminating) proxy, the
+     * proxy answers transport keepalives locally and a server-side stream can die without the client
+     * ever observing a terminal event. A bounded stream lifetime guarantees the client re-registers
+     * with the current servers within this interval.
      */
-    public static final Duration DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT = Duration.ofSeconds(90);
+    public static final Duration DEFAULT_LONG_LIVED_STREAM_REFRESH_INTERVAL = Duration.ofSeconds(60);
 }

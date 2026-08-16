@@ -62,13 +62,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private final Backoff backoff = new Backoff();
     private final CompletableFuture<Void> initialAssignmentsFuture;
 
-    private static final Duration DEFAULT_WATCHDOG_INTERVAL = Duration.ofSeconds(90);
+    private static final Duration DEFAULT_REFRESH_INTERVAL = Duration.ofSeconds(60);
 
-    private final long watchdogIntervalNanos;
-    private ScheduledFuture<?> watchdogTask;
-    private boolean watchdogStarted;
-
-    private volatile long lastUpdateNanos;
+    private final long refreshIntervalNanos;
+    private ScheduledFuture<?> refreshTask;
+    private boolean refreshStarted;
+    private ScheduledFuture<?> retryTask;
 
     private volatile boolean closed;
 
@@ -79,7 +78,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
-        this(asyncExecutor, rpcProvider, instrumentProvider, namespace, DEFAULT_WATCHDOG_INTERVAL);
+        this(asyncExecutor, rpcProvider, instrumentProvider, namespace, DEFAULT_REFRESH_INTERVAL);
     }
 
     public ShardManager(
@@ -87,14 +86,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace,
-            @NonNull Duration watchdogInterval) {
+            @NonNull Duration refreshInterval) {
         this.rpcProvider = rpcProvider;
         this.asyncExecutor = asyncExecutor;
         this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
         this.callbacks = new CompositeConsumer<>();
         this.initialAssignmentsFuture = new CompletableFuture<>();
-        this.watchdogIntervalNanos = watchdogInterval.toNanos();
-        this.lastUpdateNanos = System.nanoTime();
+        this.refreshIntervalNanos = refreshInterval.toNanos();
         this.log =
                 Logger.get(ShardManager.class).with().attr("namespace", assignments.getNamespace()).build();
 
@@ -110,8 +108,11 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     public void close() {
         closed = true;
         synchronized (this) {
-            if (watchdogTask != null) {
-                watchdogTask.cancel(false);
+            if (refreshTask != null) {
+                refreshTask.cancel(false);
+            }
+            if (retryTask != null) {
+                retryTask.cancel(false);
             }
         }
     }
@@ -120,14 +121,20 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
+        // Cancel any existing stream first so that the refresh and retry paths can never leave two
+        // concurrent streams registered with the servers.
+        try {
+            rpcProvider.cancelShardAssignments();
+        } catch (Throwable t) {
+            log.warn().exceptionMessage(t).log("Failed to cancel the shard assignments stream");
+        }
         rpcProvider.getShardAssignments(req, this);
-        startWatchdog();
+        startRefresh();
         return initialAssignmentsFuture;
     }
 
     @Override
     public void onNext(ShardAssignments assignments) {
-        lastUpdateNanos = System.nanoTime();
         shardAssignmentsEvents.increment();
         updateAssignments(assignments);
         backoff.reset();
@@ -142,7 +149,6 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        lastUpdateNanos = System.nanoTime();
         final var oxiaError = OxiaStatusException.from(error);
         if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
             log.error("Namespace not found");
@@ -153,15 +159,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             }
         }
         log.warn().exceptionMessage(getRootCause(error)).log("Failed receiving shard assignments");
-        asyncExecutor.schedule(
-                () -> {
-                    if (!closed) {
-                        log.info("Retry creating stream for shard assignments");
-                        start();
-                    }
-                },
-                backoff.nextDelayMillis(),
-                TimeUnit.MILLISECONDS);
+        scheduleRetry();
     }
 
     @Override
@@ -170,17 +168,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
-        lastUpdateNanos = System.nanoTime();
         log.warn("Stream closed while receiving shard assignments");
-        asyncExecutor.schedule(
-                () -> {
-                    if (!closed) {
-                        log.info("Retry creating stream for shard assignments after stream closed");
-                        start();
-                    }
-                },
-                backoff.nextDelayMillis(),
-                TimeUnit.MILLISECONDS);
+        scheduleRetry();
     }
 
     private void updateAssignments(io.oxia.proto.ShardAssignments shardAssignments) {
@@ -207,42 +196,57 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         callbacks.accept(changes);
     }
 
-    private void checkForStaleStream() {
+    /**
+     * Periodically re-establish the {@code GetShardAssignments} stream.
+     *
+     * <p>Bounding the lifetime of the stream guarantees that a silent or half-open stream (for
+     * example one whose server-side handler died without delivering a terminal event behind an L7
+     * HTTP/2-terminating proxy, where transport keepalives are answered locally) is replaced within
+     * the refresh interval. The fresh stream re-registers with the current servers and receives the
+     * current snapshot.
+     */
+    private void refreshStream() {
         if (closed) {
             return;
         }
-
-        final long lastUpdate = lastUpdateNanos;
-        if (System.nanoTime() - lastUpdate < watchdogIntervalNanos) {
-            return;
+        synchronized (this) {
+            if (retryTask != null) {
+                retryTask.cancel(false);
+                retryTask = null;
+            }
         }
-
-        // No shard-assignments update for longer than the watchdog interval. The stream is either
-        // half-open (its server-side handler died without delivering a terminal event) or silently
-        // stalled. Cancel it and open a fresh stream to re-fetch the assignments.
-        lastUpdateNanos = System.nanoTime();
-        log.warn(
-                "No shard assignments received for "
-                        + watchdogIntervalNanos / 1_000_000
-                        + " ms, recreating the stream");
-        try {
-            rpcProvider.cancelShardAssignments();
-        } catch (Throwable t) {
-            log.warn().exceptionMessage(t).log("Failed to cancel the shard assignments stream");
-        }
+        log.info("Refreshing shard assignments stream");
         start();
     }
 
-    private synchronized void startWatchdog() {
-        if (closed || watchdogStarted) {
+    private void scheduleRetry() {
+        synchronized (this) {
+            if (retryTask != null) {
+                retryTask.cancel(false);
+            }
+            retryTask =
+                    asyncExecutor.schedule(
+                            () -> {
+                                if (!closed) {
+                                    log.info("Retry creating stream for shard assignments");
+                                    start();
+                                }
+                            },
+                            backoff.nextDelayMillis(),
+                            TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private synchronized void startRefresh() {
+        if (closed || refreshStarted) {
             return;
         }
-        watchdogStarted = true;
-        watchdogTask =
+        refreshStarted = true;
+        refreshTask =
                 asyncExecutor.scheduleWithFixedDelay(
-                        this::checkForStaleStream,
-                        watchdogIntervalNanos / 2,
-                        watchdogIntervalNanos / 2,
+                        this::refreshStream,
+                        refreshIntervalNanos / 2,
+                        refreshIntervalNanos,
                         TimeUnit.NANOSECONDS);
     }
 

@@ -50,6 +50,7 @@ import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
+import java.time.Duration;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -325,7 +326,12 @@ class NotificationManagerTest {
             @Cleanup("shutdownNow")
             var executor = Executors.newSingleThreadScheduledExecutor();
             try (var manager =
-                    new NotificationManager(executor, rpcProvider, shardManager, InstrumentProvider.NOOP)) {
+                    new NotificationManager(
+                            executor,
+                            rpcProvider,
+                            shardManager,
+                            InstrumentProvider.NOOP,
+                            Duration.ofSeconds(60))) {
                 manager.registerCallback(notificationCallback);
                 var changes =
                         new ShardAssignmentChanges(

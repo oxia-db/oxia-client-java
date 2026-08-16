@@ -24,6 +24,7 @@ import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -53,10 +54,11 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
             @NonNull ScheduledExecutorService executor,
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
-            @NonNull InstrumentProvider instrumentProvider) {
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull Duration longLivedStreamRefreshInterval) {
         this(
                 executor,
-                new ShardNotificationReceiver.Factory(rpcProvider),
+                new ShardNotificationReceiver.Factory(rpcProvider, longLivedStreamRefreshInterval),
                 shardManager,
                 instrumentProvider);
     }

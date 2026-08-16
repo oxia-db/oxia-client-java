@@ -90,10 +90,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         rpcProvider,
                         instrumentProvider,
                         config.namespace(),
-                        config.shardAssignmentsTimeout());
+                        config.longLivedStreamRefreshInterval());
         shardManagerRef.set(shardManager);
         var notificationManager =
-                new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
+                new NotificationManager(
+                        asyncExecutor,
+                        rpcProvider,
+                        shardManager,
+                        instrumentProvider,
+                        config.longLivedStreamRefreshInterval());
         shardManager.addCallback(notificationManager);
         var readBatcherPool = new BatcherPool("oxia-read-batcher", config.batchingThreads());
         var readBatchManager =
@@ -143,7 +148,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                             config, asyncExecutor, connectionManager, shardManager::leader);
                             var notificationManager =
                                     new NotificationManager(
-                                            asyncExecutor, rpcProvider, shardManager, instrumentProvider);
+                                            asyncExecutor,
+                                            rpcProvider,
+                                            shardManager,
+                                            instrumentProvider,
+                                            config.longLivedStreamRefreshInterval());
                             shardManager.addCallback(notificationManager);
                             var readBatchManager =
                                     BatchManager.newReadBatchManager(

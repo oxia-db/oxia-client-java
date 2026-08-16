@@ -207,7 +207,7 @@ public class ShardManagerTest {
         }
 
         @Test
-        void recreatesStreamWhenNoAssignmentsReceivedForWatchdogInterval() {
+        void recreatesStreamOnRefreshInterval() {
             manager =
                     new ShardManager(
                             asyncExecutor,
@@ -240,12 +240,13 @@ public class ShardManagerTest {
             assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(manager.leader(0)).isEqualTo("leader0");
 
-            // Without the watchdog the stale assignment would be kept forever.
+            // The stream is re-established on the refresh interval, so a silent or half-open
+            // stream is replaced with a fresh registration that delivers the current snapshot.
             await()
                     .atMost(Duration.ofSeconds(5))
                     .untilAsserted(() -> assertThat(manager.leader(0)).isEqualTo("leader1"));
             assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2);
-            verify(rpcProvider).cancelShardAssignments();
+            verify(rpcProvider, org.mockito.Mockito.atLeastOnce()).cancelShardAssignments();
         }
 
         @Test
@@ -278,11 +279,11 @@ public class ShardManagerTest {
                     .atMost(Duration.ofSeconds(5))
                     .untilAsserted(() -> assertThat(manager.allShardIds()).contains(0L));
             assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2);
-            verify(rpcProvider).cancelShardAssignments();
+            verify(rpcProvider, org.mockito.Mockito.atLeastOnce()).cancelShardAssignments();
         }
 
         @Test
-        void doesNotRecreateStreamWhileReceivingUpdates() throws Exception {
+        void refreshesStreamEvenWhileReceivingUpdates() throws Exception {
             manager =
                     new ShardManager(
                             asyncExecutor,
@@ -297,8 +298,7 @@ public class ShardManagerTest {
             doAnswer(
                             invocation -> {
                                 stubCalls.incrementAndGet();
-                                // Keep the stream healthy by delivering updates more often than the
-                                // watchdog interval.
+                                // Keep the stream healthy by delivering frequent updates.
                                 asyncExecutor.scheduleWithFixedDelay(
                                         () -> manager.onNext(assignments(assignment)), 100, 100, TimeUnit.MILLISECONDS);
                                 return null;
@@ -309,7 +309,10 @@ public class ShardManagerTest {
             manager.start();
 
             Thread.sleep(1200);
-            assertThat(stubCalls.get()).isEqualTo(1);
+            // The refresh interval is 500ms (initial delay 250ms), so the stream is re-established
+            // even though it is healthy. Bounding the stream lifetime is what guarantees recovery
+            // from silent half-open streams.
+            assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2);
             assertThat(manager.leader(0)).isEqualTo("leader0");
         }
 

@@ -29,7 +29,9 @@ import io.oxia.client.util.Backoff;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import java.io.Closeable;
+import java.time.Duration;
 import java.util.OptionalLong;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Getter;
@@ -53,18 +55,22 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     private volatile boolean closed = false;
 
     private final Backoff backoff = new Backoff();
+    private final long refreshIntervalNanos;
+    private ScheduledFuture<?> refreshTask;
 
     ShardNotificationReceiver(
             @NonNull RpcProvider rpcProvider,
             long shardId,
             @NonNull Consumer<Notification> callback,
             @NonNull NotificationManager notificationManager,
-            @NonNull OptionalLong offset) {
+            @NonNull OptionalLong offset,
+            @NonNull Duration refreshInterval) {
         this.rpcProvider = rpcProvider;
         this.notificationManager = notificationManager;
         this.shardId = shardId;
         this.callback = callback;
         this.offset = offset;
+        this.refreshIntervalNanos = refreshInterval.toNanos();
         this.log = Logger.get(ShardNotificationReceiver.class).with().attr("shard", shardId).build();
 
         start();
@@ -75,10 +81,44 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         request.setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
         try {
+            // Cancel any existing subscription first so that the refresh and retry paths can never
+            // leave two concurrent streams registered for this shard.
+            rpcProvider.cancelNotifications(shardId);
             rpcProvider.getNotifications(request, this);
         } catch (Throwable ex) {
             onError(ex);
+            return;
         }
+        startRefresh();
+    }
+
+    /**
+     * Periodically re-establish the notifications stream.
+     *
+     * <p>Bounding the lifetime of the stream guarantees that a silent or half-open stream is replaced
+     * within the refresh interval. The receiver resumes from its last received offset, so no
+     * notifications are lost.
+     */
+    private void refreshStream() {
+        if (closed) {
+            return;
+        }
+        log.info().attr("shard", shardId).log("Refreshing notifications stream");
+        start();
+    }
+
+    private synchronized void startRefresh() {
+        if (closed || refreshTask != null) {
+            return;
+        }
+        refreshTask =
+                notificationManager
+                        .getExecutor()
+                        .scheduleWithFixedDelay(
+                                this::refreshStream,
+                                refreshIntervalNanos / 2,
+                                refreshIntervalNanos,
+                                TimeUnit.NANOSECONDS);
     }
 
     @Override
@@ -147,6 +187,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     @RequiredArgsConstructor(access = PACKAGE)
     static class Factory {
         private final @NonNull RpcProvider rpcProvider;
+        private final @NonNull Duration refreshInterval;
 
         @Getter
         private final @NonNull CompositeConsumer<Notification> callback = new CompositeConsumer<>();
@@ -157,12 +198,18 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                 @NonNull NotificationManager notificationManager,
                 @NonNull OptionalLong offset) {
             return new ShardNotificationReceiver(
-                    rpcProvider, shardId, callback, notificationManager, offset);
+                    rpcProvider, shardId, callback, notificationManager, offset, refreshInterval);
         }
     }
 
     @Override
     public void close() {
         this.closed = true;
+        synchronized (this) {
+            if (refreshTask != null) {
+                refreshTask.cancel(false);
+            }
+        }
+        rpcProvider.cancelNotifications(shardId);
     }
 }

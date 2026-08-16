@@ -260,20 +260,21 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder connectionKeepAliveTime(Duration connectionKeepAlive);
 
     /**
-     * Configure the maximum time the client will wait for a shard-assignments update on the {@code
-     * GetShardAssignments} stream before it recreates the stream.
+     * Configure the interval at which the client re-establishes its long-lived streams ({@code
+     * GetShardAssignments} and {@code GetNotifications}).
      *
-     * <p>The servers push a full snapshot whenever the shard assignments change. If no update is
-     * received within this timeout the client assumes the stream is stale or half-open, cancels it
-     * and opens a fresh stream to re-fetch the assignments.
+     * <p>The client cancels and recreates the streams on this schedule, re-registering with the
+     * current servers and re-fetching a fresh snapshot. Bounding the lifetime of a long-lived stream
+     * guarantees recovery from silent or half-open streams: an L7 (HTTP/2-terminating) proxy answers
+     * transport keepalives locally and can hide a dead server-side stream, while an L4 proxy keeps
+     * the connection visible end-to-end.
      *
-     * <p>Default is <code>90 sec</code>. Size this to at least 3x the server's assignment push
-     * cadence.
+     * <p>Default is <code>60 sec</code>.
      *
-     * @param shardAssignmentsTimeout the shard assignments stream timeout
+     * @param longLivedStreamRefreshInterval the long-lived stream refresh interval
      * @return the builder instance
      */
-    OxiaClientBuilder shardAssignmentsTimeout(Duration shardAssignmentsTimeout);
+    OxiaClientBuilder longLivedStreamRefreshInterval(Duration longLivedStreamRefreshInterval);
 
     /**
      * Configure the authentication plugin and its parameters.

@@ -138,7 +138,7 @@ public class SharedResourcesImpl implements SharedResources {
                         rpcProvider,
                         instrumentProvider,
                         config.namespace(),
-                        config.shardAssignmentsTimeout());
+                        config.longLivedStreamRefreshInterval());
         shardManagerRef.set(shardManager);
         return new SharedNamespace(rpcProvider, shardManager, shardManager.start());
     }
@@ -279,7 +279,7 @@ public class SharedResourcesImpl implements SharedResources {
                             connectionKeepAliveTime,
                             connectionKeepAliveTimeout,
                             maxConnectionPerNode,
-                            ClientConfig.DEFAULT_SHARD_ASSIGNMENTS_TIMEOUT);
+                            ClientConfig.DEFAULT_LONG_LIVED_STREAM_REFRESH_INTERVAL);
             return new SharedResourcesImpl(numWorkerThreads, transportConfig);
         }
     }
