@@ -117,9 +117,7 @@ final class GrpcRpcProvider implements RpcProvider {
                             () -> {
                                 final var barrierFuture =
                                         new CompletableFuture<Void>()
-                                                .orTimeout(
-                                                        clientConfig.shardAssignmentsTimeout().toMillis(),
-                                                        TimeUnit.MILLISECONDS);
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var cancelable =
                                         new CancelableStreamObserver<ShardAssignments>() {
                                             @Override
