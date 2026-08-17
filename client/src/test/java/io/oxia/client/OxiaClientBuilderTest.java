@@ -43,6 +43,15 @@ class OxiaClientBuilderTest {
     }
 
     @Test
+    void idleTimeout() {
+        assertThatThrownBy(() -> builder.idleTimeout(ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.idleTimeout(Duration.ofMillis(-1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatNoException().isThrownBy(() -> builder.idleTimeout(Duration.ofMillis(1)));
+    }
+
+    @Test
     void batchLinger() {
         assertThatThrownBy(() -> builder.batchLinger(ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -84,6 +93,7 @@ class OxiaClientBuilderTest {
         Properties properties = new Properties();
         properties.setProperty("serviceAddress", "address:5678");
         properties.setProperty("requestTimeout", "1");
+        properties.setProperty("idleTimeout", "5");
         properties.setProperty("batchLinger", "2");
         properties.setProperty("maxRequestsPerBatch", "3");
         properties.setProperty("sessionTimeout", "4");
@@ -96,6 +106,7 @@ class OxiaClientBuilderTest {
         OxiaClientBuilderImpl impl = (OxiaClientBuilderImpl) builder;
         assertThat(impl.serviceAddress).isEqualTo("address:5678");
         assertThat(impl.requestTimeout).isEqualTo(Duration.ofMillis(1));
+        assertThat(impl.idleTimeout).isEqualTo(Duration.ofMillis(5));
         assertThat(impl.batchLinger).isEqualTo(Duration.ofMillis(2));
         assertThat(impl.maxRequestsPerBatch).isEqualTo(3);
         assertThat(impl.sessionTimeout).isEqualTo(Duration.ofMillis(4));

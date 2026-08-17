@@ -102,6 +102,7 @@ class BatchTest {
             new ClientConfig(
                     "address",
                     Duration.ofMillis(100),
+                    Duration.ofSeconds(90),
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,
@@ -444,6 +445,7 @@ class BatchTest {
                     new ClientConfig(
                             "address",
                             Duration.ofMillis(100),
+                            Duration.ofSeconds(90),
                             10,
                             1024 * 1024,
                             256L * 1024 * 1024,
@@ -647,6 +649,7 @@ class BatchTest {
                     new ClientConfig(
                             "address",
                             Duration.ofMillis(100),
+                            Duration.ofSeconds(90),
                             10,
                             1024 * 1024,
                             256L * 1024 * 1024,
@@ -744,6 +747,7 @@ class BatchTest {
                 new ClientConfig(
                         "address",
                         ZERO,
+                        Duration.ofSeconds(90),
                         1,
                         1024 * 1024,
                         256L * 1024 * 1024,

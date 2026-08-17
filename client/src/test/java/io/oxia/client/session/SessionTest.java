@@ -69,6 +69,7 @@ class SessionTest {
                 new ClientConfig(
                         "address",
                         Duration.ZERO,
+                        Duration.ofSeconds(90),
                         1,
                         1024 * 1024,
                         256L * 1024 * 1024,

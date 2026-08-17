@@ -94,6 +94,7 @@ class AsyncOxiaClientImplTest {
                 writeBatchManager,
                 sessionManager,
                 requestTimeout,
+                Duration.ofSeconds(90),
                 maxPendingBytes,
                 true);
     }

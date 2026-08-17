@@ -25,10 +25,13 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.util.Backoff;
+import io.oxia.client.util.Watchdog;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import java.io.Closeable;
+import java.time.Duration;
 import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -53,36 +56,70 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     private volatile boolean closed = false;
 
     private final Backoff backoff = new Backoff();
+    private final long refreshIntervalMillis;
+    private final Watchdog watchdog;
+    private CancelableStreamObserver<NotificationBatch> stream;
 
     ShardNotificationReceiver(
             @NonNull RpcProvider rpcProvider,
             long shardId,
             @NonNull Consumer<Notification> callback,
             @NonNull NotificationManager notificationManager,
-            @NonNull OptionalLong offset) {
+            @NonNull OptionalLong offset,
+            @NonNull Duration refreshInterval) {
         this.rpcProvider = rpcProvider;
         this.notificationManager = notificationManager;
         this.shardId = shardId;
         this.callback = callback;
         this.offset = offset;
+        this.refreshIntervalMillis = refreshInterval.toMillis();
+        this.watchdog = new Watchdog(notificationManager.getExecutor(), refreshInterval);
         this.log = Logger.get(ShardNotificationReceiver.class).with().attr("shard", shardId).build();
 
         start();
     }
 
-    void start() {
+    synchronized void start() {
         var request = new NotificationsRequest();
         request.setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
+
+        // Cancel any existing stream first so that the refresh and retry paths can never leave two
+        // concurrent streams registered for this shard.
+        final var currentStream = stream;
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
+
+        stream =
+                new CancelableStreamObserver<NotificationBatch>() {
+                    @Override
+                    protected void handleNext(NotificationBatch value) {
+                        ShardNotificationReceiver.this.onNext(value);
+                    }
+
+                    @Override
+                    protected void handleError(Throwable t) {
+                        ShardNotificationReceiver.this.onError(t);
+                    }
+
+                    @Override
+                    protected void handleComplete() {
+                        ShardNotificationReceiver.this.onCompleted();
+                    }
+                };
         try {
-            rpcProvider.getNotifications(request, this);
+            rpcProvider.getNotifications(request, stream);
         } catch (Throwable ex) {
             onError(ex);
+            return;
         }
+        watchdog.start(this::refreshStream);
     }
 
     @Override
     public void onNext(NotificationBatch batch) {
+        watchdog.pet();
         if (offset.isPresent() && offset.getAsLong() >= batch.getOffset()) {
             // Ignore repeated notifications
             return;
@@ -119,6 +156,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
             return;
         }
 
+        watchdog.pet();
         long retryDelayMillis = backoff.nextDelayMillis();
         log.warn()
                 .attr("retryInSeconds", retryDelayMillis / 1000.0)
@@ -139,14 +177,38 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     @Override
     public void onCompleted() {
-        if (!closed) {
-            start();
+        if (closed) {
+            return;
         }
+        watchdog.pet();
+        start();
+    }
+
+    /**
+     * Recreates the notifications stream, invoked by the refresh scheduler when no batch has been
+     * received for longer than the refresh interval.
+     *
+     * <p>Reconnecting resumes from the last received offset, so recreating an idle stream is
+     * lossless: the server re-delivers from that position and the client ignores repeated batches.
+     */
+    private void refreshStream() {
+        if (closed) {
+            return;
+        }
+
+        log.warn()
+                .attr("shard", shardId)
+                .log(
+                        "No notifications received for "
+                                + refreshIntervalMillis
+                                + " ms, recreating the stream");
+        start();
     }
 
     @RequiredArgsConstructor(access = PACKAGE)
     static class Factory {
         private final @NonNull RpcProvider rpcProvider;
+        private final @NonNull Duration refreshInterval;
 
         @Getter
         private final @NonNull CompositeConsumer<Notification> callback = new CompositeConsumer<>();
@@ -157,12 +219,17 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                 @NonNull NotificationManager notificationManager,
                 @NonNull OptionalLong offset) {
             return new ShardNotificationReceiver(
-                    rpcProvider, shardId, callback, notificationManager, offset);
+                    rpcProvider, shardId, callback, notificationManager, offset, refreshInterval);
         }
     }
 
     @Override
     public void close() {
         this.closed = true;
+        watchdog.close();
+        final var currentStream = stream;
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
     }
 }

@@ -85,10 +85,16 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var rpcProvider =
                 RpcProvider.create(config, asyncExecutor, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(asyncExecutor, rpcProvider, instrumentProvider, config.namespace());
+                new ShardManager(
+                        asyncExecutor,
+                        rpcProvider,
+                        instrumentProvider,
+                        config.namespace(),
+                        config.idleTimeout());
         shardManagerRef.set(shardManager);
         var notificationManager =
-                new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
+                new NotificationManager(
+                        asyncExecutor, rpcProvider, shardManager, instrumentProvider, config.idleTimeout());
         shardManager.addCallback(notificationManager);
         var readBatcherPool = new BatcherPool("oxia-read-batcher", config.batchingThreads());
         var readBatchManager =
@@ -113,6 +119,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         writeBatchManager,
                         sessionManager,
                         config.requestTimeout(),
+                        config.idleTimeout(),
                         config.maxPendingBytes(),
                         true);
         return shardManager.start().thenApply(v -> client);
@@ -138,7 +145,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                             config, asyncExecutor, connectionManager, shardManager::leader);
                             var notificationManager =
                                     new NotificationManager(
-                                            asyncExecutor, rpcProvider, shardManager, instrumentProvider);
+                                            asyncExecutor,
+                                            rpcProvider,
+                                            shardManager,
+                                            instrumentProvider,
+                                            config.idleTimeout());
                             shardManager.addCallback(notificationManager);
                             var readBatchManager =
                                     BatchManager.newReadBatchManager(
@@ -169,6 +180,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                     writeBatchManager,
                                     sessionManager,
                                     config.requestTimeout(),
+                                    config.idleTimeout(),
                                     config.maxPendingBytes(),
                                     false);
                         });
@@ -183,6 +195,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull BatchManager writeBatchManager;
     private final @NonNull SessionManager sessionManager;
     private final long requestTimeoutMs;
+    private final @NonNull Duration idleTimeout;
     private final @NonNull PendingBytesLimiter pendingBytesLimiter;
     private volatile boolean closed;
 
@@ -227,6 +240,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull BatchManager writeBatchManager,
             @NonNull SessionManager sessionManager,
             Duration requestTimeout,
+            @NonNull Duration idleTimeout,
             long maxPendingBytes,
             boolean ownsResources) {
         this.clientIdentifier = clientIdentifier;
@@ -241,6 +255,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         this.scheduledExecutor = scheduledExecutor;
         this.ownsResources = ownsResources;
         this.requestTimeoutMs = requestTimeout.toMillis();
+        this.idleTimeout = idleTimeout;
 
         counterPutBytes =
                 instrumentProvider.newCounter(
@@ -795,7 +810,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 this.rpcProvider,
                 this.shardManager,
                 this.instrumentProvider,
-                x -> closed);
+                x -> closed,
+                this.scheduledExecutor,
+                this.idleTimeout);
     }
 
     @Override

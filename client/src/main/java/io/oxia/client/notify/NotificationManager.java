@@ -24,6 +24,7 @@ import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -36,6 +37,8 @@ import lombok.Getter;
 import lombok.NonNull;
 
 public class NotificationManager implements AutoCloseable, Consumer<ShardAssignmentChanges> {
+    private static final Duration DEFAULT_REFRESH_INTERVAL = Duration.ofSeconds(90);
+
     private final ConcurrentMap<Long, ShardNotificationReceiver> shardReceivers =
             new ConcurrentHashMap<>();
     private final @NonNull ShardNotificationReceiver.Factory receiverFactory;
@@ -54,9 +57,18 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider) {
+        this(executor, rpcProvider, shardManager, instrumentProvider, DEFAULT_REFRESH_INTERVAL);
+    }
+
+    public NotificationManager(
+            @NonNull ScheduledExecutorService executor,
+            @NonNull RpcProvider rpcProvider,
+            @NonNull ShardManager shardManager,
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull Duration refreshInterval) {
         this(
                 executor,
-                new ShardNotificationReceiver.Factory(rpcProvider),
+                new ShardNotificationReceiver.Factory(rpcProvider, refreshInterval),
                 shardManager,
                 instrumentProvider);
     }

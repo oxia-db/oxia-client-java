@@ -48,10 +48,12 @@ public interface RpcProvider extends AutoCloseable {
     }
 
     void getShardAssignments(
-            @NonNull ShardAssignmentsRequest request, @NonNull StreamObserver<ShardAssignments> observer);
+            @NonNull ShardAssignmentsRequest request,
+            @NonNull CancelableStreamObserver<ShardAssignments> observer);
 
     void getNotifications(
-            @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer);
+            @NonNull NotificationsRequest request,
+            @NonNull CancelableStreamObserver<NotificationBatch> observer);
 
     CompletableFuture<CreateSessionResponse> createSession(@NonNull CreateSessionRequest request);
 

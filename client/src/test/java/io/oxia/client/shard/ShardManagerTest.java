@@ -19,8 +19,8 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
@@ -28,11 +28,13 @@ import io.grpc.Status;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -165,7 +167,8 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
 
             var future = manager.start();
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
@@ -195,13 +198,134 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
 
             assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
 
             verify(rpcProvider, org.mockito.Mockito.times(2))
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
             assertThat(stubCalls).hasValue(2);
+        }
+
+        @Test
+        void recreatesStreamWhenAssignmentsGoSilent() {
+            var stubCalls = new AtomicInteger();
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(200));
+
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+
+            doAnswer(
+                            invocation -> {
+                                stubCalls.incrementAndGet();
+                                var sa = new ShardAssignments();
+                                sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+                                ((CancelableStreamObserver<ShardAssignments>) invocation.getArgument(1)).onNext(sa);
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+
+            // After the initial snapshot the stream goes silent, so the watchdog recreates it.
+            await().untilAsserted(() -> assertThat(stubCalls.get()).isGreaterThanOrEqualTo(2));
+        }
+
+        @Test
+        void doesNotRecreateStreamWhileAssignmentsKeepArriving() throws Exception {
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(200));
+            var observers = new ArrayList<CancelableStreamObserver<ShardAssignments>>();
+            doAnswer(
+                            invocation -> {
+                                observers.add(invocation.getArgument(1));
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
+
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            var snapshot = new ShardAssignments();
+            snapshot.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+
+            var future = manager.start();
+            await().until(() -> observers.size() == 1);
+            observers.get(0).onNext(snapshot);
+            assertThat(future).succeedsWithin(Duration.ofSeconds(1));
+
+            for (int i = 0; i < 8; i++) {
+                Thread.sleep(60);
+                observers.get(0).onNext(snapshot);
+            }
+            assertThat(observers.size()).isEqualTo(1);
+        }
+
+        @Test
+        void cancelsPreviousStreamBeforeRecreating() {
+            manager =
+                    new ShardManager(
+                            asyncExecutor,
+                            rpcProvider,
+                            InstrumentProvider.NOOP,
+                            DefaultNamespace,
+                            Duration.ofMillis(200));
+            var observers = new ArrayList<CancelableStreamObserver<ShardAssignments>>();
+
+            var assignment = new ShardAssignment();
+            assignment.setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            var staleAssignment = new ShardAssignment();
+            staleAssignment.setShard(0).setLeader("leader1");
+            staleAssignment
+                    .setInt32HashRange()
+                    .setMinHashInclusive(0)
+                    .setMaxHashInclusive(Integer.MAX_VALUE);
+
+            doAnswer(
+                            invocation -> {
+                                var observer =
+                                        (CancelableStreamObserver<ShardAssignments>) invocation.getArgument(1);
+                                observers.add(observer);
+                                var sa = new ShardAssignments();
+                                sa.putNamespaces(namespace).addAssignment().copyFrom(assignment);
+                                observer.onNext(sa);
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+
+            await().untilAsserted(() -> assertThat(observers.size()).isGreaterThanOrEqualTo(2));
+
+            // The old stream was cancelled before recreating, so a stale snapshot delivered through
+            // it must be ignored.
+            var stale = new ShardAssignments();
+            stale.putNamespaces(namespace).addAssignment().copyFrom(staleAssignment);
+            observers.get(0).onNext(stale);
+            assertThat(manager.leader(0)).isEqualTo("leader0");
         }
 
         @Test
@@ -247,7 +371,8 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), any(CancelableStreamObserver.class));
 
             assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
             assertThat(manager.allShardIds()).containsExactly(0L);

@@ -27,6 +27,7 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
@@ -259,20 +260,7 @@ class GrpcRpcProviderTest {
             request.setShard(1);
             var notification = new AtomicReference<NotificationBatch>();
 
-            provider.getNotifications(
-                    request,
-                    new StreamObserver<>() {
-                        @Override
-                        public void onNext(NotificationBatch value) {
-                            notification.set(value);
-                        }
-
-                        @Override
-                        public void onError(Throwable t) {}
-
-                        @Override
-                        public void onCompleted() {}
-                    });
+            provider.getNotifications(request, capturingCancelableObserver(notification));
 
             await()
                     .untilAsserted(
@@ -755,18 +743,18 @@ class GrpcRpcProviderTest {
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             provider.getShardAssignments(
                     new ShardAssignmentsRequest(),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(ShardAssignments value) {}
+                        protected void handleNext(ShardAssignments value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -775,6 +763,56 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void callerCanCancelShardAssignmentsStream() throws Exception {
+        var serverCallRef = new AtomicReference<ServerCallStreamObserver<ShardAssignments>>();
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        serverCallRef.set(
+                                                (ServerCallStreamObserver<ShardAssignments>) responseObserver);
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config = ((OxiaClientBuilderImpl) OxiaClientBuilder.create(address)).getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var observer =
+                    new CancelableStreamObserver<ShardAssignments>() {
+                        @Override
+                        protected void handleNext(ShardAssignments value) {}
+
+                        @Override
+                        protected void handleError(Throwable t) {}
+
+                        @Override
+                        protected void handleComplete() {}
+                    };
+            provider.getShardAssignments(new ShardAssignmentsRequest(), observer);
+
+            await().until(() -> serverCallRef.get() != null);
+            observer.cancel();
+
+            await().untilAsserted(() -> assertThat(serverCallRef.get().isCancelled()).isTrue());
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -819,21 +857,21 @@ class GrpcRpcProviderTest {
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             provider.getShardAssignments(
                     new ShardAssignmentsRequest(),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(ShardAssignments value) {
+                        protected void handleNext(ShardAssignments value) {
                             received.incrementAndGet();
                         }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminalEvents.incrementAndGet();
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminalEvents.incrementAndGet();
                             terminated.countDown();
                         }
@@ -890,21 +928,21 @@ class GrpcRpcProviderTest {
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             provider.getShardAssignments(
                     new ShardAssignmentsRequest(),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(ShardAssignments value) {
+                        protected void handleNext(ShardAssignments value) {
                             if (received.incrementAndGet() == 2) {
                                 secondMessage.countDown();
                             }
                         }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                         }
 
                         @Override
-                        public void onCompleted() {}
+                        protected void handleComplete() {}
                     });
 
             await().untilAsserted(() -> assertThat(received.get()).isEqualTo(1));
@@ -954,18 +992,18 @@ class GrpcRpcProviderTest {
             request.setShard(1);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -1014,18 +1052,18 @@ class GrpcRpcProviderTest {
             request.setStartOffsetExclusive(5);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });

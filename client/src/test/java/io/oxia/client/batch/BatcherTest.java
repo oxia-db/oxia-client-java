@@ -49,6 +49,7 @@ class BatcherTest {
             new ClientConfig(
                     "address",
                     Duration.ofMillis(100),
+                    Duration.ofSeconds(90),
                     10,
                     1024 * 1024,
                     256L * 1024 * 1024,

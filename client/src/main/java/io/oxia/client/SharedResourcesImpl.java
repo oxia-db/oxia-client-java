@@ -133,7 +133,8 @@ public class SharedResourcesImpl implements SharedResources {
                 RpcProvider.create(
                         config, executor, connectionManager, shardId -> shardManagerRef.get().leader(shardId));
         var shardManager =
-                new ShardManager(executor, rpcProvider, instrumentProvider, config.namespace());
+                new ShardManager(
+                        executor, rpcProvider, instrumentProvider, config.namespace(), config.idleTimeout());
         shardManagerRef.set(shardManager);
         return new SharedNamespace(rpcProvider, shardManager, shardManager.start());
     }
@@ -257,6 +258,7 @@ public class SharedResourcesImpl implements SharedResources {
                     new ClientConfig(
                             "shared",
                             OxiaClientBuilderImpl.DefaultRequestTimeout,
+                            OxiaClientBuilderImpl.DefaultIdleTimeout,
                             OxiaClientBuilderImpl.DefaultMaxRequestsPerBatch,
                             OxiaClientBuilderImpl.DefaultMaxBatchSize,
                             OxiaClientBuilderImpl.DefaultMaxPendingBytes,

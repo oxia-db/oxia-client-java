@@ -29,6 +29,7 @@ import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignment;
@@ -116,7 +117,7 @@ class ShardManagerGrpcTest {
                 .when(rpcProvider)
                 .getShardAssignments(
                         org.mockito.ArgumentMatchers.any(ShardAssignmentsRequest.class),
-                        org.mockito.ArgumentMatchers.any(StreamObserver.class));
+                        org.mockito.ArgumentMatchers.any(CancelableStreamObserver.class));
     }
 
     @AfterEach

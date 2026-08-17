@@ -56,6 +56,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultMaxReadBatchesInFlight = 4;
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
+    public static final Duration DefaultIdleTimeout = Duration.ofSeconds(90);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
     public static final String DefaultNamespace = "default";
     public static final boolean DefaultEnableTls = false;
@@ -63,6 +64,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     @NonNull protected final String serviceAddress;
     @NonNull protected Duration requestTimeout = DefaultRequestTimeout;
+    @NonNull protected Duration idleTimeout = DefaultIdleTimeout;
 
     // Unused, but kept so that loadConfig() keeps accepting the "batchLinger" property
     @Deprecated(since = "0.9.0", forRemoval = true)
@@ -110,6 +112,15 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                     "requestTimeout must be greater than zero: " + requestTimeout);
         }
         this.requestTimeout = requestTimeout;
+        return this;
+    }
+
+    @Override
+    public @NonNull OxiaClientBuilder idleTimeout(@NonNull Duration idleTimeout) {
+        if (idleTimeout.isNegative() || idleTimeout.equals(ZERO)) {
+            throw new IllegalArgumentException("idleTimeout must be greater than zero: " + idleTimeout);
+        }
+        this.idleTimeout = idleTimeout;
         return this;
     }
 
@@ -376,6 +387,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         return new ClientConfig(
                 serviceAddress,
                 requestTimeout,
+                idleTimeout,
                 maxRequestsPerBatch,
                 DefaultMaxBatchSize,
                 maxPendingBytes,

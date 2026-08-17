@@ -31,13 +31,16 @@ import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.util.Backoff;
+import io.oxia.client.util.Watchdog;
 import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
@@ -60,6 +63,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private final Backoff backoff = new Backoff();
     private final CompletableFuture<Void> initialAssignmentsFuture;
 
+    private static final Duration DEFAULT_REFRESH_INTERVAL = Duration.ofSeconds(90);
+
+    private final long refreshIntervalMillis;
+    private final Watchdog watchdog;
+    private CancelableStreamObserver<ShardAssignments> stream;
+
     private volatile boolean closed;
 
     private final Counter shardAssignmentsEvents;
@@ -69,11 +78,22 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
+        this(asyncExecutor, rpcProvider, instrumentProvider, namespace, DEFAULT_REFRESH_INTERVAL);
+    }
+
+    public ShardManager(
+            @NonNull ScheduledExecutorService asyncExecutor,
+            @NonNull RpcProvider rpcProvider,
+            @NonNull InstrumentProvider instrumentProvider,
+            @NonNull String namespace,
+            @NonNull Duration refreshInterval) {
         this.rpcProvider = rpcProvider;
         this.asyncExecutor = asyncExecutor;
         this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
         this.callbacks = new CompositeConsumer<>();
         this.initialAssignmentsFuture = new CompletableFuture<>();
+        this.refreshIntervalMillis = refreshInterval.toMillis();
+        this.watchdog = new Watchdog(asyncExecutor, refreshInterval);
         this.log =
                 Logger.get(ShardManager.class).with().attr("namespace", assignments.getNamespace()).build();
 
@@ -88,18 +108,49 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @Override
     public void close() {
         closed = true;
+        watchdog.close();
+        final var currentStream = stream;
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
     }
 
-    public CompletableFuture<Void> start() {
+    public synchronized CompletableFuture<Void> start() {
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
-        rpcProvider.getShardAssignments(req, this);
+        // Cancel any existing stream first so that the refresh and retry paths can never leave two
+        // concurrent streams registered with the servers.
+        final var currentStream = stream;
+        if (currentStream != null) {
+            currentStream.cancel();
+        }
+
+        stream =
+                new CancelableStreamObserver<ShardAssignments>() {
+                    @Override
+                    protected void handleNext(ShardAssignments value) {
+                        ShardManager.this.onNext(value);
+                    }
+
+                    @Override
+                    protected void handleError(Throwable t) {
+                        ShardManager.this.onError(t);
+                    }
+
+                    @Override
+                    protected void handleComplete() {
+                        ShardManager.this.onCompleted();
+                    }
+                };
+        rpcProvider.getShardAssignments(req, stream);
+        watchdog.start(this::refreshStream);
         return initialAssignmentsFuture;
     }
 
     @Override
     public void onNext(ShardAssignments assignments) {
+        watchdog.pet();
         shardAssignmentsEvents.increment();
         updateAssignments(assignments);
         backoff.reset();
@@ -114,6 +165,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
+        watchdog.pet();
         final var oxiaError = OxiaStatusException.from(error);
         if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
             log.error("Namespace not found");
@@ -141,6 +193,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
 
+        watchdog.pet();
         log.warn("Stream closed while receiving shard assignments");
         asyncExecutor.schedule(
                 () -> {
@@ -151,6 +204,27 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 },
                 backoff.nextDelayMillis(),
                 TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Recreates the {@code GetShardAssignments} stream, invoked by the watchdog when no assignment
+     * update has been received for longer than the refresh interval.
+     *
+     * <p>The server pushes assignment updates periodically, so a healthy stream is never recreated. A
+     * stream that goes silent for longer than the interval is either half-open (its server-side
+     * handler died without delivering a terminal event) or silently stalled; cancelling it and
+     * opening a fresh stream re-registers with the current servers and receives the current snapshot.
+     */
+    private void refreshStream() {
+        if (closed) {
+            return;
+        }
+
+        log.warn(
+                "No shard assignments received for "
+                        + refreshIntervalMillis
+                        + " ms, recreating the stream");
+        start();
     }
 
     private void updateAssignments(io.oxia.proto.ShardAssignments shardAssignments) {

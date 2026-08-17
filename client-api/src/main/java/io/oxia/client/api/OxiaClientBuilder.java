@@ -82,6 +82,18 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder requestTimeout(Duration requestTimeout);
 
     /**
+     * Specify how long a long-lived stream (shard assignments, notifications, sequence updates) may
+     * be idle before the client cancels it and opens a fresh stream to recover from silent or
+     * half-open connections.
+     *
+     * <p>Default is <code>90 secs</code>.
+     *
+     * @param idleTimeout the maximum idle time
+     * @return the builder instance
+     */
+    OxiaClientBuilder idleTimeout(Duration idleTimeout);
+
+    /**
      * Specify the maximum time to wait for a batch to be sent.
      *
      * @param batchLinger the batch linger duration

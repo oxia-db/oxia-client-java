@@ -106,8 +106,7 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void getShardAssignments(
             @NonNull ShardAssignmentsRequest request,
-            @NonNull StreamObserver<ShardAssignments> observer) {
-        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+            @NonNull CancelableStreamObserver<ShardAssignments> observer) {
         try {
             Failsafe.with(getRetryPolicy("get shard assignments", null))
                     .with(asyncExecutor)
@@ -117,7 +116,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                         new CompletableFuture<Void>()
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {
                                     connectionManager
                                             .getConnection(clientConfig.serviceAddress())
@@ -130,18 +129,18 @@ final class GrpcRpcProvider implements RpcProvider {
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
     @Override
     public void getNotifications(
-            @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer) {
-        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+            @NonNull NotificationsRequest request,
+            @NonNull CancelableStreamObserver<NotificationBatch> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
         try {
             Failsafe.with(getRetryPolicy("get notifications", hint))
@@ -152,7 +151,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                         new CompletableFuture<Void>()
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {
                                     connectionManager
                                             .getConnection(getLeader(request.getShard(), hint))
@@ -165,11 +164,11 @@ final class GrpcRpcProvider implements RpcProvider {
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
