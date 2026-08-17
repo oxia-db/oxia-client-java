@@ -30,7 +30,9 @@ public final class GuardedStreamObserver<T> implements StreamObserver<T> {
 
     @Override
     public void onNext(@NonNull T response) {
-        streamObserver.onNext(response);
+        if (!terminated.get()) {
+            streamObserver.onNext(response);
+        }
     }
 
     @Override
