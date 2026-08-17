@@ -113,7 +113,9 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 try {
@@ -146,7 +148,9 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 try {
@@ -246,7 +250,9 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 try {
@@ -314,7 +320,9 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {
@@ -347,7 +355,9 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
+                                final var barrierFuture =
+                                        new CompletableFuture<Void>()
+                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {

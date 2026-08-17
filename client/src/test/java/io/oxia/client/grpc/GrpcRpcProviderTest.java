@@ -48,8 +48,12 @@ import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
+import io.oxia.proto.ShardAssignments;
+import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -716,6 +720,563 @@ class GrpcRpcProviderTest {
                             });
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsTimesOutSilentAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        try {
+                                            // Keep the stream open without ever delivering a message
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsLateMessagesAfterTimeoutAreIgnored() throws Exception {
+        var sendLateMessage = new CountDownLatch(1);
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        try {
+                                            // Stay silent longer than the request timeout, then deliver
+                                            // a snapshot after the client already timed out.
+                                            sendLateMessage.await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        responseObserver.onNext(new ShardAssignments());
+                                        responseObserver.onCompleted();
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+        var received = new AtomicInteger();
+        var terminalEvents = new AtomicInteger();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {
+                            received.incrementAndGet();
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                            terminalEvents.incrementAndGet();
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminalEvents.incrementAndGet();
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+
+            sendLateMessage.countDown();
+            Thread.sleep(1000);
+            assertThat(received.get()).isZero();
+            assertThat(terminalEvents.get()).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsIsNotTimedOutAfterFirstMessage() throws Exception {
+        var releaseStream = new CountDownLatch(1);
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        responseObserver.onNext(new ShardAssignments());
+                                        try {
+                                            // Stay silent longer than the request timeout
+                                            releaseStream.await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        responseObserver.onNext(new ShardAssignments());
+                                        responseObserver.onCompleted();
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var received = new AtomicInteger();
+        var secondMessage = new CountDownLatch(1);
+        var error = new AtomicReference<Throwable>();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {
+                            if (received.incrementAndGet() == 2) {
+                                secondMessage.countDown();
+                            }
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                        }
+
+                        @Override
+                        public void onCompleted() {}
+                    });
+
+            await().untilAsserted(() -> assertThat(received.get()).isEqualTo(1));
+            Thread.sleep(1200);
+            assertThat(error.get()).isNull();
+            assertThat(received.get()).isEqualTo(1);
+
+            releaseStream.countDown();
+            assertThat(secondMessage.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isNull();
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void getNotificationsTimesOutSilentInitialAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getNotifications(
+                                            NotificationsRequest request,
+                                            StreamObserver<NotificationBatch> responseObserver) {
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var request = new NotificationsRequest();
+            request.setShard(1);
+            provider.getNotifications(
+                    request,
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(NotificationBatch value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void getNotificationsReconnectWithOffsetTimesOutSilentAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getNotifications(
+                                            NotificationsRequest request,
+                                            StreamObserver<NotificationBatch> responseObserver) {
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var request = new NotificationsRequest();
+            request.setShard(1);
+            request.setStartOffsetExclusive(5);
+            provider.getNotifications(
+                    request,
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(NotificationBatch value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void readTimesOutSilentAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void read(
+                                            ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.read(
+                    new ReadRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ReadResponse value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void listTimesOutSilentAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void list(
+                                            ListRequest request, StreamObserver<ListResponse> responseObserver) {
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.list(
+                    new ListRequest(),
+                    new CancelableStreamObserver<>() {
+                        @Override
+                        protected void handleNext(ListResponse value) {}
+
+                        @Override
+                        protected void handleError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        protected void handleComplete() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void listLateMessagesAfterTimeoutAreIgnored() throws Exception {
+        var sendLateMessage = new CountDownLatch(1);
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void list(
+                                            ListRequest request, StreamObserver<ListResponse> responseObserver) {
+                                        try {
+                                            // Stay silent longer than the request timeout, then deliver
+                                            // a message after the client already timed out.
+                                            sendLateMessage.await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                        responseObserver.onNext(new ListResponse().addAllKeys(List.of("key")));
+                                        responseObserver.onCompleted();
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+        var received = new AtomicInteger();
+        var terminalEvents = new AtomicInteger();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.list(
+                    new ListRequest(),
+                    new CancelableStreamObserver<>() {
+                        @Override
+                        protected void handleNext(ListResponse value) {
+                            received.incrementAndGet();
+                        }
+
+                        @Override
+                        protected void handleError(Throwable t) {
+                            error.set(t);
+                            terminalEvents.incrementAndGet();
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        protected void handleComplete() {
+                            terminalEvents.incrementAndGet();
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+
+            sendLateMessage.countDown();
+            Thread.sleep(1000);
+            assertThat(received.get()).isZero();
+            assertThat(terminalEvents.get()).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void rangeScanTimesOutSilentAttempt() throws Exception {
+        Server server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void rangeScan(
+                                            RangeScanRequest request,
+                                            StreamObserver<RangeScanResponse> responseObserver) {
+                                        try {
+                                            new CountDownLatch(1).await();
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
+                        .getClientConfig();
+        var error = new AtomicReference<Throwable>();
+        var terminated = new CountDownLatch(1);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.rangeScan(
+                    new RangeScanRequest(),
+                    new CancelableStreamObserver<>() {
+                        @Override
+                        protected void handleNext(RangeScanResponse value) {}
+
+                        @Override
+                        protected void handleError(Throwable t) {
+                            error.set(t);
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        protected void handleComplete() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
+            assertThat(((OxiaStatusException) error.get()).getStatusCode())
+                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
         }
     }
 
