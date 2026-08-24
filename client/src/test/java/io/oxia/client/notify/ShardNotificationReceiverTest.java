@@ -197,7 +197,40 @@ class ShardNotificationReceiverTest {
     }
 
     @Test
+    void renewsImmediatelyAtConfiguredMaximumAge() {
+        @Cleanup("shutdownNow")
+        ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+        when(notificationManager.getExecutor()).thenReturn(executorService);
+        when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
+        when(notificationManager.getCounterNotificationsBatchesReceived())
+                .thenReturn(mock(Counter.class));
+
+        assertThat(
+                        responses.offer(
+                                new NotificationWrapper(
+                                        null, Status.DEADLINE_EXCEEDED.asRuntimeException(), false)))
+                .isTrue();
+        assertThat(
+                        responses.offer(
+                                new NotificationWrapper(newNotificationBatch("key1", created(1L)), null, false)))
+                .isTrue();
+        try (var notificationReceiver =
+                new ShardNotificationReceiver(
+                        rpcProvider,
+                        shardId,
+                        notificationCallback,
+                        notificationManager,
+                        OptionalLong.empty())) {
+            await().untilAsserted(() -> verify(notificationCallback).accept(new KeyCreated("key1", 1L)));
+        }
+        assertThat(requests).hasValue(2);
+    }
+
+    @Test
     public void recoveryFromEndOfStream() throws Exception {
+        @Cleanup("shutdownNow")
+        ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+        when(notificationManager.getExecutor()).thenReturn(executorService);
         when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
         when(notificationManager.getCounterNotificationsBatchesReceived())
                 .thenReturn(mock(Counter.class));

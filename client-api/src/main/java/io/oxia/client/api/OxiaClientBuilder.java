@@ -260,6 +260,44 @@ public interface OxiaClientBuilder {
     OxiaClientBuilder connectionKeepAliveTime(Duration connectionKeepAlive);
 
     /**
+     * Configure the maximum age of long-lived subscriptions.
+     *
+     * <p>Here, a subscription means a client operation that continuously receives shard assignments,
+     * notifications, or sequence updates. This setting does not expose the underlying transport and
+     * is not an inactivity timeout. The client transparently renews each subscription at a random age
+     * between half this value and this value, even when it is healthy.
+     *
+     * <p>Bounding the age lets the client recover when an intermediary loses its upstream connection
+     * while leaving the downstream connection apparently healthy. Randomization spreads renewals
+     * across clients, following the Kubernetes {@code client-go} Reflector pattern.
+     *
+     * <p>Renewal preserves logical progress: shard assignments restart from a complete snapshot,
+     * notifications continue after the last received offset, and sequence updates suppress the
+     * repeated current key returned when they restart.
+     *
+     * <p>Default is <code>10 minutes</code>, resulting in subscription ages between 5 and 10 minutes.
+     * Calling this method also re-enables the maximum age if it was previously disabled with {@link
+     * #disableSubscriptionMaxAge()}.
+     *
+     * @param subscriptionMaxAge the upper bound for a subscription's randomized age
+     * @return the builder instance
+     * @see <a
+     *     href="https://github.com/kubernetes/client-go/blob/master/tools/cache/reflector.go">Kubernetes
+     *     client-go Reflector</a>
+     */
+    OxiaClientBuilder subscriptionMaxAge(Duration subscriptionMaxAge);
+
+    /**
+     * Disable the maximum age for long-lived subscriptions.
+     *
+     * <p>With the maximum age disabled, a subscription can appear healthy indefinitely if an
+     * intermediary loses its upstream connection while keeping the downstream HTTP/2 connection open.
+     *
+     * @return the builder instance
+     */
+    OxiaClientBuilder disableSubscriptionMaxAge();
+
+    /**
      * Configure the authentication plugin and its parameters.
      *
      * @param authPluginClassName the class name of the authentication plugin
