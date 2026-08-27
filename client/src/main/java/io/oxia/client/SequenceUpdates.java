@@ -91,9 +91,13 @@ public class SequenceUpdates implements Closeable {
 
         var observer =
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
+                    private boolean firstResponse = true;
+
                     @Override
                     protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
-                        SequenceUpdates.this.handleUpdate(value);
+                        var replayCandidate = firstResponse;
+                        firstResponse = false;
+                        SequenceUpdates.this.handleUpdate(value, replayCandidate);
                     }
 
                     @Override
@@ -123,13 +127,13 @@ public class SequenceUpdates implements Closeable {
         }
     }
 
-    private synchronized void handleUpdate(@NonNull GetSequenceUpdatesResponse value) {
+    private synchronized void handleUpdate(
+            @NonNull GetSequenceUpdatesResponse value, boolean replayCandidate) {
         var highestSequenceKey = value.getHighestSequenceKey();
-        if (lastDeliveredSequenceKey != null
-                && highestSequenceKey.compareTo(lastDeliveredSequenceKey) <= 0) {
-            // Sequence keys use fixed-width numeric suffixes, so lexical order matches sequence
-            // order. A renewal can replay an older snapshot; keep callbacks monotonic by skipping
-            // keys that were already delivered or superseded.
+        if (replayCandidate && highestSequenceKey.equals(lastDeliveredSequenceKey)) {
+            // A renewed subscription starts with the current key. Suppress that initial snapshot
+            // only when it repeats the last callback; later equal or lower keys can be real updates
+            // after sequence records are deleted and recreated.
             return;
         }
         lastDeliveredSequenceKey = highestSequenceKey;

@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
 
 class SequenceUpdatesTest {
     @Test
-    void ignoresCurrentSequenceKeyAfterSubscriptionRenewal() throws Exception {
+    void onlyIgnoresRepeatedInitialSequenceKeyAfterSubscriptionRenewal() throws Exception {
         var rpcProvider = mock(RpcProvider.class);
         var shardManager = mock(ShardManager.class);
         when(shardManager.getShardForKey(any())).thenReturn(0L);
@@ -70,6 +70,7 @@ class SequenceUpdatesTest {
                 firstObserver.onError(Status.DEADLINE_EXCEEDED.asRuntimeException());
                 await().untilAsserted(() -> assertThat(observerRef.get()).isNotSameAs(firstObserver));
                 var renewedObserver = observerRef.get();
+                renewedObserver.onNext(first);
                 renewedObserver.onNext(
                         new GetSequenceUpdatesResponse().setHighestSequenceKey("key-00000000000000000000"));
                 renewedObserver.onNext(first);
@@ -77,7 +78,11 @@ class SequenceUpdatesTest {
                         new GetSequenceUpdatesResponse().setHighestSequenceKey("key-00000000000000000002"));
 
                 assertThat(delivered)
-                        .containsExactly("key-00000000000000000001", "key-00000000000000000002");
+                        .containsExactly(
+                                "key-00000000000000000001",
+                                "key-00000000000000000000",
+                                "key-00000000000000000001",
+                                "key-00000000000000000002");
             }
         } finally {
             executor.shutdownNow();
