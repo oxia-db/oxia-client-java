@@ -795,7 +795,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 this.rpcProvider,
                 this.shardManager,
                 this.instrumentProvider,
-                () -> closed,
+                x -> closed,
                 this.scheduledExecutor);
     }
 

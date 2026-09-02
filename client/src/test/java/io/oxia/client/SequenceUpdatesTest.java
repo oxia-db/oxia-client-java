@@ -16,6 +16,7 @@
 package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -60,7 +61,7 @@ class SequenceUpdatesTest {
                             rpcProvider,
                             shardManager,
                             InstrumentProvider.NOOP,
-                            () -> false,
+                            ignored -> false,
                             executor)) {
                 var firstObserver = observerRef.get();
                 var first =
@@ -83,6 +84,9 @@ class SequenceUpdatesTest {
                                 "key-00000000000000000000",
                                 "key-00000000000000000001",
                                 "key-00000000000000000002");
+
+                executor.shutdownNow();
+                assertThatNoException().isThrownBy(renewedObserver::onCompleted);
             }
         } finally {
             executor.shutdownNow();

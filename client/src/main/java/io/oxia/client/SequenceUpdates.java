@@ -30,9 +30,10 @@ import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import lombok.NonNull;
 
 public class SequenceUpdates implements Closeable {
@@ -46,7 +47,7 @@ public class SequenceUpdates implements Closeable {
     private final RpcProvider rpcProvider;
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
-    private final BooleanSupplier isClientClosed;
+    private final Function<Void, Boolean> isClientClosed;
     private final ScheduledExecutorService executor;
 
     private boolean closed = false;
@@ -60,7 +61,7 @@ public class SequenceUpdates implements Closeable {
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
-            @NonNull BooleanSupplier isClientClosed,
+            Function<Void, Boolean> isClientClosed,
             @NonNull ScheduledExecutorService executor) {
         this.key = key;
         this.partitionKey = partitionKey;
@@ -81,7 +82,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void createStream() {
-        if (closed || isClientClosed.getAsBoolean()) {
+        if (closed || isClientClosed.apply(null)) {
             return;
         }
 
@@ -142,7 +143,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void handleError(@NonNull Throwable t) {
-        if (closed || isClientClosed.getAsBoolean()) {
+        if (closed || isClientClosed.apply(null)) {
             return;
         }
         if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
@@ -150,17 +151,26 @@ public class SequenceUpdates implements Closeable {
         } else {
             log.warn().exception(t).log("Failure while processing sequence updates");
         }
-        scheduleRestart();
+        try {
+            executor.execute(this::createStream);
+        } catch (RejectedExecutionException e) {
+            if (!closed && !isClientClosed.apply(null)) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 
     private synchronized void handleCompleted() {
-        if (closed || isClientClosed.getAsBoolean()) {
+        if (closed || isClientClosed.apply(null)) {
             return;
         }
-        scheduleRestart();
-    }
-
-    private void scheduleRestart() {
-        executor.execute(this::createStream);
+        log.warn("Stream closed while receiving sequence updates");
+        try {
+            executor.execute(this::createStream);
+        } catch (RejectedExecutionException e) {
+            if (!closed && !isClientClosed.apply(null)) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 }
