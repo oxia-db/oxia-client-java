@@ -15,7 +15,6 @@
  */
 package io.oxia.client.grpc;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
@@ -424,16 +423,12 @@ final class GrpcRpcProvider implements RpcProvider {
             return stub;
         }
 
-        return stub.withDeadlineAfter(randomizedSubscriptionAgeMillis(maxAge), TimeUnit.MILLISECONDS);
-    }
-
-    @VisibleForTesting
-    static long randomizedSubscriptionAgeMillis(@NonNull Duration maxAge) {
         long maxAgeMillis = maxAge.toMillis();
         long minAgeMillis = maxAgeMillis / 2;
         // Match Kubernetes Reflector watches: renew each subscription at a random point in
         // [maxAge/2, maxAge) to prevent hanging operations without synchronizing clients.
-        return ThreadLocalRandom.current().nextLong(minAgeMillis, maxAgeMillis);
+        long ageMillis = ThreadLocalRandom.current().nextLong(minAgeMillis, maxAgeMillis);
+        return stub.withDeadlineAfter(ageMillis, TimeUnit.MILLISECONDS);
     }
 
     @Override
