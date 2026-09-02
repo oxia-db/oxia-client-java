@@ -52,6 +52,7 @@ import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -63,6 +64,17 @@ import lombok.NonNull;
 import org.junit.jupiter.api.Test;
 
 class GrpcRpcProviderTest {
+    @Test
+    void subscriptionAgeIsRandomizedBetweenHalfAndMaximum() {
+        var ages = new HashSet<Long>();
+
+        for (int i = 0; i < 1_000; i++) {
+            ages.add(GrpcRpcProvider.randomizedSubscriptionAgeMillis(Duration.ofMillis(200)));
+        }
+
+        assertThat(ages).hasSizeGreaterThan(1).allMatch(age -> age >= 100 && age < 200);
+    }
+
     @Test
     void keepAliveRetriesWithLeaderHint() throws Exception {
         var leaderServerRequests = new AtomicReference<SessionHeartbeat>();

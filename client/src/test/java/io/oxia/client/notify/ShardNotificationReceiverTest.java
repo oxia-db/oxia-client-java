@@ -48,6 +48,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import lombok.Cleanup;
 import org.junit.jupiter.api.AfterEach;
@@ -69,22 +70,28 @@ class ShardNotificationReceiverTest {
                 @Override
                 public void getNotifications(
                         NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
-                    requests.incrementAndGet();
-                    NotificationWrapper nw = responses.poll();
-                    if (nw != null) {
+                    if (requests.incrementAndGet() == 2 && request.hasStartOffsetExclusive()) {
+                        resumedFromOffset.set(request.getStartOffsetExclusive());
+                    }
+                    while (true) {
+                        NotificationWrapper nw = responses.poll();
+                        if (nw == null) {
+                            return;
+                        }
                         if (nw.ex != null) {
                             responseObserver.onError(nw.ex);
-                        } else {
-                            responseObserver.onNext(nw.notifications);
-
-                            if (nw.endOfStream) {
-                                responseObserver.onCompleted();
-                            }
+                            return;
+                        }
+                        responseObserver.onNext(nw.notifications);
+                        if (nw.endOfStream) {
+                            responseObserver.onCompleted();
+                            return;
                         }
                     }
                 }
             };
     AtomicInteger requests = new AtomicInteger();
+    AtomicLong resumedFromOffset = new AtomicLong(-1);
 
     String serverName = InProcessServerBuilder.generateName();
     Server server;
@@ -98,6 +105,7 @@ class ShardNotificationReceiverTest {
     @BeforeEach
     void beforeEach() throws Exception {
         requests.set(0);
+        resumedFromOffset.set(-1);
         responses.clear();
         server =
                 InProcessServerBuilder.forName(serverName)
@@ -224,6 +232,39 @@ class ShardNotificationReceiverTest {
             await().untilAsserted(() -> verify(notificationCallback).accept(new KeyCreated("key1", 1L)));
         }
         assertThat(requests).hasValue(2);
+    }
+
+    @Test
+    void renewalResumesAfterLastReceivedOffset() {
+        @Cleanup("shutdownNow")
+        ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+        when(notificationManager.getExecutor()).thenReturn(executorService);
+        when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
+        when(notificationManager.getCounterNotificationsBatchesReceived())
+                .thenReturn(mock(Counter.class));
+
+        var firstBatch = newNotificationBatch("key1", created(1L)).setOffset(7);
+        var secondBatch = newNotificationBatch("key2", created(2L)).setOffset(8);
+        assertThat(responses.offer(new NotificationWrapper(firstBatch, null, false))).isTrue();
+        assertThat(
+                        responses.offer(
+                                new NotificationWrapper(
+                                        null, Status.DEADLINE_EXCEEDED.asRuntimeException(), false)))
+                .isTrue();
+        assertThat(responses.offer(new NotificationWrapper(secondBatch, null, false))).isTrue();
+
+        try (var notificationReceiver =
+                new ShardNotificationReceiver(
+                        rpcProvider,
+                        shardId,
+                        notificationCallback,
+                        notificationManager,
+                        OptionalLong.empty())) {
+            await().untilAsserted(() -> verify(notificationCallback).accept(new KeyCreated("key2", 2L)));
+        }
+
+        assertThat(requests).hasValue(2);
+        assertThat(resumedFromOffset).hasValue(7);
     }
 
     @Test
