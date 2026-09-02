@@ -31,8 +31,8 @@ import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import lombok.NonNull;
 
 public class SequenceUpdates implements Closeable {
@@ -46,7 +46,7 @@ public class SequenceUpdates implements Closeable {
     private final RpcProvider rpcProvider;
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
-    private final Function<Void, Boolean> isClientClosed;
+    private final BooleanSupplier isClientClosed;
     private final ScheduledExecutorService executor;
 
     private boolean closed = false;
@@ -60,7 +60,7 @@ public class SequenceUpdates implements Closeable {
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
-            Function<Void, Boolean> isClientClosed,
+            @NonNull BooleanSupplier isClientClosed,
             @NonNull ScheduledExecutorService executor) {
         this.key = key;
         this.partitionKey = partitionKey;
@@ -81,7 +81,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void createStream() {
-        if (closed || isClientClosed.apply(null)) {
+        if (closed || isClientClosed.getAsBoolean()) {
             return;
         }
 
@@ -142,7 +142,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void handleError(@NonNull Throwable t) {
-        if (closed || isClientClosed.apply(null)) {
+        if (closed || isClientClosed.getAsBoolean()) {
             return;
         }
         if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
@@ -154,7 +154,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void handleCompleted() {
-        if (closed || isClientClosed.apply(null)) {
+        if (closed || isClientClosed.getAsBoolean()) {
             return;
         }
         scheduleRestart();

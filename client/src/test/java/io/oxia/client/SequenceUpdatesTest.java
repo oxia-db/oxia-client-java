@@ -60,7 +60,7 @@ class SequenceUpdatesTest {
                             rpcProvider,
                             shardManager,
                             InstrumentProvider.NOOP,
-                            ignored -> false,
+                            () -> false,
                             executor)) {
                 var firstObserver = observerRef.get();
                 var first =
