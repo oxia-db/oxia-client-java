@@ -230,6 +230,26 @@ class ShardManagerGrpcTest {
     }
 
     @Test
+    void renewsAfterConfiguredMaximumAge() {
+        var assignments = new ShardAssignments();
+        assignments.putNamespaces(DefaultNamespace).addAssignment().copyFrom(assignment(0, 0, 3));
+        assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
+        assertThat(
+                        responses.offer(
+                                new AssignmentWrapper(null, Status.DEADLINE_EXCEEDED.asRuntimeException(), false)))
+                .isTrue();
+        assertThat(responses.offer(new AssignmentWrapper(assignments, null, false))).isTrue();
+
+        try (var shardManager =
+                new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
+            assertThat(shardManager.start()).succeedsWithin(Duration.ofSeconds(1));
+            await().untilAsserted(() -> assertThat(requests).hasValue(2));
+            assertThat(shardManager.allShardIds()).containsExactlyInAnyOrder(0L);
+            assertThat(shardManager.leader(0)).isEqualTo("leader0");
+        }
+    }
+
+    @Test
     public void recoveryFromEndOfStream() {
         assertThat(responses.offer(new AssignmentWrapper(null, null, true))).isTrue();
         var assignments = new ShardAssignments();

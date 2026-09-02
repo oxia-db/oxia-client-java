@@ -15,7 +15,10 @@
  */
 package io.oxia.client;
 
+import static com.google.common.base.Throwables.getRootCause;
+
 import io.github.merlimat.slog.Logger;
+import io.grpc.Status;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
@@ -27,6 +30,8 @@ import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
@@ -43,9 +48,11 @@ public class SequenceUpdates implements Closeable {
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
     private final Function<Void, Boolean> isClientClosed;
+    private final ScheduledExecutorService executor;
 
     private boolean closed = false;
     private CancelableStreamObserver<?> stream;
+    private String lastDeliveredSequenceKey;
 
     SequenceUpdates(
             @NonNull String key,
@@ -54,13 +61,15 @@ public class SequenceUpdates implements Closeable {
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
-            Function<Void, Boolean> isClientClosed) {
+            Function<Void, Boolean> isClientClosed,
+            @NonNull ScheduledExecutorService executor) {
         this.key = key;
         this.partitionKey = partitionKey;
         this.listener = listener;
         this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
         this.isClientClosed = isClientClosed;
+        this.executor = executor;
 
         this.counterSequenceUpdatesReceived =
                 instrumentProvider.newCounter(
@@ -73,7 +82,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void createStream() {
-        if (closed) {
+        if (closed || isClientClosed.apply(null)) {
             return;
         }
 
@@ -83,9 +92,13 @@ public class SequenceUpdates implements Closeable {
 
         var observer =
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
+                    private boolean firstResponse = true;
+
                     @Override
                     protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
-                        SequenceUpdates.this.handleUpdate(value);
+                        var replayCandidate = firstResponse;
+                        firstResponse = false;
+                        SequenceUpdates.this.handleUpdate(value, replayCandidate);
                     }
 
                     @Override
@@ -115,8 +128,17 @@ public class SequenceUpdates implements Closeable {
         }
     }
 
-    private void handleUpdate(@NonNull GetSequenceUpdatesResponse value) {
-        listener.accept(value.getHighestSequenceKey());
+    private synchronized void handleUpdate(
+            @NonNull GetSequenceUpdatesResponse value, boolean replayCandidate) {
+        var highestSequenceKey = value.getHighestSequenceKey();
+        if (replayCandidate && highestSequenceKey.equals(lastDeliveredSequenceKey)) {
+            // A renewed subscription starts with the current key. Suppress that initial snapshot
+            // only when it repeats the last callback; later equal or lower keys can be real updates
+            // after sequence records are deleted and recreated.
+            return;
+        }
+        lastDeliveredSequenceKey = highestSequenceKey;
+        listener.accept(highestSequenceKey);
         counterSequenceUpdatesReceived.increment();
     }
 
@@ -124,11 +146,31 @@ public class SequenceUpdates implements Closeable {
         if (closed || isClientClosed.apply(null)) {
             return;
         }
-        log.warn().exception(t).log("Failure while processing sequence updates");
-        createStream();
+        if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+            log.debug("Sequence updates subscription reached its configured maximum age");
+        } else {
+            log.warn().exception(t).log("Failure while processing sequence updates");
+        }
+        try {
+            executor.execute(this::createStream);
+        } catch (RejectedExecutionException e) {
+            if (!closed && !isClientClosed.apply(null)) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 
     private synchronized void handleCompleted() {
-        createStream();
+        if (closed || isClientClosed.apply(null)) {
+            return;
+        }
+        log.warn("Stream closed while receiving sequence updates");
+        try {
+            executor.execute(this::createStream);
+        } catch (RejectedExecutionException e) {
+            if (!closed && !isClientClosed.apply(null)) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 }

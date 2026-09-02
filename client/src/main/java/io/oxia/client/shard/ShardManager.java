@@ -26,6 +26,7 @@ import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
@@ -123,15 +124,27 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 return;
             }
         }
-        log.warn().exceptionMessage(getRootCause(error)).log("Failed receiving shard assignments");
+        final long retryDelayMillis;
+        if (Status.fromThrowable(getRootCause(error)).getCode() == Status.Code.DEADLINE_EXCEEDED
+                && initialAssignmentsFuture.isDone()) {
+            backoff.reset();
+            log.debug("Shard assignments subscription reached its configured maximum age");
+            retryDelayMillis = 0;
+        } else {
+            log.warn().exceptionMessage(getRootCause(error)).log("Failed receiving shard assignments");
+            retryDelayMillis = backoff.nextDelayMillis();
+        }
+        scheduleRestart(retryDelayMillis);
+    }
+
+    private void scheduleRestart(long delayMillis) {
         asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
-                        log.info("Retry creating stream for shard assignments");
                         start();
                     }
                 },
-                backoff.nextDelayMillis(),
+                delayMillis,
                 TimeUnit.MILLISECONDS);
     }
 
@@ -142,15 +155,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         }
 
         log.warn("Stream closed while receiving shard assignments");
-        asyncExecutor.schedule(
-                () -> {
-                    if (!closed) {
-                        log.info("Retry creating stream for shard assignments after stream closed");
-                        start();
-                    }
-                },
-                backoff.nextDelayMillis(),
-                TimeUnit.MILLISECONDS);
+        scheduleRestart(backoff.nextDelayMillis());
     }
 
     private void updateAssignments(io.oxia.proto.ShardAssignments shardAssignments) {

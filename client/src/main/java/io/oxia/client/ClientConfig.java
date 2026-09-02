@@ -40,4 +40,49 @@ public record ClientConfig(
         @NonNull Duration connectionBackoffMaxDelay,
         Duration connectionKeepAliveTime,
         Duration connectionKeepAliveTimeout,
-        int maxConnectionPerNode) {}
+        int maxConnectionPerNode,
+        @Nullable Duration subscriptionMaxAge) {
+
+    public ClientConfig(
+            @NonNull String serviceAddress,
+            @NonNull Duration requestTimeout,
+            int maxRequestsPerBatch,
+            int maxBatchSize,
+            long maxPendingBytes,
+            int maxWriteBatchesInFlight,
+            int maxReadBatchesInFlight,
+            int batchingThreads,
+            @NonNull Duration sessionTimeout,
+            @NonNull String clientIdentifier,
+            OpenTelemetry openTelemetry,
+            @NonNull String namespace,
+            @Nullable Authentication authentication,
+            boolean enableTls,
+            @NonNull Duration connectionBackoffMinDelay,
+            @NonNull Duration connectionBackoffMaxDelay,
+            Duration connectionKeepAliveTime,
+            Duration connectionKeepAliveTimeout,
+            int maxConnectionPerNode) {
+        this(
+                serviceAddress,
+                requestTimeout,
+                maxRequestsPerBatch,
+                maxBatchSize,
+                maxPendingBytes,
+                maxWriteBatchesInFlight,
+                maxReadBatchesInFlight,
+                batchingThreads,
+                sessionTimeout,
+                clientIdentifier,
+                openTelemetry,
+                namespace,
+                authentication,
+                enableTls,
+                connectionBackoffMinDelay,
+                connectionBackoffMaxDelay,
+                connectionKeepAliveTime,
+                connectionKeepAliveTimeout,
+                maxConnectionPerNode,
+                OxiaClientBuilderImpl.DefaultSubscriptionMaxAge);
+    }
+}

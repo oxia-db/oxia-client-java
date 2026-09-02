@@ -37,6 +37,7 @@ import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
+import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.RangeScanRequest;
 import io.oxia.proto.RangeScanResponse;
 import io.oxia.proto.ReadRequest;
@@ -50,6 +51,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
@@ -119,10 +121,10 @@ final class GrpcRpcProvider implements RpcProvider {
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 try {
-                                    connectionManager
-                                            .getConnection(clientConfig.serviceAddress())
-                                            .stub()
-                                            .getShardAssignments(request, barrierObserver);
+                                    var stub =
+                                            withSubscriptionMaxAge(
+                                                    connectionManager.getConnection(clientConfig.serviceAddress()).stub());
+                                    stub.getShardAssignments(request, barrierObserver);
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -154,9 +156,10 @@ final class GrpcRpcProvider implements RpcProvider {
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 try {
-                                    connectionManager
-                                            .getConnection(getLeader(request.getShard(), hint))
-                                            .stub()
+                                    withSubscriptionMaxAge(
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub())
                                             .getNotifications(request, barrierObserver);
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
@@ -394,9 +397,10 @@ final class GrpcRpcProvider implements RpcProvider {
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {
-                                    connectionManager
-                                            .getConnection(getLeader(request.getShard(), hint))
-                                            .stub()
+                                    withSubscriptionMaxAge(
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub())
                                             .getSequenceUpdates(request, barrierObserver);
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
@@ -411,6 +415,20 @@ final class GrpcRpcProvider implements RpcProvider {
         } catch (Throwable error) {
             observer.onError(OxiaStatusException.from(error));
         }
+    }
+
+    private OxiaClientGrpc.OxiaClientStub withSubscriptionMaxAge(OxiaClientGrpc.OxiaClientStub stub) {
+        var maxAge = clientConfig.subscriptionMaxAge();
+        if (maxAge == null) {
+            return stub;
+        }
+
+        long maxAgeMillis = maxAge.toMillis();
+        long minAgeMillis = maxAgeMillis / 2;
+        // Match Kubernetes Reflector watches: renew each subscription at a random point in
+        // [maxAge/2, maxAge) to prevent hanging operations without synchronizing clients.
+        long ageMillis = ThreadLocalRandom.current().nextLong(minAgeMillis, maxAgeMillis);
+        return stub.withDeadlineAfter(ageMillis, TimeUnit.MILLISECONDS);
     }
 
     @Override
