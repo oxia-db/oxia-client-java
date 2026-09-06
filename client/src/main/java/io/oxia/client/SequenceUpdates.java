@@ -98,7 +98,19 @@ public class SequenceUpdates implements Closeable {
                     protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
                         var replayCandidate = firstResponse;
                         firstResponse = false;
-                        SequenceUpdates.this.handleUpdate(value, replayCandidate);
+                        var highestSequenceKey = value.getHighestSequenceKey();
+                        synchronized (SequenceUpdates.this) {
+                            if (replayCandidate && highestSequenceKey.equals(lastDeliveredSequenceKey)) {
+                                // A renewed subscription starts with the current key. Suppress that
+                                // initial snapshot only when it repeats the last callback; later
+                                // equal or lower keys can be real updates after sequence records are
+                                // deleted and recreated.
+                                return;
+                            }
+                            lastDeliveredSequenceKey = highestSequenceKey;
+                            listener.accept(highestSequenceKey);
+                            counterSequenceUpdatesReceived.increment();
+                        }
                     }
 
                     @Override
@@ -126,20 +138,6 @@ public class SequenceUpdates implements Closeable {
         if (currentStream != null) {
             currentStream.cancel();
         }
-    }
-
-    private synchronized void handleUpdate(
-            @NonNull GetSequenceUpdatesResponse value, boolean replayCandidate) {
-        var highestSequenceKey = value.getHighestSequenceKey();
-        if (replayCandidate && highestSequenceKey.equals(lastDeliveredSequenceKey)) {
-            // A renewed subscription starts with the current key. Suppress that initial snapshot
-            // only when it repeats the last callback; later equal or lower keys can be real updates
-            // after sequence records are deleted and recreated.
-            return;
-        }
-        lastDeliveredSequenceKey = highestSequenceKey;
-        listener.accept(highestSequenceKey);
-        counterSequenceUpdatesReceived.increment();
     }
 
     private synchronized void handleError(@NonNull Throwable t) {
