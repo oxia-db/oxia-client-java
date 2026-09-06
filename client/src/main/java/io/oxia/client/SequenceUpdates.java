@@ -82,7 +82,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void createStream() {
-        if (closed || isClientClosed.apply(null)) {
+        if (isClosed()) {
             return;
         }
 
@@ -140,8 +140,12 @@ public class SequenceUpdates implements Closeable {
         }
     }
 
+    private boolean isClosed() {
+        return closed || isClientClosed.apply(null);
+    }
+
     private synchronized void handleError(@NonNull Throwable t) {
-        if (closed || isClientClosed.apply(null)) {
+        if (isClosed()) {
             return;
         }
         if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
@@ -152,21 +156,21 @@ public class SequenceUpdates implements Closeable {
         try {
             executor.execute(this::createStream);
         } catch (RejectedExecutionException e) {
-            if (!closed && !isClientClosed.apply(null)) {
+            if (!isClosed()) {
                 log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
             }
         }
     }
 
     private synchronized void handleCompleted() {
-        if (closed || isClientClosed.apply(null)) {
+        if (isClosed()) {
             return;
         }
         log.warn("Stream closed while receiving sequence updates");
         try {
             executor.execute(this::createStream);
         } catch (RejectedExecutionException e) {
-            if (!closed && !isClientClosed.apply(null)) {
+            if (!isClosed()) {
                 log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
             }
         }
