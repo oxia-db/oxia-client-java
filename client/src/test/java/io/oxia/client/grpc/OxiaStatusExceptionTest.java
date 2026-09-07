@@ -101,6 +101,36 @@ class OxiaStatusExceptionTest {
     }
 
     @Test
+    void rejectsLegacy016LeaderHintForMismatchedOuterStatus() {
+        final var leaderHint = new LeaderHint().setShard(1).setLeaderAddress("server-1:6648");
+        final var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(106)
+                        .setMessage("node is not leader for shard 1")
+                        .addDetails(
+                                Any.newBuilder()
+                                        .setTypeUrl("type.googleapis.com/io.oxia.proto.v1.LeaderHint")
+                                        .setValue(ByteString.copyFrom(leaderHint.toByteArray())))
+                        .build();
+        final var trailers = new Metadata();
+        trailers.put(
+                Metadata.Key.of(
+                        "grpc-status-details-bin",
+                        ProtoUtils.metadataMarshaller(com.google.rpc.Status.getDefaultInstance())),
+                grpcStatus);
+
+        final var error =
+                OxiaStatusException.from(
+                        Status.PERMISSION_DENIED
+                                .withDescription("outer permission denied")
+                                .asRuntimeException(trailers));
+
+        assertThat(error.getStatusCode()).isEqualTo(OxiaStatusCode.UNKNOWN);
+        assertThat(error).hasMessageContaining("outer permission denied");
+        assertThat(error.isRetryable()).isFalse();
+    }
+
+    @Test
     void convertsLegacy0163Messages() {
         Map.ofEntries(
                         entry("oxia: server not initialized yet", OxiaStatusCode.NOT_INITIALIZED),

@@ -32,6 +32,10 @@ final class LegacyLeaderHintStatusDecoder implements OxiaStatusDecoder {
 
     @Override
     public OxiaStatusException decode(Throwable cause) {
+        if (Status.fromThrowable(cause).getCode() != Status.Code.UNKNOWN) {
+            return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
+        }
+
         final var trailers = Status.trailersFromThrowable(cause);
         final var grpcStatus = trailers == null ? null : trailers.get(GRPC_STATUS_DETAILS_KEY);
         if (grpcStatus == null || grpcStatus.getCode() != 106) {
