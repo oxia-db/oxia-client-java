@@ -20,12 +20,10 @@ import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
 import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
 
-import com.google.protobuf.InvalidProtocolBufferException;
-import com.google.rpc.ErrorInfo;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
-import io.grpc.protobuf.StatusProto;
 import io.oxia.client.util.CompletableFutures;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeoutException;
@@ -34,6 +32,10 @@ import lombok.NonNull;
 
 /** Exception carrying an Oxia status code translated from a GRPC status error. */
 public class OxiaStatusException extends RuntimeException {
+    // Keep the legacy decoder first because StatusProto rejects Oxia 0.16.x custom status code 106.
+    private static final List<OxiaStatusDecoder> STATUS_DECODERS =
+            List.of(new LegacyLeaderHintStatusDecoder(), new StandardGrpcStatusDecoder());
+
     @Getter private final @NonNull OxiaStatusCode statusCode;
     @Getter private final @NonNull Map<String, String> metadata;
 
@@ -105,80 +107,18 @@ public class OxiaStatusException extends RuntimeException {
                 return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
             }
 
-            final var grpcStatus = StatusProto.fromThrowable(cause);
-            if (grpcStatus == null) {
-                return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
+            OxiaStatusException decodedError = null;
+            for (final var decoder : STATUS_DECODERS) {
+                decodedError = decoder.decode(cause);
+                if (decodedError.getStatusCode() != UNKNOWN) {
+                    return decodedError;
+                }
             }
-            return fromGrpcStatus(grpcStatus, cause);
+            return decodedError != null
+                    ? decodedError
+                    : new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
         } catch (RuntimeException e) {
             return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
         }
-    }
-
-    private static OxiaStatusException fromGrpcStatus(
-            com.google.rpc.Status grpcStatus, Throwable cause) {
-        OxiaStatusCode statusCode = UNKNOWN;
-        Map<String, String> metadata = Map.of();
-
-        // parse from the error info
-        for (var detail : grpcStatus.getDetailsList()) {
-            if (!detail.is(ErrorInfo.class)) {
-                continue;
-            }
-            try {
-                var info = detail.unpack(ErrorInfo.class);
-                if (!"oxia.io".equals(info.getDomain())) {
-                    continue;
-                }
-                try {
-                    statusCode = OxiaStatusCode.valueOf(info.getReason());
-                } catch (IllegalArgumentException e) {
-                    statusCode = UNKNOWN;
-                }
-                metadata = info.getMetadataMap();
-                break;
-            } catch (InvalidProtocolBufferException ignored) {
-            }
-        }
-        // parse from the grpc standard code
-        if (statusCode == UNKNOWN) {
-            statusCode =
-                    switch (io.grpc.Status.fromCodeValue(grpcStatus.getCode()).getCode()) {
-                        case UNAVAILABLE -> OxiaStatusCode.RESOURCE_UNAVAILABLE;
-                        case ABORTED -> OxiaStatusCode.ABORTED;
-                        default -> UNKNOWN;
-                    };
-        }
-        // parse by the error messages
-        if (statusCode == UNKNOWN) {
-            statusCode =
-                    switch (grpcStatus.getMessage()) {
-                        case "oxia: server not initialized yet" -> OxiaStatusCode.NOT_INITIALIZED;
-                        case "oxia: operation was cancelled",
-                                "oxia: resource is already closed",
-                                "oxia: leader is already connected" ->
-                                OxiaStatusCode.ABORTED;
-                        case "oxia: invalid term" -> OxiaStatusCode.INVALID_TERM;
-                        case "oxia: invalid status" -> OxiaStatusCode.INVALID_STATUS;
-                        case "oxia: session not found" -> OxiaStatusCode.SESSION_NOT_FOUND;
-                        case "oxia: invalid session timeout" -> OxiaStatusCode.INVALID_SESSION_TIMEOUT;
-                        case "oxia: namespace not found" -> OxiaStatusCode.NAMESPACE_NOT_FOUND;
-                        case "oxia: notifications not enabled on namespace" ->
-                                OxiaStatusCode.NOTIFICATIONS_NOT_ENABLED;
-                        case "oxia: node is not a member" -> OxiaStatusCode.NODE_IS_NOT_MEMBER;
-                        default -> {
-                            if (grpcStatus.getMessage().startsWith("node is not leader for shard ")) {
-                                yield OxiaStatusCode.NODE_IS_NOT_LEADER;
-                            }
-                            if (grpcStatus.getMessage().startsWith("node is not follower for shard ")) {
-                                yield OxiaStatusCode.ABORTED;
-                            }
-                            yield UNKNOWN;
-                        }
-                    };
-        }
-        final var message =
-                grpcStatus.getMessage().isEmpty() ? "oxia status " + statusCode : grpcStatus.getMessage();
-        return new OxiaStatusException(statusCode, metadata, message, cause);
     }
 }
