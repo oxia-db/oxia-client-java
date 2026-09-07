@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -32,10 +34,69 @@ import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.util.ArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class SequenceUpdatesTest {
+    @Test
+    void backsOffUnexpectedFailuresAndResetsAfterSuccessAndDeadline() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var shardManager = mock(ShardManager.class);
+        when(shardManager.getShardForKey(any())).thenReturn(0L);
+        var observerRef = new AtomicReference<CancelableStreamObserver<GetSequenceUpdatesResponse>>();
+        doAnswer(
+                        invocation -> {
+                            observerRef.set(invocation.getArgument(1));
+                            return null;
+                        })
+                .when(rpcProvider)
+                .getSequenceUpdates(any(GetSequenceUpdatesRequest.class), any());
+
+        var scheduledTasks = new ArrayList<Runnable>();
+        var retryDelays = new ArrayList<Long>();
+        var executor = mock(ScheduledExecutorService.class);
+        when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+                .thenAnswer(
+                        invocation -> {
+                            scheduledTasks.add(invocation.getArgument(0));
+                            retryDelays.add(invocation.getArgument(1));
+                            return null;
+                        });
+
+        try (var updates =
+                new SequenceUpdates(
+                        "key",
+                        "partition",
+                        ignored -> {},
+                        rpcProvider,
+                        shardManager,
+                        InstrumentProvider.NOOP,
+                        ignored -> false,
+                        executor)) {
+            observerRef.get().onError(Status.UNAVAILABLE.asRuntimeException());
+            assertThat(retryDelays.get(0)).isBetween(100L, 119L);
+
+            scheduledTasks.remove(0).run();
+            observerRef.get().onError(Status.UNAVAILABLE.asRuntimeException());
+            assertThat(retryDelays.get(1)).isBetween(200L, 239L);
+
+            scheduledTasks.remove(0).run();
+            observerRef.get().onNext(new GetSequenceUpdatesResponse());
+            observerRef.get().onError(Status.UNAVAILABLE.asRuntimeException());
+            assertThat(retryDelays.get(2)).isBetween(100L, 119L);
+
+            scheduledTasks.remove(0).run();
+            observerRef.get().onError(Status.DEADLINE_EXCEEDED.asRuntimeException());
+            assertThat(retryDelays.get(3)).isZero();
+
+            scheduledTasks.remove(0).run();
+            observerRef.get().onError(Status.UNAVAILABLE.asRuntimeException());
+            assertThat(retryDelays.get(4)).isBetween(100L, 119L);
+        }
+    }
+
     @Test
     void deliversAllSequenceUpdatesAcrossSubscriptionRenewal() throws Exception {
         var rpcProvider = mock(RpcProvider.class);
