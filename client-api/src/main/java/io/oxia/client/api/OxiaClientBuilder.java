@@ -272,8 +272,8 @@ public interface OxiaClientBuilder {
      * across clients, following the Kubernetes {@code client-go} Reflector pattern.
      *
      * <p>Renewal preserves logical progress: shard assignments restart from a complete snapshot,
-     * notifications continue after the last received offset, and sequence updates suppress the
-     * repeated current key returned when they restart.
+     * notifications continue after the last received offset, and sequence updates restart by
+     * reporting the current highest key, which can replay the most recently reported key.
      *
      * <p>Default is <code>10 minutes</code>, resulting in subscription ages between 5 and 10 minutes.
      * Calling this method also re-enables the maximum age if it was previously disabled with {@link

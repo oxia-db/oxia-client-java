@@ -52,7 +52,6 @@ public class SequenceUpdates implements Closeable {
 
     private boolean closed = false;
     private CancelableStreamObserver<?> stream;
-    private String lastDeliveredSequenceKey;
 
     SequenceUpdates(
             @NonNull String key,
@@ -92,25 +91,10 @@ public class SequenceUpdates implements Closeable {
 
         var observer =
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
-                    private boolean firstResponse = true;
-
                     @Override
                     protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
-                        var replayCandidate = firstResponse;
-                        firstResponse = false;
-                        var highestSequenceKey = value.getHighestSequenceKey();
-                        synchronized (SequenceUpdates.this) {
-                            if (replayCandidate && highestSequenceKey.equals(lastDeliveredSequenceKey)) {
-                                // A renewed subscription starts with the current key. Suppress that
-                                // initial snapshot only when it repeats the last callback; later
-                                // equal or lower keys can be real updates after sequence records are
-                                // deleted and recreated.
-                                return;
-                            }
-                            lastDeliveredSequenceKey = highestSequenceKey;
-                            listener.accept(highestSequenceKey);
-                            counterSequenceUpdatesReceived.increment();
-                        }
+                        listener.accept(value.getHighestSequenceKey());
+                        counterSequenceUpdatesReceived.increment();
                     }
 
                     @Override

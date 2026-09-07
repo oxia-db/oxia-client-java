@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 class SequenceUpdatesTest {
     @Test
-    void onlyIgnoresRepeatedInitialSequenceKeyAfterSubscriptionRenewal() throws Exception {
+    void deliversAllSequenceUpdatesAcrossSubscriptionRenewal() throws Exception {
         var rpcProvider = mock(RpcProvider.class);
         var shardManager = mock(ShardManager.class);
         when(shardManager.getShardForKey(any())).thenReturn(0L);
@@ -80,6 +80,7 @@ class SequenceUpdatesTest {
 
                 assertThat(delivered)
                         .containsExactly(
+                                "key-00000000000000000001",
                                 "key-00000000000000000001",
                                 "key-00000000000000000000",
                                 "key-00000000000000000001",
