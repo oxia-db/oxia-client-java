@@ -57,6 +57,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import org.junit.jupiter.api.Test;
@@ -915,6 +916,237 @@ class GrpcRpcProviderTest {
             releaseStream.countDown();
             assertThat(secondMessage.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(error.get()).isNull();
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void longLivedSubscriptionsUseRandomizedDeadline() throws Exception {
+        var assignmentsDeadlineMillis = new AtomicLong(-1);
+        var notificationsDeadlineMillis = new AtomicLong(-1);
+        var sequenceUpdatesDeadlineMillis = new AtomicLong(-1);
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        var deadline = Context.current().getDeadline();
+                                        if (deadline != null) {
+                                            assignmentsDeadlineMillis.set(deadline.timeRemaining(TimeUnit.MILLISECONDS));
+                                        }
+                                        responseObserver.onNext(new ShardAssignments());
+                                    }
+
+                                    @Override
+                                    public void getNotifications(
+                                            NotificationsRequest request,
+                                            StreamObserver<NotificationBatch> responseObserver) {
+                                        var deadline = Context.current().getDeadline();
+                                        if (deadline != null) {
+                                            notificationsDeadlineMillis.set(
+                                                    deadline.timeRemaining(TimeUnit.MILLISECONDS));
+                                        }
+                                        responseObserver.onNext(new NotificationBatch());
+                                    }
+
+                                    @Override
+                                    public void getSequenceUpdates(
+                                            GetSequenceUpdatesRequest request,
+                                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                                        var deadline = Context.current().getDeadline();
+                                        if (deadline != null) {
+                                            sequenceUpdatesDeadlineMillis.set(
+                                                    deadline.timeRemaining(TimeUnit.MILLISECONDS));
+                                        }
+                                        responseObserver.onNext(new GetSequenceUpdatesResponse());
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address)
+                                        .requestTimeout(Duration.ofSeconds(5))
+                                        .subscriptionMaxAge(Duration.ofMillis(200)))
+                        .getClientConfig();
+        var received = new CountDownLatch(3);
+        var terminated = new CountDownLatch(3);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {
+                            received.countDown();
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(NotificationBatch value) {
+                            received.countDown();
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            terminated.countDown();
+                        }
+                    });
+            provider.getSequenceUpdates(
+                    new GetSequenceUpdatesRequest().setShard(1),
+                    new CancelableStreamObserver<>() {
+                        @Override
+                        protected void handleNext(GetSequenceUpdatesResponse value) {
+                            received.countDown();
+                        }
+
+                        @Override
+                        protected void handleError(Throwable t) {
+                            terminated.countDown();
+                        }
+
+                        @Override
+                        protected void handleComplete() {
+                            terminated.countDown();
+                        }
+                    });
+
+            assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(assignmentsDeadlineMillis.get()).isBetween(1L, 200L);
+            assertThat(notificationsDeadlineMillis.get()).isBetween(1L, 200L);
+            assertThat(sequenceUpdatesDeadlineMillis.get()).isBetween(1L, 200L);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void longLivedSubscriptionsCanDisableDeadline() throws Exception {
+        var assignmentsDeadline = new AtomicReference<io.grpc.Deadline>();
+        var notificationsDeadline = new AtomicReference<io.grpc.Deadline>();
+        var sequenceUpdatesDeadline = new AtomicReference<io.grpc.Deadline>();
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        assignmentsDeadline.set(Context.current().getDeadline());
+                                        responseObserver.onNext(new ShardAssignments());
+                                        responseObserver.onCompleted();
+                                    }
+
+                                    @Override
+                                    public void getNotifications(
+                                            NotificationsRequest request,
+                                            StreamObserver<NotificationBatch> responseObserver) {
+                                        notificationsDeadline.set(Context.current().getDeadline());
+                                        responseObserver.onNext(new NotificationBatch());
+                                        responseObserver.onCompleted();
+                                    }
+
+                                    @Override
+                                    public void getSequenceUpdates(
+                                            GetSequenceUpdatesRequest request,
+                                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                                        sequenceUpdatesDeadline.set(Context.current().getDeadline());
+                                        responseObserver.onNext(new GetSequenceUpdatesResponse());
+                                        responseObserver.onCompleted();
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create(address).disableSubscriptionMaxAge())
+                        .getClientConfig();
+        var completed = new CountDownLatch(3);
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            completed.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            completed.countDown();
+                        }
+                    });
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(NotificationBatch value) {}
+
+                        @Override
+                        public void onError(Throwable t) {
+                            completed.countDown();
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            completed.countDown();
+                        }
+                    });
+            provider.getSequenceUpdates(
+                    new GetSequenceUpdatesRequest().setShard(1),
+                    new CancelableStreamObserver<>() {
+                        @Override
+                        protected void handleNext(GetSequenceUpdatesResponse value) {}
+
+                        @Override
+                        protected void handleError(Throwable t) {
+                            completed.countDown();
+                        }
+
+                        @Override
+                        protected void handleComplete() {
+                            completed.countDown();
+                        }
+                    });
+
+            assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(assignmentsDeadline.get()).isNull();
+            assertThat(notificationsDeadline.get()).isNull();
+            assertThat(sequenceUpdatesDeadline.get()).isNull();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();

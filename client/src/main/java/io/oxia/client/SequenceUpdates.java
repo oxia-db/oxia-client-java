@@ -15,7 +15,10 @@
  */
 package io.oxia.client;
 
+import static com.google.common.base.Throwables.getRootCause;
+
 import io.github.merlimat.slog.Logger;
+import io.grpc.Status;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
@@ -23,10 +26,14 @@ import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
+import io.oxia.client.util.Backoff;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.NonNull;
@@ -43,6 +50,8 @@ public class SequenceUpdates implements Closeable {
     private final ShardManager shardManager;
     private final Counter counterSequenceUpdatesReceived;
     private final Function<Void, Boolean> isClientClosed;
+    private final ScheduledExecutorService executor;
+    private final Backoff backoff = new Backoff();
 
     private boolean closed = false;
     private CancelableStreamObserver<?> stream;
@@ -54,13 +63,15 @@ public class SequenceUpdates implements Closeable {
             @NonNull RpcProvider rpcProvider,
             @NonNull ShardManager shardManager,
             @NonNull InstrumentProvider instrumentProvider,
-            Function<Void, Boolean> isClientClosed) {
+            Function<Void, Boolean> isClientClosed,
+            @NonNull ScheduledExecutorService executor) {
         this.key = key;
         this.partitionKey = partitionKey;
         this.listener = listener;
         this.rpcProvider = rpcProvider;
         this.shardManager = shardManager;
         this.isClientClosed = isClientClosed;
+        this.executor = executor;
 
         this.counterSequenceUpdatesReceived =
                 instrumentProvider.newCounter(
@@ -73,7 +84,7 @@ public class SequenceUpdates implements Closeable {
     }
 
     private synchronized void createStream() {
-        if (closed) {
+        if (isClosed()) {
             return;
         }
 
@@ -85,7 +96,9 @@ public class SequenceUpdates implements Closeable {
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
                     @Override
                     protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
-                        SequenceUpdates.this.handleUpdate(value);
+                        backoff.reset();
+                        listener.accept(value.getHighestSequenceKey());
+                        counterSequenceUpdatesReceived.increment();
                     }
 
                     @Override
@@ -115,20 +128,50 @@ public class SequenceUpdates implements Closeable {
         }
     }
 
-    private void handleUpdate(@NonNull GetSequenceUpdatesResponse value) {
-        listener.accept(value.getHighestSequenceKey());
-        counterSequenceUpdatesReceived.increment();
+    private boolean isClosed() {
+        return closed || isClientClosed.apply(null);
     }
 
     private synchronized void handleError(@NonNull Throwable t) {
-        if (closed || isClientClosed.apply(null)) {
+        if (isClosed()) {
             return;
         }
-        log.warn().exception(t).log("Failure while processing sequence updates");
-        createStream();
+
+        final long retryDelayMillis;
+        if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+            backoff.reset();
+            log.debug("Sequence updates subscription reached its configured maximum age");
+            retryDelayMillis = 0;
+        } else {
+            retryDelayMillis = backoff.nextDelayMillis();
+            log.warn()
+                    .attr("retryInSeconds", retryDelayMillis / 1000.0)
+                    .exception(t)
+                    .log("Failure while processing sequence updates");
+        }
+        try {
+            executor.schedule(this::createStream, retryDelayMillis, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            if (!isClosed()) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 
     private synchronized void handleCompleted() {
-        createStream();
+        if (isClosed()) {
+            return;
+        }
+        long retryDelayMillis = backoff.nextDelayMillis();
+        log.warn()
+                .attr("retryInSeconds", retryDelayMillis / 1000.0)
+                .log("Stream closed while receiving sequence updates");
+        try {
+            executor.schedule(this::createStream, retryDelayMillis, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException e) {
+            if (!isClosed()) {
+                log.warn().exception(e).log("Failed to schedule sequence updates subscription restart");
+            }
+        }
     }
 }

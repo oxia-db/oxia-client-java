@@ -57,6 +57,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     public static final int DefaultBatchingThreads = 1;
     public static final Duration DefaultRequestTimeout = Duration.ofSeconds(30);
     public static final Duration DefaultSessionTimeout = Duration.ofSeconds(15);
+    public static final Duration DefaultSubscriptionMaxAge = Duration.ofMinutes(10);
     public static final String DefaultNamespace = "default";
     public static final boolean DefaultEnableTls = false;
     public static final int DefaultMaxConnectionPerNode = 1;
@@ -91,6 +92,8 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     protected Duration connectionKeepAliveTime = Duration.ofSeconds(10);
     protected Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
+
+    @Nullable protected Duration subscriptionMaxAge = DefaultSubscriptionMaxAge;
 
     protected int maxConnectionsPerNode = DefaultMaxConnectionPerNode;
 
@@ -253,6 +256,29 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
+    public OxiaClientBuilder subscriptionMaxAge(@NonNull Duration subscriptionMaxAge) {
+        final long maxAgeMillis;
+        try {
+            maxAgeMillis = subscriptionMaxAge.toMillis();
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException(
+                    "subscriptionMaxAge is too large: " + subscriptionMaxAge, e);
+        }
+        if (maxAgeMillis < 2) {
+            throw new IllegalArgumentException(
+                    "subscriptionMaxAge must be at least 2 ms: " + subscriptionMaxAge);
+        }
+        this.subscriptionMaxAge = subscriptionMaxAge;
+        return this;
+    }
+
+    @Override
+    public OxiaClientBuilder disableSubscriptionMaxAge() {
+        this.subscriptionMaxAge = null;
+        return this;
+    }
+
+    @Override
     public OxiaClientBuilder authentication(String authPluginClassName, String authParamsString)
             throws UnsupportedAuthenticationException {
         this.authPluginClassName = authPluginClassName;
@@ -392,7 +418,8 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 connectionBackoffMaxDelay,
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
-                maxConnectionsPerNode);
+                maxConnectionsPerNode,
+                subscriptionMaxAge);
     }
 
     @Override

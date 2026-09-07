@@ -15,10 +15,12 @@
  */
 package io.oxia.client.notify;
 
+import static com.google.common.base.Throwables.getRootCause;
 import static io.oxia.client.api.Notification.KeyModified;
 import static lombok.AccessLevel.PACKAGE;
 
 import io.github.merlimat.slog.Logger;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
@@ -83,6 +85,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     @Override
     public void onNext(NotificationBatch batch) {
+        backoff.reset();
         if (offset.isPresent() && offset.getAsLong() >= batch.getOffset()) {
             // Ignore repeated notifications
             return;
@@ -119,29 +122,39 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
             return;
         }
 
+        if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+            backoff.reset();
+            log.debug("Notifications subscription reached its configured maximum age");
+            scheduleRestart(0);
+            return;
+        }
+
         long retryDelayMillis = backoff.nextDelayMillis();
         log.warn()
                 .attr("retryInSeconds", retryDelayMillis / 1000.0)
                 .exceptionMessage(t)
                 .log("Error while receiving notifications");
-        notificationManager
-                .getExecutor()
-                .schedule(
-                        () -> {
-                            if (!closed) {
-                                log.info("Retrying getting notifications");
-                                start();
-                            }
-                        },
-                        retryDelayMillis,
-                        TimeUnit.MILLISECONDS);
+        scheduleRestart(retryDelayMillis);
     }
 
     @Override
     public void onCompleted() {
         if (!closed) {
-            start();
+            scheduleRestart(0);
         }
+    }
+
+    private void scheduleRestart(long delayMillis) {
+        notificationManager
+                .getExecutor()
+                .schedule(
+                        () -> {
+                            if (!closed) {
+                                start();
+                            }
+                        },
+                        delayMillis,
+                        TimeUnit.MILLISECONDS);
     }
 
     @RequiredArgsConstructor(access = PACKAGE)
