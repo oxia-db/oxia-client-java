@@ -22,11 +22,18 @@ import java.lang.reflect.Constructor;
 
 public class AuthenticationFactory {
 
+    private static final String LEGACY_TOKEN_AUTHENTICATION_CLASS_NAME =
+            "io.streamnative.oxia.client.auth.TokenAuthentication";
+
     public static Authentication create(String authPluginClassName, String authParamsString)
             throws UnsupportedAuthenticationException {
         try {
             if (!Strings.isNullOrEmpty(authPluginClassName)) {
-                Class<?> authClass = Class.forName(authPluginClassName);
+                String resolvedClassName =
+                        LEGACY_TOKEN_AUTHENTICATION_CLASS_NAME.equals(authPluginClassName)
+                                ? TokenAuthentication.class.getName()
+                                : authPluginClassName;
+                Class<?> authClass = Class.forName(resolvedClassName);
                 Constructor<?> declaredConstructor = authClass.getDeclaredConstructor();
                 declaredConstructor.setAccessible(true);
                 Authentication auth = (Authentication) declaredConstructor.newInstance();

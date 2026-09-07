@@ -45,6 +45,16 @@ public class TokenAuthenticationTest {
     }
 
     @Test
+    void testLegacyTokenAuthenticationClassName() throws Exception {
+        Authentication authentication =
+                AuthenticationFactory.create(
+                        "io.streamnative.oxia.client.auth.TokenAuthentication", "token:1234");
+
+        assertThat(authentication).isInstanceOf(TokenAuthentication.class);
+        assertThat(authentication.generateCredentials()).containsEntry("Authorization", "Bearer 1234");
+    }
+
+    @Test
     void testTokenAuthenticationConfigure() throws Exception {
         Class<?> authClass = TokenAuthentication.class;
         Constructor<?> declaredConstructor = authClass.getDeclaredConstructor();
