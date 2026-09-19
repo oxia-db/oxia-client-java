@@ -1,6 +1,7 @@
 # Oxia Java client SDK
 
 [![Build](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml/badge.svg)](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java?ref=badge_shield)
 
 ## Overview
 
@@ -39,3 +40,6 @@ Feel free to open an [issue](https://github.com/oxia-db/oxia/issues/new) or star
 Copyright 2022-2026 The Oxia Authors
 
 Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java?ref=badge_large)
