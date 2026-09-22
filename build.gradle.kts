@@ -49,6 +49,10 @@ allprojects {
                 force("org.apache.logging.log4j:log4j-core:${rootProject.libs.versions.log4j.get()}")
                 force("org.apache.ant:ant:1.10.15")
                 force("org.apache.bcel:bcel:6.12.0")
+                // spotbugs -> Saxon-HE -> xmlresolver pulls httpclient5 5.1.3; force patched versions
+                force("org.apache.httpcomponents.client5:httpclient5:5.6.3")
+                force("org.apache.httpcomponents.core5:httpcore5:5.4.3")
+                force("org.apache.httpcomponents.core5:httpcore5-h2:5.4.3")
             }
         }
     }
