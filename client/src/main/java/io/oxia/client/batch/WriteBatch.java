@@ -38,6 +38,11 @@ final class WriteBatch extends BatchBase implements Batch {
     @VisibleForTesting
     final List<Operation.WriteOperation.DeleteRangeOperation> deleteRanges = new ArrayList<>();
 
+    // All the operations, in the order they were added. The position of each one, i.e. the batch
+    // size when it was added, is sent as its op_index, so that the server can apply them in the
+    // order they were issued.
+    private final List<Operation.WriteOperation<?>> operations = new ArrayList<>();
+
     private final SessionManager sessionManager;
     private final DispatchWindow window;
     private final int maxBatchSize;
@@ -75,11 +80,14 @@ final class WriteBatch extends BatchBase implements Batch {
     public void add(@NonNull Operation<?> operation) {
         if (operation instanceof Operation.WriteOperation.PutOperation p) {
             puts.add(p);
+            operations.add(p);
             bytes += p.value().length;
         } else if (operation instanceof Operation.WriteOperation.DeleteOperation d) {
             deletes.add(d);
+            operations.add(d);
         } else if (operation instanceof Operation.WriteOperation.DeleteRangeOperation r) {
             deleteRanges.add(r);
+            operations.add(r);
         }
         byteSize += sizeOf(operation);
     }
@@ -149,14 +157,17 @@ final class WriteBatch extends BatchBase implements Batch {
     WriteRequest toProto() {
         var req = new WriteRequest();
         req.setShard(getShardId());
-        for (var p : puts) {
-            p.toProto(req.addPut());
-        }
-        for (var d : deletes) {
-            d.toProto(req.addDelete());
-        }
-        for (var dr : deleteRanges) {
-            dr.toProto(req.addDeleteRange());
+        // Within each type, the operations keep the order of puts, deletes and deleteRanges, which
+        // the responses follow
+        for (var opIndex = 0; opIndex < operations.size(); opIndex++) {
+            var op = operations.get(opIndex);
+            if (op instanceof Operation.WriteOperation.PutOperation p) {
+                p.toProto(req.addPut().setOpIndex(opIndex));
+            } else if (op instanceof Operation.WriteOperation.DeleteOperation d) {
+                d.toProto(req.addDelete().setOpIndex(opIndex));
+            } else if (op instanceof Operation.WriteOperation.DeleteRangeOperation dr) {
+                dr.toProto(req.addDeleteRange().setOpIndex(opIndex));
+            }
         }
         return req;
     }
