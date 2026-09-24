@@ -118,7 +118,9 @@ public class SessionManager
                                 // expiry, so no EXPIRED event.
                                 return null;
                             }
-                            existSession.close();
+                            // Expiry abandons the session without a CloseSession RPC: a late
+                            // close could destroy a new server-side session that reused the id.
+                            existSession.expire();
                             notifySessionListener(
                                     new SessionEvent(
                                             SessionEvent.Type.EXPIRED,
