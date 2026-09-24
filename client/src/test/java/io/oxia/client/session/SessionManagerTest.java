@@ -19,6 +19,7 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -179,20 +180,38 @@ class SessionManagerTest {
     }
 
     @Test
-    void testSessionExpired() throws Exception {
+    void testSessionExpired() {
         var shardId = 1L;
         when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(
                         CompletableFuture.completedFuture(createSessionResponse(10L)),
                         CompletableFuture.completedFuture(createSessionResponse(20L)));
-        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+
+        var session = manager.getSession(shardId).join();
+
+        // Both expiry funnels — the local timeout tick and an in-flight SESSION_NOT_FOUND
+        // keep-alive response — end here. The expired session is abandoned without any
+        // CloseSession RPC: a late close could destroy a new server-side session that
+        // happens to reuse the same session id.
+        manager.onSessionExpired(session);
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+        assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void explicitCloseAfterExpirySendsNoRpc() {
+        var shardId = 1L;
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
 
         var session = manager.getSession(shardId).join();
 
         manager.onSessionExpired(session);
-        assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
-        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
     }
 
     private static CreateSessionResponse createSessionResponse(long sessionId) {

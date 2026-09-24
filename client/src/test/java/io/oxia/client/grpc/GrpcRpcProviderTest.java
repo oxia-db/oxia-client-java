@@ -633,6 +633,53 @@ class GrpcRpcProviderTest {
     }
 
     @Test
+    void closeSessionGivesUpAfterRequestTimeoutBudget() throws Exception {
+        var attempts = new AtomicInteger();
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void closeSession(
+                                            CloseSessionRequest request,
+                                            StreamObserver<CloseSessionResponse> responseObserver) {
+                                        // A retryable failure on every attempt: without an
+                                        // outer bound the close would be retried forever and
+                                        // could land arbitrarily late.
+                                        attempts.incrementAndGet();
+                                        responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address)
+                                        .requestTimeout(Duration.ofMillis(500))
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var close = provider.closeSession(new CloseSessionRequest().setShard(1));
+
+            // The whole retry sequence is bounded by the request-timeout budget.
+            await()
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(
+                            () -> {
+                                assertThat(close).isCompletedExceptionally();
+                                assertThat(attempts.get()).isGreaterThan(1);
+                            });
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
     void sessionRequestsUseRequestTimeoutDeadline() throws Exception {
         var createSessionHasDeadline = new AtomicReference<Boolean>();
         var closeSessionHasDeadline = new AtomicReference<Boolean>();
