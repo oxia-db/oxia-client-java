@@ -19,6 +19,7 @@ import com.google.common.base.Throwables;
 import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
@@ -138,9 +139,17 @@ public class Session {
                             })
                     .exceptionally(
                             error -> {
-                                log.warn()
-                                        .exceptionMessage(OxiaStatusException.from(error))
-                                        .log("Error during session keep-alive");
+                                final OxiaStatusException statusException = OxiaStatusException.from(error);
+                                log.warn().exceptionMessage(statusException).log("Error during session keep-alive");
+                                if (statusException.getStatusCode() == OxiaStatusCode.SESSION_NOT_FOUND
+                                        && !closed.get()) {
+                                    // The server no longer knows about this session: it is
+                                    // definitively expired, without waiting for the local
+                                    // timeout to elapse.
+                                    sessionsExpired.increment();
+                                    log.warn("Session expired: server reported session not found");
+                                    listener.onSessionExpired(Session.this);
+                                }
                                 return null;
                             });
         } catch (Throwable ex) {
