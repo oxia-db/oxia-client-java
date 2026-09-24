@@ -22,10 +22,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.SessionEvent;
 import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -100,6 +102,22 @@ class OxiaClientBuilderTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> builder.loadConfig((Properties) null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void sessionListener() {
+        Consumer<SessionEvent> listener = event -> {};
+        builder.sessionListener(listener);
+        OxiaClientBuilderImpl impl = (OxiaClientBuilderImpl) builder;
+        assertThat(impl.sessionListener).isSameAs(listener);
+        assertThat(impl.getClientConfig().sessionListener()).isSameAs(listener);
+    }
+
+    @Test
+    void loadConfigSkipsSessionListenerProperty() {
+        Properties properties = new Properties();
+        properties.setProperty("sessionListener", "not-a-listener");
+        assertThatNoException().isThrownBy(() -> builder.loadConfig(properties));
     }
 
     @Test

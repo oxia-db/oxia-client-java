@@ -23,6 +23,7 @@ import java.io.File;
 import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -199,6 +200,29 @@ public interface OxiaClientBuilder {
      *     Client Identity</a>
      */
     OxiaClientBuilder clientIdentifier(Supplier<String> clientIdentifier);
+
+    /**
+     * Register a listener for session lifecycle events, delivered as {@link SessionEvent} instances.
+     *
+     * <p>The listener is registered at build time, before any session exists — sessions are created
+     * lazily by the client — so it will observe the {@link SessionEvent.Type#ESTABLISHED} and {@link
+     * SessionEvent.Type#EXPIRED} events of every session of the resulting client. There is no
+     * listener by default.
+     *
+     * <p><b>Threading:</b> events are dispatched on threads owned by the client's internal machinery
+     * (including gRPC transport threads), not on a dedicated dispatcher. Events for the same session
+     * have a causal order — a session's {@code ESTABLISHED} event is fully delivered before that
+     * session's {@code EXPIRED} event — but there is no ordering across different sessions or shards,
+     * and the listener may be invoked concurrently from multiple threads. Consumers must be
+     * thread-safe and must not block: dispatch happens on threads shared with the client's request
+     * machinery, including the gRPC event loop that carries other sessions' heartbeats. Exceptions
+     * thrown by the listener are swallowed and logged by the client.
+     *
+     * @param sessionListener the session event listener (required)
+     * @return the builder instance
+     * @see <a href="https://oxia-db.github.io/docs/features/ephemerals">Oxia Ephemeral Records</a>
+     */
+    OxiaClientBuilder sessionListener(Consumer<SessionEvent> sessionListener);
 
     /**
      * Specify the OpenTelemetry instance to use for this client instance.

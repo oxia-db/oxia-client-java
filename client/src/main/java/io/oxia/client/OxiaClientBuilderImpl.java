@@ -23,6 +23,7 @@ import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.AsyncOxiaClient;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.SessionEvent;
 import io.oxia.client.api.SharedResources;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.OxiaException;
@@ -38,6 +39,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import lombok.NonNull;
@@ -79,6 +81,8 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     protected String clientIdentifier = randomClientIdentifier();
     @NonNull protected Supplier<String> clientIdentifierSupplier = () -> clientIdentifier;
+
+    @Nullable protected Consumer<SessionEvent> sessionListener;
 
     @NonNull protected String namespace = DefaultNamespace;
     @NonNull protected OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
@@ -211,6 +215,13 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
+    public @NonNull OxiaClientBuilder sessionListener(
+            @NonNull Consumer<SessionEvent> sessionListener) {
+        this.sessionListener = sessionListener;
+        return this;
+    }
+
+    @Override
     public @NonNull OxiaClientBuilder openTelemetry(@NonNull OpenTelemetry openTelemetry) {
         this.openTelemetry = openTelemetry;
         return this;
@@ -335,6 +346,11 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
         for (String name : properties.stringPropertyNames()) {
             try {
                 var field = getClass().getDeclaredField(name);
+                if (Consumer.class.isAssignableFrom(field.getType())) {
+                    // Listener-style settings are callbacks registered in code, not string
+                    // configuration; there is nothing to load, so ignore such properties.
+                    continue;
+                }
                 field.setAccessible(true);
                 if (field.getType().equals(Duration.class)) {
                     field.set(this, Duration.ofMillis(Long.parseLong(properties.getProperty(name))));
@@ -419,7 +435,8 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
                 maxConnectionsPerNode,
-                subscriptionMaxAge);
+                subscriptionMaxAge,
+                sessionListener);
     }
 
     @Override
