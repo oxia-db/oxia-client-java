@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBufUtil;
 import io.oxia.client.grpc.ManagedWriteStream;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.session.SessionManager;
+import io.oxia.proto.Status;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
 import java.util.ArrayList;
@@ -129,7 +130,16 @@ final class WriteBatch extends BatchBase implements Batch {
             deleteRanges.get(i).complete(response.getDeleteRangeAt(i));
         }
         for (var i = 0; i < puts.size(); i++) {
-            puts.get(i).complete(response.getPutAt(i));
+            final var put = puts.get(i);
+            final var putResponse = response.getPutAt(i);
+            if (put.sessionId().isPresent() && putResponse.getStatus() == Status.SESSION_DOES_NOT_EXIST) {
+                // The server rejected a write carrying this session: the session is dead
+                // server-side. Judge it dead — exactly once — so the next ephemeral operation
+                // re-establishes a fresh session. The rejected operation itself still fails
+                // with SessionDoesNotExistException; convergence relies on the caller's retry.
+                sessionManager.onSessionExpired(getShardId(), put.sessionId().getAsLong());
+            }
+            put.complete(putResponse);
         }
     }
 

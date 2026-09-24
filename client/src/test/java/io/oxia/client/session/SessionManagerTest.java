@@ -19,12 +19,14 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import io.oxia.client.ClientConfig;
+import io.oxia.client.api.SessionEvent;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
@@ -35,10 +37,15 @@ import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
 import io.oxia.proto.CreateSessionResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -179,8 +186,226 @@ class SessionManagerTest {
     }
 
     @Test
-    void testSessionExpired() throws Exception {
+    void testSessionExpired() {
         var shardId = 1L;
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        var session = manager.getSession(shardId).join();
+
+        // Both expiry funnels — the local timeout tick and an in-flight SESSION_NOT_FOUND
+        // keep-alive response — end here. The expired session is abandoned without any
+        // CloseSession RPC: a late close could destroy a new server-side session that
+        // happens to reuse the same session id.
+        manager.onSessionExpired(session);
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+        assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void explicitCloseAfterExpirySendsNoRpc() {
+        var shardId = 1L;
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
+        var session = manager.getSession(shardId).join();
+
+        manager.onSessionExpired(session);
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void writeRejectionInvalidatesAndRecreatesSession() {
+        var events = new CopyOnWriteArrayList<SessionEvent>();
+        var listenerManager = managerWithListener(events::add);
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        listenerManager.getSession(1L).join();
+
+        // The compute() guard makes the write-path verdict exactly-once even when several
+        // in-flight writes for the same session are rejected together.
+        listenerManager.onSessionExpired(1L, 10L);
+        listenerManager.onSessionExpired(1L, 10L);
+
+        assertThat(events)
+                .hasSize(2)
+                .element(1)
+                .isEqualTo(new SessionEvent(SessionEvent.Type.EXPIRED, 10L, "client", 1L));
+        assertThat(listenerManager.getSession(1L).join().getSessionId()).isEqualTo(20L);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void concurrentWriteRejectionsInvalidateExactlyOnce() throws Exception {
+        var events = new CopyOnWriteArrayList<SessionEvent>();
+        var listenerManager = managerWithListener(events::add);
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
+        listenerManager.getSession(1L).join();
+
+        var pool = Executors.newFixedThreadPool(4);
+        try {
+            var rejections = new ArrayList<Future<?>>();
+            for (var i = 0; i < 8; i++) {
+                rejections.add(pool.submit(() -> listenerManager.onSessionExpired(1L, 10L)));
+            }
+            for (var rejection : rejections) {
+                rejection.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(events).hasSize(2);
+        assertThat(events.get(1).type()).isEqualTo(SessionEvent.Type.EXPIRED);
+    }
+
+    @Test
+    void writeRejectionForUnknownSessionIdIsIgnored() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
+        var session = manager.getSession(1L).join();
+
+        // A rejection for an id the manager does not hold (e.g. another client's session,
+        // or an already-replaced one) must not disturb the live session.
+        manager.onSessionExpired(1L, 99L);
+
+        assertThat(manager.getSession(1L).join()).isSameAs(session);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void writeRejectionDoesNotKillSessionUnderCreation() {
+        var pending = new CompletableFuture<CreateSessionResponse>();
+        when(rpcProvider.createSession(any(CreateSessionRequest.class))).thenReturn(pending);
+
+        var sessionFuture = manager.getSession(1L);
+
+        // A rejection racing an in-flight createSession must not touch the pending session:
+        // the guard requires a completed session before it judges anything dead.
+        manager.onSessionExpired(1L, 10L);
+        assertThat(sessionFuture).isNotDone();
+
+        pending.complete(createSessionResponse(10L));
+
+        assertThat(sessionFuture.join().getSessionId()).isEqualTo(10L);
+        assertThat(manager.getSession(1L).join()).isSameAs(sessionFuture.join());
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void sameIdReuseAfterExpiryConverges() {
+        var events = new CopyOnWriteArrayList<SessionEvent>();
+        var listenerManager = managerWithListener(events::add);
+        // Server session ids are monotonic within a term. After a server restart the id
+        // counter may be reused once, but every recreated session moves past the rejected id.
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(14L)),
+                        CompletableFuture.completedFuture(createSessionResponse(14L)),
+                        CompletableFuture.completedFuture(createSessionResponse(15L)));
+
+        var first = listenerManager.getSession(1L).join();
+
+        // Local timeout expiry of the first session 14 (e.g. during a server outage): no close.
+        listenerManager.onSessionExpired(first);
+
+        // The server hands out id 14 again for the recreated session...
+        var second = listenerManager.getSession(1L).join();
+        assertThat(second.getSessionId()).isEqualTo(14L);
+
+        // ...so a late write rejection for the OLD 14 kills the new, same-numbered session.
+        // This is a bounded miss-kill: the next session id must advance beyond 14.
+        listenerManager.onSessionExpired(1L, 14L);
+        var third = listenerManager.getSession(1L).join();
+        assertThat(third.getSessionId()).isEqualTo(15L);
+
+        // Any further late rejections for 14 are harmless: the live session id has moved on,
+        // so the chain converges instead of looping.
+        listenerManager.onSessionExpired(1L, 14L);
+        assertThat(listenerManager.getSession(1L).join()).isSameAs(third);
+
+        assertThat(events)
+                .containsExactly(
+                        new SessionEvent(SessionEvent.Type.ESTABLISHED, 14L, "client", 1L),
+                        new SessionEvent(SessionEvent.Type.EXPIRED, 14L, "client", 1L),
+                        new SessionEvent(SessionEvent.Type.ESTABLISHED, 14L, "client", 1L),
+                        new SessionEvent(SessionEvent.Type.EXPIRED, 14L, "client", 1L),
+                        new SessionEvent(SessionEvent.Type.ESTABLISHED, 15L, "client", 1L));
+        verify(rpcProvider, times(3)).createSession(any(CreateSessionRequest.class));
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void sessionListenerEstablishedAndExpiredEvents() {
+        var events = new CopyOnWriteArrayList<SessionEvent>();
+        var listenerManager = managerWithListener(events::add);
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        var session = listenerManager.getSession(1L).join();
+
+        assertThat(events)
+                .containsExactly(new SessionEvent(SessionEvent.Type.ESTABLISHED, 10L, "client", 1L));
+
+        // A duplicate expiry trigger — e.g. the local timeout tick racing an in-flight
+        // SESSION_NOT_FOUND response for the same session — must dispatch EXPIRED only once.
+        listenerManager.onSessionExpired(session);
+        listenerManager.onSessionExpired(session);
+
+        assertThat(events)
+                .hasSize(2)
+                .element(1)
+                .isEqualTo(new SessionEvent(SessionEvent.Type.EXPIRED, 10L, "client", 1L));
+
+        // The expired session is re-created lazily, announcing the new session.
+        listenerManager.getSession(1L).join();
+
+        assertThat(events)
+                .hasSize(3)
+                .element(2)
+                .isEqualTo(new SessionEvent(SessionEvent.Type.ESTABLISHED, 20L, "client", 1L));
+    }
+
+    @Test
+    void sessionListenerExceptionDoesNotAffectSessions() {
+        var listenerManager =
+                managerWithListener(
+                        event -> {
+                            throw new IllegalStateException("listener failed");
+                        });
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        // The ESTABLISHED dispatch must not poison the session future that the
+        // ephemeral put triggering the session is waiting on.
+        var session = listenerManager.getSession(1L).join();
+        assertThat(session.getSessionId()).isEqualTo(10L);
+
+        // An EXPIRED dispatch that throws must not break expiry handling, nor later sessions.
+        listenerManager.onSessionExpired(session);
+        assertThat(listenerManager.getSession(1L).join().getSessionId()).isEqualTo(20L);
+    }
+
+    @Test
+    void cleanCloseAndShardRemovalDoNotEmitExpired() throws Exception {
+        var events = new CopyOnWriteArrayList<SessionEvent>();
+        var listenerManager = managerWithListener(events::add);
         when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(
                         CompletableFuture.completedFuture(createSessionResponse(10L)),
@@ -188,11 +413,47 @@ class SessionManagerTest {
         when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
 
-        var session = manager.getSession(shardId).join();
+        listenerManager.getSession(1L).join();
+        listenerManager.getSession(2L).join();
 
-        manager.onSessionExpired(session);
-        assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
-        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+        // Shard removal is not an expiry.
+        listenerManager.accept(
+                new ShardAssignmentChanges(
+                        Set.of(), Set.of(new Shard(2L, "leader", new HashRange(1, 2))), Set.of()));
+        assertThat(events).hasSize(2);
+
+        // Neither is a clean client shutdown.
+        listenerManager.close();
+        assertThat(events).extracting(SessionEvent::type).containsOnly(SessionEvent.Type.ESTABLISHED);
+    }
+
+    private SessionManager managerWithListener(Consumer<SessionEvent> listener) {
+        return new SessionManager(
+                executor,
+                new ClientConfig(
+                        "address",
+                        Duration.ofSeconds(1),
+                        1,
+                        1024,
+                        256L * 1024 * 1024,
+                        4,
+                        4,
+                        1,
+                        Duration.ofSeconds(10),
+                        "client",
+                        null,
+                        DefaultNamespace,
+                        null,
+                        false,
+                        Duration.ofMillis(10),
+                        Duration.ofMillis(100),
+                        Duration.ofSeconds(10),
+                        Duration.ofSeconds(3),
+                        1,
+                        null,
+                        listener),
+                rpcProvider,
+                InstrumentProvider.NOOP);
     }
 
     private static CreateSessionResponse createSessionResponse(long sessionId) {

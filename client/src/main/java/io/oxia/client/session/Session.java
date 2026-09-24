@@ -19,6 +19,7 @@ import com.google.common.base.Throwables;
 import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
@@ -29,6 +30,7 @@ import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -138,9 +140,17 @@ public class Session {
                             })
                     .exceptionally(
                             error -> {
-                                log.warn()
-                                        .exceptionMessage(OxiaStatusException.from(error))
-                                        .log("Error during session keep-alive");
+                                final OxiaStatusException statusException = OxiaStatusException.from(error);
+                                log.warn().exceptionMessage(statusException).log("Error during session keep-alive");
+                                if (statusException.getStatusCode() == OxiaStatusCode.SESSION_NOT_FOUND
+                                        && !closed.get()) {
+                                    // The server no longer knows about this session: it is
+                                    // definitively expired, without waiting for the local
+                                    // timeout to elapse.
+                                    sessionsExpired.increment();
+                                    log.warn("Session expired: server reported session not found");
+                                    listener.onSessionExpired(Session.this);
+                                }
                                 return null;
                             });
         } catch (Throwable ex) {
@@ -154,6 +164,21 @@ public class Session {
         return closed.get();
     }
 
+    /**
+     * Local expiry verdict: abandons the session without sending a CloseSession RPC. The server reaps
+     * an abandoned session and its ephemeral keys through its own session-timeout timer, so a close
+     * request is unnecessary — and a late close for an expired session could destroy a new
+     * server-side session that reused the same id. Subsequent {@link #close()} calls on an expired
+     * session send no RPC either.
+     */
+    void expire() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        heartbeatFuture.cancel(true);
+        log.debug("Session expired: abandoned without close request");
+    }
+
     public CompletableFuture<Void> close() {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);
@@ -164,7 +189,24 @@ public class Session {
             heartbeatFuture.cancel(true);
             var closeRequest = new CloseSessionRequest();
             closeRequest.setShard(shardId).setSessionId(sessionId);
-            future = rpcProvider.closeSession(closeRequest).thenRun(() -> {});
+            future =
+                    rpcProvider
+                            .closeSession(closeRequest)
+                            .thenRun(() -> {})
+                            .exceptionally(
+                                    error -> {
+                                        // A session the server no longer knows about is
+                                        // already closed server-side: the goal of the close
+                                        // is achieved, so tolerate it (as the Go client does).
+                                        if (OxiaStatusException.from(error).getStatusCode()
+                                                == OxiaStatusCode.SESSION_NOT_FOUND) {
+                                            return null;
+                                        }
+                                        if (error instanceof CompletionException completion) {
+                                            throw completion;
+                                        }
+                                        throw new CompletionException(error);
+                                    });
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));
         }

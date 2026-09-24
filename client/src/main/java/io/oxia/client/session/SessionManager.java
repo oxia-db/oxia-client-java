@@ -18,7 +18,9 @@ package io.oxia.client.session;
 import static java.util.concurrent.CompletableFuture.*;
 
 import com.google.common.collect.Maps;
+import io.github.merlimat.slog.Logger;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.api.SessionEvent;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
@@ -31,10 +33,13 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import lombok.NonNull;
 
 public class SessionManager
         implements AutoCloseable, Consumer<ShardAssignmentChanges>, SessionNotificationListener {
+
+    private static final Logger log = Logger.get(SessionManager.class);
 
     private final Map<Long, CompletableFuture<Session>> sessions;
     private final ScheduledExecutorService asyncExecutor;
@@ -44,6 +49,8 @@ public class SessionManager
 
     private final ReadWriteLock closedLock;
     private boolean closed;
+
+    @Nullable private final Consumer<SessionEvent> sessionListener;
 
     public SessionManager(
             @NonNull ScheduledExecutorService asyncExecutor,
@@ -57,6 +64,7 @@ public class SessionManager
         this.rpcProvider = rpcProvider;
         this.closedLock = new ReentrantReadWriteLock();
         this.closed = false;
+        this.sessionListener = config.sessionListener();
     }
 
     @NonNull
@@ -93,15 +101,53 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session targetSession) {
+        invalidateSession(targetSession.getShardId(), targetSession.getSessionId(), false);
+    }
+
+    /**
+     * A write that carried {@code sessionId} — an ephemeral put — was rejected by the server with
+     * SESSION_DOES_NOT_EXIST: the session is dead server-side even though the keep-alive path may not
+     * have noticed (the server validates writes against the database but heartbeats against memory).
+     * Judge the session dead here so the next ephemeral operation lazily re-establishes a fresh
+     * session, instead of pinning a session the server will keep rejecting forever.
+     */
+    public void onSessionExpired(long shardId, long sessionId) {
+        invalidateSession(shardId, sessionId, true);
+    }
+
+    private void invalidateSession(long shardId, long sessionId, boolean rejectedByServer) {
+        // This entry point may be triggered concurrently and redundantly, e.g. by the local
+        // timeout tick, by an in-flight SESSION_NOT_FOUND response and by rejected writes, all
+        // for the same session. The sessionId-matching guard inside compute() atomically closes
+        // the session at most once, and therefore also dispatches the EXPIRED event at most once.
         sessions.compute(
-                targetSession.getShardId(),
+                shardId,
                 (shard, existFuture) -> {
                     if (existFuture != null
                             && existFuture.isDone()
                             && !existFuture.isCompletedExceptionally()) {
                         final Session existSession = existFuture.join();
-                        if (existSession.getSessionId() == targetSession.getSessionId()) {
-                            existSession.close();
+                        if (existSession.getSessionId() == sessionId) {
+                            if (existSession.isClosed()) {
+                                // Cleanly closed by client shutdown or shard removal: not an
+                                // expiry, so no EXPIRED event.
+                                return null;
+                            }
+                            if (rejectedByServer) {
+                                log.warnf(
+                                        "Session %d rejected by server (session does not exist); "
+                                                + "invalidating and recreating on next operation",
+                                        sessionId);
+                            }
+                            // Expiry abandons the session without a CloseSession RPC: a late
+                            // close could destroy a new server-side session that reused the id.
+                            existSession.expire();
+                            notifySessionListener(
+                                    new SessionEvent(
+                                            SessionEvent.Type.EXPIRED,
+                                            existSession.getSessionId(),
+                                            clientConfig.clientIdentifier(),
+                                            existSession.getShardId()));
                             return null;
                         }
                     }
@@ -153,14 +199,46 @@ public class SessionManager
         return rpcProvider
                 .createSession(request)
                 .thenApply(
-                        response ->
-                                new Session(
-                                        asyncExecutor,
-                                        rpcProvider,
-                                        clientConfig,
-                                        shardId,
-                                        response.getSessionId(),
-                                        instrumentProvider,
-                                        this));
+                        response -> {
+                            var session =
+                                    new Session(
+                                            asyncExecutor,
+                                            rpcProvider,
+                                            clientConfig,
+                                            shardId,
+                                            response.getSessionId(),
+                                            instrumentProvider,
+                                            this);
+                            // A throwing listener must not poison the session future that
+                            // triggers it, or the ephemeral put waiting on it would fail.
+                            notifySessionListener(
+                                    new SessionEvent(
+                                            SessionEvent.Type.ESTABLISHED,
+                                            session.getSessionId(),
+                                            clientConfig.clientIdentifier(),
+                                            shardId));
+                            return session;
+                        });
+    }
+
+    /**
+     * Dispatch a session event to the configured listener, if any, on the calling thread — the
+     * client's async executor for the local-timeout leg, a gRPC transport (event loop) thread for
+     * the SESSION_NOT_FOUND and ESTABLISHED legs. Listener exceptions are swallowed and logged: the
+     * dispatch sites (a session future for ESTABLISHED, the expiry guard for EXPIRED) must not fail
+     * because of a misbehaving listener.
+     */
+    private void notifySessionListener(SessionEvent event) {
+        if (sessionListener == null) {
+            return;
+        }
+        try {
+            sessionListener.accept(event);
+        } catch (Throwable ex) {
+            log.warn()
+                    .attr("sessionEvent", event.type())
+                    .exception(ex)
+                    .log("Session event listener failed");
+        }
     }
 }

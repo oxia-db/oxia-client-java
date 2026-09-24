@@ -17,7 +17,9 @@ package io.oxia.client;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.Authentication;
+import io.oxia.client.api.SessionEvent;
 import java.time.Duration;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import lombok.NonNull;
 
@@ -41,7 +43,8 @@ public record ClientConfig(
         Duration connectionKeepAliveTime,
         Duration connectionKeepAliveTimeout,
         int maxConnectionPerNode,
-        @Nullable Duration subscriptionMaxAge) {
+        @Nullable Duration subscriptionMaxAge,
+        @Nullable Consumer<SessionEvent> sessionListener) {
 
     public ClientConfig(
             @NonNull String serviceAddress,
@@ -83,6 +86,7 @@ public record ClientConfig(
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
                 maxConnectionPerNode,
-                OxiaClientBuilderImpl.DefaultSubscriptionMaxAge);
+                OxiaClientBuilderImpl.DefaultSubscriptionMaxAge,
+                null);
     }
 }
