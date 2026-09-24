@@ -225,7 +225,10 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy("close session", hint))
+        // Bound the whole retry sequence, like keepAlive: a close must not be retried
+        // forever, or it could land arbitrarily late and destroy a reused session id.
+        return Failsafe.with(
+                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("close session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
