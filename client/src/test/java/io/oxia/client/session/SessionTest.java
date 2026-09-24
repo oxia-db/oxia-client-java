@@ -25,6 +25,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
@@ -207,14 +208,105 @@ class SessionTest {
         assertThat(service.signalsAfterClosed).isEmpty();
     }
 
+    @Test
+    void sessionNotFoundTriggersImmediateExpiry() {
+        var listener = mock(SessionNotificationListener.class);
+        service.failKeepAliveWithSessionNotFound.set(true);
+        var session =
+                new Session(
+                        executor, rpcProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
+
+        // The heartbeat interval is 2s while the local session timeout is 10s: observing the
+        // expiry before the local timeout can only be the SESSION_NOT_FOUND fast path.
+        await()
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> verify(listener, atLeastOnce()).onSessionExpired(session));
+
+        session.close();
+    }
+
+    @Test
+    void closeToleratesSessionNotFound() {
+        service.failCloseWithSessionNotFound.set(true);
+        var session =
+                new Session(
+                        executor,
+                        rpcProvider,
+                        config,
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        mock(SessionNotificationListener.class));
+
+        // A session the server no longer knows about is already closed server-side: the
+        // goal of the close is achieved, so this succeeds (as in the Go client).
+        Assertions.assertDoesNotThrow(() -> session.close().join());
+        assertThat(session.isClosed()).isTrue();
+    }
+
+    @Test
+    void expireThenCloseSendsNoCloseRequest() {
+        var session =
+                new Session(
+                        executor,
+                        rpcProvider,
+                        config,
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        mock(SessionNotificationListener.class));
+
+        // Local expiry abandons the session: no close RPC, not even on a later close().
+        session.expire();
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void expireStopsHeartbeats() throws Exception {
+        var session =
+                new Session(
+                        executor,
+                        rpcProvider,
+                        config,
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        mock(SessionNotificationListener.class));
+
+        // The heartbeat interval floor is 2s: two signals place us past the first tick.
+        await().atMost(Duration.ofSeconds(8)).until(() -> service.signals.size() >= 2);
+        session.expire();
+        var signalsAtExpiry = service.signals.size();
+
+        // No further keep-alive is scheduled after the expiry verdict.
+        Thread.sleep(3000);
+        assertThat(service.signals).hasSize(signalsAtExpiry);
+        assertThat(service.closed).isFalse();
+    }
+
     static class TestService extends OxiaClientGrpc.OxiaClientImplBase {
         BlockingQueue<SessionHeartbeat> signals = new LinkedBlockingQueue<>();
         BlockingQueue<SessionHeartbeat> signalsAfterClosed = new LinkedBlockingQueue<>();
         AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicBoolean failKeepAliveWithSessionNotFound = new AtomicBoolean(false);
+        AtomicBoolean failCloseWithSessionNotFound = new AtomicBoolean(false);
 
         @Override
         public void keepAlive(
                 SessionHeartbeat heartbeat, StreamObserver<KeepAliveResponse> responseObserver) {
+            if (failKeepAliveWithSessionNotFound.get()) {
+                var status =
+                        com.google.rpc.Status.newBuilder()
+                                .setCode(io.grpc.Status.Code.NOT_FOUND.value())
+                                .setMessage("oxia: session not found")
+                                .build();
+                responseObserver.onError(StatusProto.toStatusRuntimeException(status));
+                return;
+            }
+
             if (!closed.get()) {
                 signals.add(heartbeat);
             } else {
@@ -228,6 +320,15 @@ class SessionTest {
         @Override
         public void closeSession(
                 CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+            if (failCloseWithSessionNotFound.get()) {
+                var status =
+                        com.google.rpc.Status.newBuilder()
+                                .setCode(io.grpc.Status.Code.NOT_FOUND.value())
+                                .setMessage("oxia: session not found")
+                                .build();
+                responseObserver.onError(StatusProto.toStatusRuntimeException(status));
+                return;
+            }
             closed.compareAndSet(false, true);
             responseObserver.onNext(new CloseSessionResponse());
             responseObserver.onCompleted();
