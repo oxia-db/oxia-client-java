@@ -18,6 +18,7 @@ package io.oxia.client.session;
 import static java.util.concurrent.CompletableFuture.*;
 
 import com.google.common.collect.Maps;
+import io.github.merlimat.slog.Logger;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -35,6 +36,8 @@ import lombok.NonNull;
 
 public class SessionManager
         implements AutoCloseable, Consumer<ShardAssignmentChanges>, SessionNotificationListener {
+
+    private static final Logger log = Logger.get(SessionManager.class);
 
     private final Map<Long, CompletableFuture<Session>> sessions;
     private final ScheduledExecutorService asyncExecutor;
@@ -93,17 +96,43 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session targetSession) {
+        invalidateSession(targetSession.getShardId(), targetSession.getSessionId(), false);
+    }
+
+    /**
+     * A write that carried {@code sessionId} — an ephemeral put — was rejected by the server with
+     * SESSION_DOES_NOT_EXIST: the session is dead server-side even though the keep-alive path may not
+     * have noticed (the server validates writes against the database but heartbeats against memory).
+     * Judge the session dead here so the next ephemeral operation lazily re-establishes a fresh
+     * session, instead of pinning a session the server will keep rejecting forever.
+     */
+    public void onSessionExpired(long shardId, long sessionId) {
+        invalidateSession(shardId, sessionId, true);
+    }
+
+    private void invalidateSession(long shardId, long sessionId, boolean rejectedByServer) {
+        // This entry point may be triggered concurrently and redundantly, e.g. by the local
+        // timeout tick and by rejected writes, all for the same session. The sessionId-matching
+        // guard inside compute() atomically closes the session at most once.
         sessions.compute(
-                targetSession.getShardId(),
+                shardId,
                 (shard, existFuture) -> {
                     if (existFuture != null
                             && existFuture.isDone()
                             && !existFuture.isCompletedExceptionally()) {
                         final Session existSession = existFuture.join();
-                        if (existSession.getSessionId() == targetSession.getSessionId()) {
+                        if (existSession.getSessionId() == sessionId) {
                             if (existSession.isClosed()) {
                                 // Cleanly closed by client shutdown or shard removal.
                                 return null;
+                            }
+                            if (rejectedByServer) {
+                                log.warn()
+                                        .attr("sessionId", sessionId)
+                                        .attr("shard", shardId)
+                                        .log(
+                                                "Session rejected by server (session does not exist); "
+                                                        + "invalidating, a fresh session is created on the next operation");
                             }
                             // Expiry abandons the session without a CloseSession RPC: a late
                             // close could destroy a new server-side session that reused the id.
