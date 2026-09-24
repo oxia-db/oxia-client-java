@@ -154,6 +154,21 @@ public class Session {
         return closed.get();
     }
 
+    /**
+     * Local expiry verdict: abandons the session without sending a CloseSession RPC. The server reaps
+     * an abandoned session and its ephemeral keys through its own session-timeout timer, so a close
+     * request is unnecessary — and a late close for an expired session could destroy a new
+     * server-side session that reused the same id. Subsequent {@link #close()} calls on an expired
+     * session send no RPC either.
+     */
+    void expire() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        heartbeatFuture.cancel(true);
+        log.debug("Session expired: abandoned without close request");
+    }
+
     public CompletableFuture<Void> close() {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);

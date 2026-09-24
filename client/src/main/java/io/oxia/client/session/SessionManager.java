@@ -101,7 +101,13 @@ public class SessionManager
                             && !existFuture.isCompletedExceptionally()) {
                         final Session existSession = existFuture.join();
                         if (existSession.getSessionId() == targetSession.getSessionId()) {
-                            existSession.close();
+                            if (existSession.isClosed()) {
+                                // Cleanly closed by client shutdown or shard removal.
+                                return null;
+                            }
+                            // Expiry abandons the session without a CloseSession RPC: a late
+                            // close could destroy a new server-side session that reused the id.
+                            existSession.expire();
                             return null;
                         }
                     }
