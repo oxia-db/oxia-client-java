@@ -101,22 +101,43 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session targetSession) {
+        invalidateSession(targetSession.getShardId(), targetSession.getSessionId(), false);
+    }
+
+    /**
+     * A write that carried {@code sessionId} — an ephemeral put — was rejected by the server with
+     * SESSION_DOES_NOT_EXIST: the session is dead server-side even though the keep-alive path may not
+     * have noticed (the server validates writes against the database but heartbeats against memory).
+     * Judge the session dead here so the next ephemeral operation lazily re-establishes a fresh
+     * session, instead of pinning a session the server will keep rejecting forever.
+     */
+    public void onSessionExpired(long shardId, long sessionId) {
+        invalidateSession(shardId, sessionId, true);
+    }
+
+    private void invalidateSession(long shardId, long sessionId, boolean rejectedByServer) {
         // This entry point may be triggered concurrently and redundantly, e.g. by the local
-        // timeout tick and by an in-flight SESSION_NOT_FOUND response, both for the same
-        // session. The sessionId-matching guard inside compute() atomically closes the
-        // session at most once, and therefore also dispatches the EXPIRED event at most once.
+        // timeout tick, by an in-flight SESSION_NOT_FOUND response and by rejected writes, all
+        // for the same session. The sessionId-matching guard inside compute() atomically closes
+        // the session at most once, and therefore also dispatches the EXPIRED event at most once.
         sessions.compute(
-                targetSession.getShardId(),
+                shardId,
                 (shard, existFuture) -> {
                     if (existFuture != null
                             && existFuture.isDone()
                             && !existFuture.isCompletedExceptionally()) {
                         final Session existSession = existFuture.join();
-                        if (existSession.getSessionId() == targetSession.getSessionId()) {
+                        if (existSession.getSessionId() == sessionId) {
                             if (existSession.isClosed()) {
                                 // Cleanly closed by client shutdown or shard removal: not an
                                 // expiry, so no EXPIRED event.
                                 return null;
+                            }
+                            if (rejectedByServer) {
+                                log.warnf(
+                                        "Session %d rejected by server (session does not exist); "
+                                                + "invalidating and recreating on next operation",
+                                        sessionId);
                             }
                             // Expiry abandons the session without a CloseSession RPC: a late
                             // close could destroy a new server-side session that reused the id.
