@@ -25,6 +25,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
@@ -207,14 +208,42 @@ class SessionTest {
         assertThat(service.signalsAfterClosed).isEmpty();
     }
 
+    @Test
+    void sessionNotFoundTriggersImmediateExpiry() {
+        var listener = mock(SessionNotificationListener.class);
+        service.failKeepAliveWithSessionNotFound.set(true);
+        var session =
+                new Session(
+                        executor, rpcProvider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
+
+        // The heartbeat interval is 2s while the local session timeout is 10s: observing the
+        // expiry before the local timeout can only be the SESSION_NOT_FOUND fast path.
+        await()
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> verify(listener, atLeastOnce()).onSessionExpired(session));
+
+        session.close();
+    }
+
     static class TestService extends OxiaClientGrpc.OxiaClientImplBase {
         BlockingQueue<SessionHeartbeat> signals = new LinkedBlockingQueue<>();
         BlockingQueue<SessionHeartbeat> signalsAfterClosed = new LinkedBlockingQueue<>();
         AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicBoolean failKeepAliveWithSessionNotFound = new AtomicBoolean(false);
 
         @Override
         public void keepAlive(
                 SessionHeartbeat heartbeat, StreamObserver<KeepAliveResponse> responseObserver) {
+            if (failKeepAliveWithSessionNotFound.get()) {
+                var status =
+                        com.google.rpc.Status.newBuilder()
+                                .setCode(io.grpc.Status.Code.NOT_FOUND.value())
+                                .setMessage("oxia: session not found")
+                                .build();
+                responseObserver.onError(StatusProto.toStatusRuntimeException(status));
+                return;
+            }
+
             if (!closed.get()) {
                 signals.add(heartbeat);
             } else {
