@@ -36,10 +36,13 @@ import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
 import io.oxia.proto.CreateSessionResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -211,6 +214,118 @@ class SessionManagerTest {
         session.close().join();
 
         assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void writeRejectionInvalidatesAndRecreatesSession() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        assertThat(manager.getSession(1L).join().getSessionId()).isEqualTo(10L);
+
+        // The compute() guard makes the write-path verdict exactly-once even when several
+        // in-flight writes for the same session are rejected together.
+        manager.onSessionExpired(1L, 10L);
+        manager.onSessionExpired(1L, 10L);
+
+        assertThat(manager.getSession(1L).join().getSessionId()).isEqualTo(20L);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void concurrentWriteRejectionsInvalidateExactlyOnce() throws Exception {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        manager.getSession(1L).join();
+
+        var pool = Executors.newFixedThreadPool(4);
+        try {
+            var rejections = new ArrayList<Future<?>>();
+            for (var i = 0; i < 8; i++) {
+                rejections.add(pool.submit(() -> manager.onSessionExpired(1L, 10L)));
+            }
+            for (var rejection : rejections) {
+                rejection.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // The invalidated session is replaced exactly once, not once per concurrent rejection.
+        assertThat(manager.getSession(1L).join().getSessionId()).isEqualTo(20L);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void writeRejectionForUnknownSessionIdIsIgnored() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+
+        var session = manager.getSession(1L).join();
+
+        // A rejection for an id the manager does not hold (e.g. another client's session,
+        // or an already-replaced one) must not disturb the live session.
+        manager.onSessionExpired(1L, 99L);
+
+        assertThat(manager.getSession(1L).join()).isSameAs(session);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void writeRejectionDoesNotKillSessionUnderCreation() {
+        var pending = new CompletableFuture<CreateSessionResponse>();
+        when(rpcProvider.createSession(any(CreateSessionRequest.class))).thenReturn(pending);
+
+        var sessionFuture = manager.getSession(1L);
+
+        // A rejection racing an in-flight createSession must not touch the pending session:
+        // the guard requires a completed session before it judges anything dead.
+        manager.onSessionExpired(1L, 10L);
+        assertThat(sessionFuture).isNotDone();
+
+        pending.complete(createSessionResponse(10L));
+
+        assertThat(sessionFuture.join().getSessionId()).isEqualTo(10L);
+        assertThat(manager.getSession(1L).join()).isSameAs(sessionFuture.join());
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void sameIdReuseAfterExpiryConverges() {
+        // Server session ids are monotonic within a term. After a server restart the id
+        // counter may be reused once, but every recreated session moves past the rejected id.
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(14L)),
+                        CompletableFuture.completedFuture(createSessionResponse(14L)),
+                        CompletableFuture.completedFuture(createSessionResponse(15L)));
+
+        var first = manager.getSession(1L).join();
+
+        // Local timeout expiry of the first session 14 (e.g. during a server outage): no close.
+        manager.onSessionExpired(first);
+
+        // The server hands out id 14 again for the recreated session...
+        var second = manager.getSession(1L).join();
+        assertThat(second.getSessionId()).isEqualTo(14L);
+
+        // ...so a late write rejection for the OLD 14 kills the new, same-numbered session.
+        // This is a bounded miss-kill: the next session id must advance beyond 14.
+        manager.onSessionExpired(1L, 14L);
+        var third = manager.getSession(1L).join();
+        assertThat(third.getSessionId()).isEqualTo(15L);
+
+        // Any further late rejections for 14 are harmless: the live session id has moved on,
+        // so the chain converges instead of looping.
+        manager.onSessionExpired(1L, 14L);
+        assertThat(manager.getSession(1L).join()).isSameAs(third);
+        verify(rpcProvider, times(3)).createSession(any(CreateSessionRequest.class));
         verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
     }
 
