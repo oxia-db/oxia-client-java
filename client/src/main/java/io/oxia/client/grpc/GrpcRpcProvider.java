@@ -20,6 +20,7 @@ import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
 import dev.failsafe.Timeout;
 import io.github.merlimat.slog.Logger;
+import io.grpc.Context;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
@@ -110,6 +111,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull ShardAssignmentsRequest request,
             @NonNull StreamObserver<ShardAssignments> observer) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("get shard assignments", null))
                     .with(asyncExecutor)
@@ -120,11 +122,13 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
                                     var stub =
                                             withSubscriptionMaxAge(
                                                     connectionManager.getConnection(clientConfig.serviceAddress()).stub());
-                                    stub.getShardAssignments(request, barrierObserver);
+                                    attemptContext.run(() -> stub.getShardAssignments(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -133,6 +137,11 @@ final class GrpcRpcProvider implements RpcProvider {
                     .exceptionally(
                             error -> {
                                 guardedObserver.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
@@ -248,6 +257,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         final var hint = new AtomicReference<OxiaStatusException>();
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("read", hint))
                     .with(asyncExecutor)
@@ -258,11 +268,15 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
-                                    connectionManager
-                                            .getConnection(getLeader(request.getShard(), hint))
-                                            .stub()
-                                            .read(request, barrierObserver);
+                                    attemptContext.run(
+                                            () ->
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub()
+                                                            .read(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -271,6 +285,11 @@ final class GrpcRpcProvider implements RpcProvider {
                     .exceptionally(
                             error -> {
                                 guardedObserver.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
@@ -318,6 +337,7 @@ final class GrpcRpcProvider implements RpcProvider {
     public void list(
             @NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("list", hint))
                     .with(asyncExecutor)
@@ -328,11 +348,15 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
-                                    connectionManager
-                                            .getConnection(getLeader(request.getShard(), hint))
-                                            .stub()
-                                            .list(request, barrierObserver);
+                                    attemptContext.run(
+                                            () ->
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub()
+                                                            .list(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -341,6 +365,12 @@ final class GrpcRpcProvider implements RpcProvider {
                     .exceptionally(
                             error -> {
                                 observer.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server. The observer is
+                                // now terminated, so cancelling it would not cancel the call.
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
@@ -353,6 +383,7 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull RangeScanRequest request,
             @NonNull CancelableStreamObserver<RangeScanResponse> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("range scan", hint))
                     .with(asyncExecutor)
@@ -363,11 +394,15 @@ final class GrpcRpcProvider implements RpcProvider {
                                                 .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
-                                    connectionManager
-                                            .getConnection(getLeader(request.getShard(), hint))
-                                            .stub()
-                                            .rangeScan(request, barrierObserver);
+                                    attemptContext.run(
+                                            () ->
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub()
+                                                            .rangeScan(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -376,6 +411,12 @@ final class GrpcRpcProvider implements RpcProvider {
                     .exceptionally(
                             error -> {
                                 observer.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server. The observer is
+                                // now terminated, so cancelling it would not cancel the call.
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
