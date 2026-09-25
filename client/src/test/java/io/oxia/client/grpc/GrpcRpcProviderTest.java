@@ -263,17 +263,17 @@ class GrpcRpcProviderTest {
 
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {
+                        protected void handleNext(NotificationBatch value) {
                             notification.set(value);
                         }
 
                         @Override
-                        public void onError(Throwable t) {}
+                        protected void handleError(Throwable t) {}
 
                         @Override
-                        public void onCompleted() {}
+                        protected void handleComplete() {}
                     });
 
             await()
@@ -1002,19 +1002,19 @@ class GrpcRpcProviderTest {
                     });
             provider.getNotifications(
                     new NotificationsRequest().setShard(1),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {
+                        protected void handleNext(NotificationBatch value) {
                             received.countDown();
                         }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -1113,17 +1113,17 @@ class GrpcRpcProviderTest {
                     });
             provider.getNotifications(
                     new NotificationsRequest().setShard(1),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             completed.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             completed.countDown();
                         }
                     });
@@ -1186,18 +1186,18 @@ class GrpcRpcProviderTest {
             request.setShard(1);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -1248,19 +1248,19 @@ class GrpcRpcProviderTest {
             request.setStartOffsetExclusive(5);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {
+                        protected void handleNext(NotificationBatch value) {
                             received.countDown();
                         }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                         }
 
                         @Override
-                        public void onCompleted() {}
+                        protected void handleComplete() {}
                     });
 
             assertThat(subscribed.await(5, TimeUnit.SECONDS)).isTrue();

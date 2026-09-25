@@ -42,6 +42,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ShardNotificationReceiverGrpcTest {
     private static final long SHARD_ID = 1L;
@@ -124,6 +126,82 @@ class ShardNotificationReceiverGrpcTest {
                     .atMost(Duration.ofSeconds(1))
                     .untilAsserted(() -> assertThat(notifications).containsExactly(new KeyCreated("key", 1)));
             assertThat(subscriptions).hasSize(subscriptionCount);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void closeCancelsLiveSubscription(boolean resumed) throws Exception {
+        Set<ServerCallStreamObserver<NotificationBatch>> openCalls = ConcurrentHashMap.newKeySet();
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getNotifications(
+                                            NotificationsRequest request,
+                                            StreamObserver<NotificationBatch> responseObserver) {
+                                        var call = (ServerCallStreamObserver<NotificationBatch>) responseObserver;
+                                        call.setOnCancelHandler(() -> openCalls.remove(call));
+                                        openCalls.add(call);
+                                        if (!request.hasStartOffsetExclusive()) {
+                                            call.onNext(
+                                                    new NotificationBatch().setShard(SHARD_ID).setOffset(COMMIT_OFFSET));
+                                        }
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var config = ((OxiaClientBuilderImpl) OxiaClientBuilder.create(address)).getClientConfig();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var notificationManager = mock(NotificationManager.class);
+        when(notificationManager.getExecutor()).thenReturn(executor);
+        when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
+        when(notificationManager.getCounterNotificationsBatchesReceived())
+                .thenReturn(mock(Counter.class));
+        var notifications = new CopyOnWriteArrayList<Notification>();
+        // Every attempt to establish a subscription looks up the shard leader
+        var attempts = new AtomicInteger();
+
+        // Like a client built on shared resources, the receiver is closed while the provider and its
+        // connection stay open
+        try (var rpcProvider =
+                RpcProvider.create(
+                        config,
+                        executor,
+                        shardId -> {
+                            attempts.incrementAndGet();
+                            return address;
+                        })) {
+            var receiver =
+                    new ShardNotificationReceiver(
+                            rpcProvider,
+                            SHARD_ID,
+                            notifications::add,
+                            notificationManager,
+                            resumed ? OptionalLong.of(COMMIT_OFFSET) : OptionalLong.empty());
+            // A new subscription got its first "dummy" batch, a resumed one on an idle shard got nothing
+            await().until(() -> openCalls.size() == 1 && receiver.getOffset().isPresent());
+            var call = openCalls.iterator().next();
+
+            receiver.close();
+
+            // The live call is cancelled on the server
+            await().until(openCalls::isEmpty);
+
+            // A notification written later is not delivered, and the subscription is neither retried
+            // nor restarted, which would happen after 100ms
+            var batch = new NotificationBatch().setShard(SHARD_ID).setOffset(COMMIT_OFFSET + 1);
+            batch.putNotifications("key").setType(KEY_CREATED).setVersionId(1);
+            call.onNext(batch);
+            Thread.sleep(500);
+            assertThat(notifications).isEmpty();
+            assertThat(attempts).hasValue(1);
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
