@@ -180,7 +180,8 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CreateSessionResponse> createSession(
             @NonNull CreateSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy("create session", hint))
+        return Failsafe.with(
+                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("create session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -196,7 +197,9 @@ final class GrpcRpcProvider implements RpcProvider {
                                 future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
-                        });
+                        })
+                .exceptionallyCompose(
+                        error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
     }
 
     @Override
@@ -225,7 +228,8 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy("close session", hint))
+        return Failsafe.with(
+                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("close session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -241,7 +245,9 @@ final class GrpcRpcProvider implements RpcProvider {
                                 future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
-                        });
+                        })
+                .exceptionallyCompose(
+                        error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
     }
 
     @Override

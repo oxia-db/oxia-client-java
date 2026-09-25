@@ -17,6 +17,7 @@ package io.oxia.client.session;
 
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
@@ -24,7 +25,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
@@ -34,11 +40,18 @@ import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
 import io.oxia.proto.CreateSessionResponse;
+import io.oxia.proto.OxiaClientGrpc;
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -152,6 +165,74 @@ class SessionManagerTest {
     }
 
     @Test
+    void closeDoesNotBlockWhenLeaderIsUnreachable() throws Exception {
+        var service =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        responseObserver.onNext(createSessionResponse(9L));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server server = ServerBuilder.forPort(0).directExecutor().addService(service).build().start();
+        var leader = new AtomicReference<>("localhost:" + server.getPort());
+
+        try (var provider = RpcProvider.create(config, executor, shardId -> leader.get())) {
+            var sessionManager = new SessionManager(executor, config, provider, InstrumentProvider.NOOP);
+            assertThat(sessionManager.getSession(1).get(5, TimeUnit.SECONDS).getSessionId())
+                    .isEqualTo(9L);
+
+            // CloseSession fails with a retryable error until the leader is reachable again
+            leader.set(unreachableAddress());
+
+            assertClosesWithinRequestTimeout(sessionManager);
+        } finally {
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void closeDoesNotBlockOnPendingSessionCreation() throws Exception {
+        var leader = unreachableAddress();
+        var lookups = new AtomicInteger();
+
+        try (var provider =
+                RpcProvider.create(
+                        config,
+                        executor,
+                        shardId -> {
+                            lookups.incrementAndGet();
+                            return leader;
+                        })) {
+            var sessionManager = new SessionManager(executor, config, provider, InstrumentProvider.NOOP);
+            var session = sessionManager.getSession(1);
+            assertThat(session).isNotDone();
+
+            assertClosesWithinRequestTimeout(sessionManager);
+
+            assertThat(session)
+                    .failsWithin(Duration.ZERO)
+                    .withThrowableOfType(ExecutionException.class)
+                    .havingCause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT));
+
+            // CreateSession looked up the leader on every attempt, and stopped retrying once it timed
+            // out. Only an attempt that was starting as the timeout fired can still do its lookup.
+            assertThat(lookups).hasValueGreaterThan(1);
+            var lookupsAfterClose = lookups.get();
+            await()
+                    .during(Duration.ofMillis(500))
+                    .atMost(Duration.ofSeconds(1))
+                    .untilAsserted(
+                            () -> assertThat(lookups).hasValueLessThanOrEqualTo(lookupsAfterClose + 1));
+        }
+    }
+
+    @Test
     void accept() throws Exception {
         var shardId1 = 1L;
         var shardId2 = 2L;
@@ -193,6 +274,30 @@ class SessionManagerTest {
         manager.onSessionExpired(session);
         assertThat(manager.getSession(shardId).join()).isNotSameAs(session);
         verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    private void assertClosesWithinRequestTimeout(SessionManager sessionManager) {
+        // Close on a daemon thread, so that a close() that blocks forever can't hang the test JVM
+        var closed = new CompletableFuture<Void>();
+        var closer =
+                new Thread(
+                        () -> {
+                            try {
+                                sessionManager.close();
+                                closed.complete(null);
+                            } catch (Throwable t) {
+                                closed.completeExceptionally(t);
+                            }
+                        });
+        closer.setDaemon(true);
+        closer.start();
+        assertThat(closed).succeedsWithin(config.requestTimeout().plusSeconds(2));
+    }
+
+    private static String unreachableAddress() throws IOException {
+        try (var socket = new ServerSocket(0)) {
+            return "localhost:" + socket.getLocalPort();
+        }
     }
 
     private static CreateSessionResponse createSessionResponse(long sessionId) {
