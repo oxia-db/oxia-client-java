@@ -143,8 +143,8 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public void getNotifications(
-            @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer) {
-        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+            @NonNull NotificationsRequest request,
+            @NonNull CancelableStreamObserver<NotificationBatch> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
@@ -161,7 +161,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                             clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
                                 }
                                 final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 final var attemptContext = Context.current().withCancellation();
                                 attempt.set(attemptContext);
                                 try {
@@ -179,7 +179,7 @@ final class GrpcRpcProvider implements RpcProvider {
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
+                                observer.onError(OxiaStatusException.from(error));
                                 // Don't leave an attempt that timed out open on the server
                                 final var attemptContext = attempt.get();
                                 if (attemptContext != null) {
@@ -188,7 +188,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
