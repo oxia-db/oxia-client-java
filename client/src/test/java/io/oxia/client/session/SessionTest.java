@@ -21,12 +21,19 @@ import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.*;
 
+import com.google.protobuf.Any;
+import com.google.rpc.ErrorInfo;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.Status;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
+import io.oxia.client.OxiaClientBuilderImpl;
+import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.ManagedObservers;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -39,6 +46,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -205,6 +215,105 @@ class SessionTest {
         session.close().join();
         assertThat(service.closed).isTrue();
         assertThat(service.signalsAfterClosed).isEmpty();
+    }
+
+    @Test
+    void heartbeatRejectedByStaleLeaderIsRetriedOnNewLeader() throws Exception {
+        var leaderHeartbeats = new AtomicInteger();
+        var leaderFirstHeartbeatNanos = new AtomicLong();
+        Server leaderServer =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void keepAlive(
+                                            SessionHeartbeat heartbeat,
+                                            StreamObserver<KeepAliveResponse> responseObserver) {
+                                        leaderFirstHeartbeatNanos.compareAndSet(0, System.nanoTime());
+                                        leaderHeartbeats.incrementAndGet();
+                                        responseObserver.onNext(new KeepAliveResponse());
+                                        responseObserver.onCompleted();
+                                    }
+
+                                    @Override
+                                    public void closeSession(
+                                            CloseSessionRequest request,
+                                            StreamObserver<CloseSessionResponse> responseObserver) {
+                                        responseObserver.onNext(new CloseSessionResponse());
+                                        responseObserver.onCompleted();
+                                    }
+                                })
+                        .build()
+                        .start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var shardLeader = new AtomicReference<String>();
+        var staleLeaderHeartbeats = new AtomicInteger();
+        var staleLeaderHeartbeatNanos = new AtomicLong();
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void keepAlive(
+                                            SessionHeartbeat heartbeat,
+                                            StreamObserver<KeepAliveResponse> responseObserver) {
+                                        staleLeaderHeartbeatNanos.set(System.nanoTime());
+                                        staleLeaderHeartbeats.incrementAndGet();
+                                        // The shard map moves to the new leader while the heartbeat is in flight
+                                        shardLeader.set(leaderAddress);
+                                        responseObserver.onError(nodeIsNotLeaderWithoutLeaderHint());
+                                    }
+                                })
+                        .build()
+                        .start();
+        shardLeader.set("localhost:" + staleLeaderServer.getPort());
+        // Default session timeout (15s): one heartbeat every 2s
+        var clientConfig =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create("localhost:0")).getClientConfig();
+        var listener = mock(SessionNotificationListener.class);
+
+        try (var provider = RpcProvider.create(clientConfig, executor, shard -> shardLeader.get())) {
+            var session =
+                    new Session(
+                            executor,
+                            provider,
+                            clientConfig,
+                            shardId,
+                            sessionId,
+                            InstrumentProvider.NOOP,
+                            listener);
+
+            await().atMost(Duration.ofSeconds(10)).until(() -> leaderHeartbeats.get() >= 2);
+
+            assertThat(staleLeaderHeartbeats).hasValue(1);
+            // The rejected heartbeat itself was retried on the new leader, before the next one was due
+            assertThat(
+                            Duration.ofNanos(leaderFirstHeartbeatNanos.get() - staleLeaderHeartbeatNanos.get()))
+                    .isLessThan(Duration.ofSeconds(1));
+            verifyNoInteractions(listener);
+            session.close().get(5, TimeUnit.SECONDS);
+        } finally {
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    // What a node answers when it is not the shard leader and does not know the current one
+    private static Throwable nodeIsNotLeaderWithoutLeaderHint() {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.ABORTED.value())
+                        .setMessage("oxia: node is not leader")
+                        .addDetails(
+                                Any.pack(
+                                        ErrorInfo.newBuilder()
+                                                .setDomain("oxia.io")
+                                                .setReason("NODE_IS_NOT_LEADER")
+                                                .build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
     }
 
     static class TestService extends OxiaClientGrpc.OxiaClientImplBase {
