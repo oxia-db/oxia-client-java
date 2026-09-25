@@ -20,6 +20,7 @@ import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
 import dev.failsafe.Timeout;
 import io.github.merlimat.slog.Logger;
+import io.grpc.Context;
 import io.grpc.Metadata;
 import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
@@ -145,22 +146,32 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         final var hint = new AtomicReference<OxiaStatusException>();
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("get notifications", hint))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                // Only a new subscription is confirmed right away, by a first "dummy" batch. A
+                                // resumed one gets nothing until a new notification is written, so it is only
+                                // bounded by the subscription max age, like the sequence updates.
+                                if (!request.hasStartOffsetExclusive()) {
+                                    barrierFuture.orTimeout(
+                                            clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                }
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
-                                    withSubscriptionMaxAge(
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub())
-                                            .getNotifications(request, barrierObserver);
+                                    attemptContext.run(
+                                            () ->
+                                                    withSubscriptionMaxAge(
+                                                                    connectionManager
+                                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                                            .stub())
+                                                            .getNotifications(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -169,6 +180,11 @@ final class GrpcRpcProvider implements RpcProvider {
                     .exceptionally(
                             error -> {
                                 guardedObserver.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
