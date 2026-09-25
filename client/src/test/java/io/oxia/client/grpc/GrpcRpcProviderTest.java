@@ -633,6 +633,185 @@ class GrpcRpcProviderTest {
     }
 
     @Test
+    void sessionRequestsRetryOnNewLeaderWithoutLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicInteger();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new CreateSessionResponse().setSessionId(1));
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void keepAlive(
+                            SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new KeepAliveResponse());
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void closeSession(
+                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new CloseSessionResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var shardLeader = new AtomicReference<String>();
+        var staleLeaderRequests = new AtomicInteger();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    private void reject(StreamObserver<?> responseObserver) {
+                        staleLeaderRequests.incrementAndGet();
+                        // The shard map moves to the new leader while the request is in flight
+                        shardLeader.set(leaderAddress);
+                        responseObserver.onError(nodeIsNotLeaderWithoutLeaderHint());
+                    }
+
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void keepAlive(
+                            SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void closeSession(
+                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> shardLeader.get())) {
+            shardLeader.set(staleLeaderAddress);
+            var response =
+                    provider.createSession(new CreateSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
+            assertThat(response.getSessionId()).isEqualTo(1);
+
+            shardLeader.set(staleLeaderAddress);
+            provider
+                    .keepAlive(new SessionHeartbeat().setShard(1).setSessionId(1), Duration.ofSeconds(5))
+                    .get(5, TimeUnit.SECONDS);
+
+            shardLeader.set(staleLeaderAddress);
+            provider
+                    .closeSession(new CloseSessionRequest().setShard(1).setSessionId(1))
+                    .get(5, TimeUnit.SECONDS);
+
+            // Each request was rejected once, then retried on the leader from the updated shard map
+            assertThat(staleLeaderRequests).hasValue(3);
+            assertThat(leaderServerRequests).hasValue(3);
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void subscriptionsRetryOnNewLeaderWithoutLeaderHint() throws Exception {
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        responseObserver.onNext(new NotificationBatch().setOffset(1));
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        responseObserver.onNext(
+                                new GetSequenceUpdatesResponse().setHighestSequenceKey("key-1"));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var shardLeader = new AtomicReference<String>();
+        var staleLeaderRequests = new AtomicInteger();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    private void reject(StreamObserver<?> responseObserver) {
+                        staleLeaderRequests.incrementAndGet();
+                        // The shard map moves to the new leader while the request is in flight
+                        shardLeader.set(leaderAddress);
+                        responseObserver.onError(nodeIsNotLeaderWithoutLeaderHint());
+                    }
+
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> shardLeader.get())) {
+            shardLeader.set(staleLeaderAddress);
+            var notification = new AtomicReference<NotificationBatch>();
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1), capturingStreamObserver(notification));
+            await().untilAsserted(() -> assertThat(notification.get()).isNotNull());
+
+            shardLeader.set(staleLeaderAddress);
+            var sequenceUpdate = new AtomicReference<GetSequenceUpdatesResponse>();
+            provider.getSequenceUpdates(
+                    new GetSequenceUpdatesRequest().setShard(1).setKey("key"),
+                    capturingCancelableObserver(sequenceUpdate));
+            await().untilAsserted(() -> assertThat(sequenceUpdate.get()).isNotNull());
+
+            // Each subscription was rejected once, then retried on the leader from the updated shard map
+            assertThat(staleLeaderRequests).hasValue(2);
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
     void sessionRequestsUseRequestTimeoutDeadline() throws Exception {
         var createSessionHasDeadline = new AtomicReference<Boolean>();
         var closeSessionHasDeadline = new AtomicReference<Boolean>();
@@ -1555,6 +1734,22 @@ class GrpcRpcProviderTest {
                                                 .setReason("NODE_IS_NOT_LEADER")
                                                 .putMetadata("shard", "1")
                                                 .putMetadata("leader", leaderAddress)
+                                                .build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
+    }
+
+    // What a node answers when it is not the shard leader and does not know the current one
+    private static Throwable nodeIsNotLeaderWithoutLeaderHint() {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.ABORTED.value())
+                        .setMessage("oxia: node is not leader")
+                        .addDetails(
+                                Any.pack(
+                                        ErrorInfo.newBuilder()
+                                                .setDomain("oxia.io")
+                                                .setReason("NODE_IS_NOT_LEADER")
                                                 .build()))
                         .build();
         return StatusProto.toStatusRuntimeException(grpcStatus);
