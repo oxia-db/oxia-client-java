@@ -906,6 +906,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void getShardAssignmentsTimesOutSilentAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -914,12 +915,9 @@ class GrpcRpcProviderTest {
                                     public void getShardAssignments(
                                             ShardAssignmentsRequest request,
                                             StreamObserver<ShardAssignments> responseObserver) {
-                                        try {
-                                            // Keep the stream open without ever delivering a message
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering a message
+                                        ((ServerCallStreamObserver<ShardAssignments>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -956,6 +954,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1458,6 +1458,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void readTimesOutSilentAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -1465,11 +1466,9 @@ class GrpcRpcProviderTest {
                                     @Override
                                     public void read(
                                             ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering a message
+                                        ((ServerCallStreamObserver<ReadResponse>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -1506,6 +1505,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1514,6 +1515,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void listTimesOutSilentAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -1521,11 +1523,9 @@ class GrpcRpcProviderTest {
                                     @Override
                                     public void list(
                                             ListRequest request, StreamObserver<ListResponse> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering a message
+                                        ((ServerCallStreamObserver<ListResponse>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -1562,6 +1562,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1641,6 +1643,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void rangeScanTimesOutSilentAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -1649,11 +1652,9 @@ class GrpcRpcProviderTest {
                                     public void rangeScan(
                                             RangeScanRequest request,
                                             StreamObserver<RangeScanResponse> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering a message
+                                        ((ServerCallStreamObserver<RangeScanResponse>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -1690,6 +1691,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
