@@ -18,7 +18,9 @@ package io.oxia.client.it;
 import org.testcontainers.utility.DockerImageName;
 
 public final class OxiaImages {
-    public static final DockerImageName OXIA = DockerImageName.parse("oxia/oxia:0.16.3");
+    // The nightly build of Oxia main, rebuilt daily at 18:00 UTC by the oxia-db/oxia
+    // ci-nightly-images workflow. The "latest" tag is not main: it is the latest 0.16 release.
+    public static final DockerImageName OXIA = DockerImageName.parse("oxia/oxia:nightly-beta");
 
     private OxiaImages() {}
 }
