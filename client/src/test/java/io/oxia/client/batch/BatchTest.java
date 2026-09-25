@@ -317,9 +317,9 @@ class BatchTest {
             var request = batch.toProto();
             var expectedPut = new io.oxia.proto.PutRequest();
             put.toProto(expectedPut);
-            var expectedDelete = new io.oxia.proto.DeleteRequest();
+            var expectedDelete = new io.oxia.proto.DeleteRequest().setOpIndex(1);
             delete.toProto(expectedDelete);
-            var expectedDeleteRange = new io.oxia.proto.DeleteRangeRequest();
+            var expectedDeleteRange = new io.oxia.proto.DeleteRangeRequest().setOpIndex(2);
             deleteRange.toProto(expectedDeleteRange);
             assertThat(request)
                     .satisfies(
@@ -332,6 +332,27 @@ class BatchTest {
                                 assertThat(r.getDeleteRangeAt(0).toByteArray())
                                         .isEqualTo(expectedDeleteRange.toByteArray());
                             });
+        }
+
+        @Test
+        public void toProtoSetsOpIndex() {
+            batch.add(put);
+            batch.add(delete);
+            batch.add(putEphemeral);
+            batch.add(deleteRange);
+            batch.add(new DeleteOperation(1L, new CompletableFuture<>(), ""));
+
+            // The op_index of each operation is its position in the batch, across the three lists
+            var request = batch.toProto();
+            assertThat(request.getPutsList())
+                    .extracting(io.oxia.proto.PutRequest::getOpIndex)
+                    .containsExactly(0, 2);
+            assertThat(request.getDeletesList())
+                    .extracting(io.oxia.proto.DeleteRequest::getOpIndex)
+                    .containsExactly(1, 4);
+            assertThat(request.getDeleteRangesList())
+                    .extracting(io.oxia.proto.DeleteRangeRequest::getOpIndex)
+                    .containsExactly(3);
         }
 
         @Test

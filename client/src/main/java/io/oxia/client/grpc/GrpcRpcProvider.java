@@ -151,25 +151,35 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public void getNotifications(
-            @NonNull NotificationsRequest request, @NonNull StreamObserver<NotificationBatch> observer) {
-        final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
+            @NonNull NotificationsRequest request,
+            @NonNull CancelableStreamObserver<NotificationBatch> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
+        final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
             Failsafe.with(getRetryPolicy("get notifications", hint))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = new CompletableFuture<Void>();
+                                // Only a new subscription is confirmed right away, by a first "dummy" batch. A
+                                // resumed one gets nothing until a new notification is written, so it is only
+                                // bounded by the subscription max age, like the sequence updates.
+                                if (!request.hasStartOffsetExclusive()) {
+                                    barrierFuture.orTimeout(
+                                            clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                }
                                 final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                                final var attemptContext = Context.current().withCancellation();
+                                attempt.set(attemptContext);
                                 try {
-                                    withSubscriptionMaxAge(
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub())
-                                            .getNotifications(request, barrierObserver);
+                                    attemptContext.run(
+                                            () ->
+                                                    withSubscriptionMaxAge(
+                                                                    connectionManager
+                                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                                            .stub())
+                                                            .getNotifications(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -177,11 +187,16 @@ final class GrpcRpcProvider implements RpcProvider {
                             })
                     .exceptionally(
                             error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
+                                observer.onError(OxiaStatusException.from(error));
+                                // Don't leave an attempt that timed out open on the server
+                                final var attemptContext = attempt.get();
+                                if (attemptContext != null) {
+                                    attemptContext.cancel(null);
+                                }
                                 return null;
                             });
         } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
+            observer.onError(OxiaStatusException.from(error));
         }
     }
 
@@ -189,7 +204,8 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CreateSessionResponse> createSession(
             @NonNull CreateSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy("create session", hint))
+        return Failsafe.with(
+                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("create session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -205,7 +221,9 @@ final class GrpcRpcProvider implements RpcProvider {
                                 future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
-                        });
+                        })
+                .exceptionallyCompose(
+                        error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
     }
 
     @Override
@@ -234,7 +252,8 @@ final class GrpcRpcProvider implements RpcProvider {
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(getRetryPolicy("close session", hint))
+        return Failsafe.with(
+                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("close session", hint))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -250,7 +269,9 @@ final class GrpcRpcProvider implements RpcProvider {
                                 future.completeExceptionally(OxiaStatusException.from(error));
                             }
                             return future;
-                        });
+                        })
+                .exceptionallyCompose(
+                        error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
     }
 
     @Override

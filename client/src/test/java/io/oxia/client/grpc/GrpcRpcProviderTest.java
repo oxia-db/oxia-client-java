@@ -263,17 +263,17 @@ class GrpcRpcProviderTest {
 
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {
+                        protected void handleNext(NotificationBatch value) {
                             notification.set(value);
                         }
 
                         @Override
-                        public void onError(Throwable t) {}
+                        protected void handleError(Throwable t) {}
 
                         @Override
-                        public void onCompleted() {}
+                        protected void handleComplete() {}
                     });
 
             await()
@@ -626,6 +626,185 @@ class GrpcRpcProviderTest {
                                 assertThat(firstServerRequests.get()).isNotNull();
                                 assertThat(leaderServerRequests.get()).isNotNull();
                             });
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void sessionRequestsRetryOnNewLeaderWithoutLeaderHint() throws Exception {
+        var leaderServerRequests = new AtomicInteger();
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new CreateSessionResponse().setSessionId(1));
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void keepAlive(
+                            SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new KeepAliveResponse());
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void closeSession(
+                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+                        leaderServerRequests.incrementAndGet();
+                        responseObserver.onNext(new CloseSessionResponse());
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var shardLeader = new AtomicReference<String>();
+        var staleLeaderRequests = new AtomicInteger();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    private void reject(StreamObserver<?> responseObserver) {
+                        staleLeaderRequests.incrementAndGet();
+                        // The shard map moves to the new leader while the request is in flight
+                        shardLeader.set(leaderAddress);
+                        responseObserver.onError(nodeIsNotLeaderWithoutLeaderHint());
+                    }
+
+                    @Override
+                    public void createSession(
+                            CreateSessionRequest request,
+                            StreamObserver<CreateSessionResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void keepAlive(
+                            SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void closeSession(
+                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> shardLeader.get())) {
+            shardLeader.set(staleLeaderAddress);
+            var response =
+                    provider.createSession(new CreateSessionRequest().setShard(1)).get(5, TimeUnit.SECONDS);
+            assertThat(response.getSessionId()).isEqualTo(1);
+
+            shardLeader.set(staleLeaderAddress);
+            provider
+                    .keepAlive(new SessionHeartbeat().setShard(1).setSessionId(1), Duration.ofSeconds(5))
+                    .get(5, TimeUnit.SECONDS);
+
+            shardLeader.set(staleLeaderAddress);
+            provider
+                    .closeSession(new CloseSessionRequest().setShard(1).setSessionId(1))
+                    .get(5, TimeUnit.SECONDS);
+
+            // Each request was rejected once, then retried on the leader from the updated shard map
+            assertThat(staleLeaderRequests).hasValue(3);
+            assertThat(leaderServerRequests).hasValue(3);
+        } finally {
+            executor.shutdownNow();
+            staleLeaderServer.shutdownNow();
+            leaderServer.shutdownNow();
+        }
+    }
+
+    @Test
+    void subscriptionsRetryOnNewLeaderWithoutLeaderHint() throws Exception {
+        var leaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        responseObserver.onNext(new NotificationBatch().setOffset(1));
+                        responseObserver.onCompleted();
+                    }
+
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        responseObserver.onNext(
+                                new GetSequenceUpdatesResponse().setHighestSequenceKey("key-1"));
+                        responseObserver.onCompleted();
+                    }
+                };
+        Server leaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
+        var leaderAddress = "localhost:" + leaderServer.getPort();
+        var shardLeader = new AtomicReference<String>();
+        var staleLeaderRequests = new AtomicInteger();
+        var staleLeaderService =
+                new OxiaClientGrpc.OxiaClientImplBase() {
+                    private void reject(StreamObserver<?> responseObserver) {
+                        staleLeaderRequests.incrementAndGet();
+                        // The shard map moves to the new leader while the request is in flight
+                        shardLeader.set(leaderAddress);
+                        responseObserver.onError(nodeIsNotLeaderWithoutLeaderHint());
+                    }
+
+                    @Override
+                    public void getNotifications(
+                            NotificationsRequest request, StreamObserver<NotificationBatch> responseObserver) {
+                        reject(responseObserver);
+                    }
+
+                    @Override
+                    public void getSequenceUpdates(
+                            GetSequenceUpdatesRequest request,
+                            StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
+                        reject(responseObserver);
+                    }
+                };
+        Server staleLeaderServer =
+                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
+        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(staleLeaderAddress)
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> shardLeader.get())) {
+            shardLeader.set(staleLeaderAddress);
+            var notification = new AtomicReference<NotificationBatch>();
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1), capturingCancelableObserver(notification));
+            await().untilAsserted(() -> assertThat(notification.get()).isNotNull());
+
+            shardLeader.set(staleLeaderAddress);
+            var sequenceUpdate = new AtomicReference<GetSequenceUpdatesResponse>();
+            provider.getSequenceUpdates(
+                    new GetSequenceUpdatesRequest().setShard(1).setKey("key"),
+                    capturingCancelableObserver(sequenceUpdate));
+            await().untilAsserted(() -> assertThat(sequenceUpdate.get()).isNotNull());
+
+            // Each subscription was rejected once, then retried on the leader from the updated shard map
+            assertThat(staleLeaderRequests).hasValue(2);
         } finally {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();
@@ -1002,19 +1181,19 @@ class GrpcRpcProviderTest {
                     });
             provider.getNotifications(
                     new NotificationsRequest().setShard(1),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {
+                        protected void handleNext(NotificationBatch value) {
                             received.countDown();
                         }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -1113,17 +1292,17 @@ class GrpcRpcProviderTest {
                     });
             provider.getNotifications(
                     new NotificationsRequest().setShard(1),
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             completed.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             completed.countDown();
                         }
                     });
@@ -1156,6 +1335,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void getNotificationsTimesOutSilentInitialAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -1164,11 +1344,9 @@ class GrpcRpcProviderTest {
                                     public void getNotifications(
                                             NotificationsRequest request,
                                             StreamObserver<NotificationBatch> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering the first batch
+                                        ((ServerCallStreamObserver<NotificationBatch>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -1187,18 +1365,18 @@ class GrpcRpcProviderTest {
             request.setShard(1);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {}
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
                             terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
+                        protected void handleComplete() {
                             terminated.countDown();
                         }
                     });
@@ -1207,6 +1385,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1214,20 +1394,20 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void getNotificationsReconnectWithOffsetTimesOutSilentAttempt() throws Exception {
+    void getNotificationsDoesNotTimeOutResumedAttempt() throws Exception {
+        var responseObserver = new AtomicReference<StreamObserver<NotificationBatch>>();
+        var subscribed = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
                                 new OxiaClientGrpc.OxiaClientImplBase() {
                                     @Override
                                     public void getNotifications(
-                                            NotificationsRequest request,
-                                            StreamObserver<NotificationBatch> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                            NotificationsRequest request, StreamObserver<NotificationBatch> observer) {
+                                        // Like the Oxia server, send nothing on a subscription that resumes
+                                        // from an offset until a new notification is written
+                                        responseObserver.set(observer);
+                                        subscribed.countDown();
                                     }
                                 })
                         .build()
@@ -1239,7 +1419,7 @@ class GrpcRpcProviderTest {
                                 OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
                         .getClientConfig();
         var error = new AtomicReference<Throwable>();
-        var terminated = new CountDownLatch(1);
+        var received = new CountDownLatch(1);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             var request = new NotificationsRequest();
@@ -1247,26 +1427,29 @@ class GrpcRpcProviderTest {
             request.setStartOffsetExclusive(5);
             provider.getNotifications(
                     request,
-                    new StreamObserver<>() {
+                    new CancelableStreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        protected void handleNext(NotificationBatch value) {
+                            received.countDown();
+                        }
 
                         @Override
-                        public void onError(Throwable t) {
+                        protected void handleError(Throwable t) {
                             error.set(t);
-                            terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
-                            terminated.countDown();
-                        }
+                        protected void handleComplete() {}
                     });
 
-            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
-            assertThat(((OxiaStatusException) error.get()).getStatusCode())
-                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+            assertThat(subscribed.await(5, TimeUnit.SECONDS)).isTrue();
+            // Stay silent longer than the request timeout
+            Thread.sleep(1200);
+            assertThat(error.get()).isNull();
+
+            responseObserver.get().onNext(new NotificationBatch().setOffset(6));
+            assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isNull();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1559,6 +1742,22 @@ class GrpcRpcProviderTest {
                                                 .setReason("NODE_IS_NOT_LEADER")
                                                 .putMetadata("shard", "1")
                                                 .putMetadata("leader", leaderAddress)
+                                                .build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
+    }
+
+    // What a node answers when it is not the shard leader and does not know the current one
+    private static Throwable nodeIsNotLeaderWithoutLeaderHint() {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.ABORTED.value())
+                        .setMessage("oxia: node is not leader")
+                        .addDetails(
+                                Any.pack(
+                                        ErrorInfo.newBuilder()
+                                                .setDomain("oxia.io")
+                                                .setReason("NODE_IS_NOT_LEADER")
                                                 .build()))
                         .build();
         return StatusProto.toStatusRuntimeException(grpcStatus);
