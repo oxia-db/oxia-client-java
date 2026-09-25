@@ -27,6 +27,7 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
@@ -1334,6 +1335,7 @@ class GrpcRpcProviderTest {
 
     @Test
     void getNotificationsTimesOutSilentInitialAttempt() throws Exception {
+        var cancelled = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
@@ -1342,11 +1344,9 @@ class GrpcRpcProviderTest {
                                     public void getNotifications(
                                             NotificationsRequest request,
                                             StreamObserver<NotificationBatch> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                        // Keep the stream open without ever delivering the first batch
+                                        ((ServerCallStreamObserver<NotificationBatch>) responseObserver)
+                                                .setOnCancelHandler(cancelled::countDown);
                                     }
                                 })
                         .build()
@@ -1385,6 +1385,8 @@ class GrpcRpcProviderTest {
             assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
             assertThat(((OxiaStatusException) error.get()).getStatusCode())
                     .isEqualTo(OxiaStatusCode.TIMEOUT);
+            // The timed-out attempt is not left open on the server
+            assertThat(cancelled.await(5, TimeUnit.SECONDS)).isTrue();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -1392,20 +1394,20 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void getNotificationsReconnectWithOffsetTimesOutSilentAttempt() throws Exception {
+    void getNotificationsDoesNotTimeOutResumedAttempt() throws Exception {
+        var responseObserver = new AtomicReference<StreamObserver<NotificationBatch>>();
+        var subscribed = new CountDownLatch(1);
         Server server =
                 ServerBuilder.forPort(0)
                         .addService(
                                 new OxiaClientGrpc.OxiaClientImplBase() {
                                     @Override
                                     public void getNotifications(
-                                            NotificationsRequest request,
-                                            StreamObserver<NotificationBatch> responseObserver) {
-                                        try {
-                                            new CountDownLatch(1).await();
-                                        } catch (InterruptedException e) {
-                                            Thread.currentThread().interrupt();
-                                        }
+                                            NotificationsRequest request, StreamObserver<NotificationBatch> observer) {
+                                        // Like the Oxia server, send nothing on a subscription that resumes
+                                        // from an offset until a new notification is written
+                                        responseObserver.set(observer);
+                                        subscribed.countDown();
                                     }
                                 })
                         .build()
@@ -1417,7 +1419,7 @@ class GrpcRpcProviderTest {
                                 OxiaClientBuilder.create(address).requestTimeout(Duration.ofMillis(500)))
                         .getClientConfig();
         var error = new AtomicReference<Throwable>();
-        var terminated = new CountDownLatch(1);
+        var received = new CountDownLatch(1);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             var request = new NotificationsRequest();
@@ -1427,24 +1429,27 @@ class GrpcRpcProviderTest {
                     request,
                     new StreamObserver<>() {
                         @Override
-                        public void onNext(NotificationBatch value) {}
+                        public void onNext(NotificationBatch value) {
+                            received.countDown();
+                        }
 
                         @Override
                         public void onError(Throwable t) {
                             error.set(t);
-                            terminated.countDown();
                         }
 
                         @Override
-                        public void onCompleted() {
-                            terminated.countDown();
-                        }
+                        public void onCompleted() {}
                     });
 
-            assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(error.get()).isInstanceOf(OxiaStatusException.class);
-            assertThat(((OxiaStatusException) error.get()).getStatusCode())
-                    .isEqualTo(OxiaStatusCode.TIMEOUT);
+            assertThat(subscribed.await(5, TimeUnit.SECONDS)).isTrue();
+            // Stay silent longer than the request timeout
+            Thread.sleep(1200);
+            assertThat(error.get()).isNull();
+
+            responseObserver.get().onNext(new NotificationBatch().setOffset(6));
+            assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(error.get()).isNull();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
