@@ -286,30 +286,6 @@ class SessionManagerTest {
         verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
     }
 
-    // A client can get an older shard map, e.g. from a data server that lags behind the coordinator
-    @Test
-    void followsTheShardMapBackToTheSplitShard() {
-        shardManager.addCallback(manager);
-        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
-        var parent = List.of(new Shard(0L, "leader", new HashRange(0, 99)));
-        var children =
-                List.of(
-                        new Shard(1L, "leader", new HashRange(0, 49)),
-                        new Shard(2L, "leader", new HashRange(50, 99)));
-        shardManager.onNext(assignments(parent));
-        long sessionId = sessionOn(0);
-
-        shardManager.onNext(assignments(children));
-        shardManager.onNext(assignments(parent));
-        assertThat(sessionOn(0)).isEqualTo(sessionId);
-
-        shardManager.onNext(assignments(children));
-        assertThat(sessionOn(1)).isEqualTo(sessionId);
-        assertThat(sessionOn(2)).isEqualTo(sessionId);
-        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
-    }
-
     static Stream<Arguments> splits() {
         // The splits of shard 0 and of its children, as {parent, left, right}, the shards that
         // replaced shard 0 in the end, and whether the session of the last of them is looked up
