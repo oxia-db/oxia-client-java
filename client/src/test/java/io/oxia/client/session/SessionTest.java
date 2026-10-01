@@ -31,6 +31,10 @@ import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.metrics.SdkMeterProvider;
+import io.opentelemetry.sdk.metrics.data.LongPointData;
+import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
@@ -217,6 +221,33 @@ class SessionTest {
         assertThat(service.signalsAfterClosed).isEmpty();
     }
 
+    // The session of a split shard moves to the shards that replaced it, which keep it alive
+    @Test
+    void detachCountsTheSessionAsClosedWithoutClosingIt() {
+        var metricReader = InMemoryMetricReader.create();
+        var openTelemetry =
+                OpenTelemetrySdk.builder()
+                        .setMeterProvider(SdkMeterProvider.builder().registerMetricReader(metricReader).build())
+                        .build();
+        var session =
+                new Session(
+                        executor,
+                        rpcProvider,
+                        config,
+                        shardId,
+                        sessionId,
+                        new InstrumentProvider(openTelemetry, DefaultNamespace),
+                        mock(SessionNotificationListener.class));
+
+        session.detach();
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        assertThat(service.closed).isFalse();
+        assertThat(sum(metricReader, "oxia.client.sessions.opened")).isEqualTo(1);
+        assertThat(sum(metricReader, "oxia.client.sessions.closed")).isEqualTo(1);
+    }
+
     @Test
     void heartbeatRejectedByStaleLeaderIsRetriedOnNewLeader() throws Exception {
         var leaderHeartbeats = new AtomicInteger();
@@ -298,6 +329,14 @@ class SessionTest {
             staleLeaderServer.shutdownNow();
             leaderServer.shutdownNow();
         }
+    }
+
+    private static long sum(InMemoryMetricReader metricReader, String name) {
+        return metricReader.collectAllMetrics().stream()
+                .filter(metric -> metric.getName().equals(name))
+                .flatMap(metric -> metric.getLongSumData().getPoints().stream())
+                .mapToLong(LongPointData::getValue)
+                .sum();
     }
 
     // What a node answers when it is not the shard leader and does not know the current one
