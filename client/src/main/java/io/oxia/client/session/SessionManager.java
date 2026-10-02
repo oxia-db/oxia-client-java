@@ -116,20 +116,37 @@ public class SessionManager
 
     @Override
     public void onSessionExpired(Session targetSession) {
-        sessions.compute(
-                targetSession.getShardId(),
-                (shard, existFuture) -> {
-                    if (existFuture != null
-                            && existFuture.isDone()
-                            && !existFuture.isCompletedExceptionally()) {
-                        final Session existSession = existFuture.join();
-                        if (existSession.getSessionId() == targetSession.getSessionId()) {
-                            existSession.close();
-                            return null;
-                        }
-                    }
-                    return existFuture;
-                });
+        removeIfCurrent(targetSession);
+        targetSession.expire();
+    }
+
+    /**
+     * A write that carried {@code session} — an ephemeral put — was rejected by the server with
+     * SESSION_DOES_NOT_EXIST: the session is dead server-side even though the keep-alive path may not
+     * have noticed (the server validates writes against the database but heartbeats against memory).
+     * Judge the session dead here so the next ephemeral operation lazily creates a new session,
+     * instead of pinning a session the server will keep rejecting forever.
+     */
+    public void onSessionRejected(@NonNull Session session) {
+        removeIfCurrent(session);
+        session.onRejectedByServer();
+    }
+
+    /**
+     * Removes {@code session} if it is still the current session of its shard. The verdicts about a
+     * session can arrive late, e.g. from in-flight writes, so this matches the instance rather than
+     * the id: it never touches a newer session of the shard, not even one the server assigned the
+     * same id, nor one still being created.
+     */
+    private void removeIfCurrent(Session session) {
+        final CompletableFuture<Session> current = sessions.get(session.getShardId());
+        if (current != null
+                && current.isDone()
+                && !current.isCompletedExceptionally()
+                && current.join() == session) {
+            // Removes the entry only if it still holds this future
+            sessions.remove(session.getShardId(), current);
+        }
     }
 
     @Override

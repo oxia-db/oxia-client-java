@@ -24,6 +24,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -35,6 +37,7 @@ import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 import io.oxia.client.options.GetOptions;
+import io.oxia.client.session.Session;
 import io.oxia.proto.DeleteRangeRequest;
 import io.oxia.proto.DeleteRangeResponse;
 import io.oxia.proto.DeleteRequest;
@@ -142,7 +145,7 @@ class OperationTest {
                         Optional.empty(),
                         payload,
                         OptionalLong.of(10),
-                        OptionalLong.empty(),
+                        Optional.empty(),
                         Optional.empty(),
                         Collections.emptyList(),
                         OptionalLong.empty(),
@@ -162,7 +165,7 @@ class OperationTest {
                                             Optional.empty(),
                                             payload,
                                             OptionalLong.of(KEY_NOT_EXISTS),
-                                            OptionalLong.empty(),
+                                            Optional.empty(),
                                             Optional.empty(),
                                             Collections.emptyList(),
                                             OptionalLong.empty(),
@@ -178,7 +181,7 @@ class OperationTest {
                                             Optional.empty(),
                                             payload,
                                             OptionalLong.of(0L),
-                                            OptionalLong.empty(),
+                                            Optional.empty(),
                                             Optional.empty(),
                                             Collections.emptyList(),
                                             OptionalLong.empty(),
@@ -193,7 +196,7 @@ class OperationTest {
                                             Optional.empty(),
                                             payload,
                                             OptionalLong.of(-2L),
-                                            OptionalLong.empty(),
+                                            Optional.empty(),
                                             Optional.empty(),
                                             Collections.emptyList(),
                                             OptionalLong.empty(),
@@ -212,7 +215,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -241,7 +244,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.of(1L),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -270,7 +273,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -299,7 +302,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.of(KEY_NOT_EXISTS),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -319,6 +322,8 @@ class OperationTest {
 
         @Test
         void toProtoEphemeral() {
+            var session = mock(Session.class);
+            when(session.getSessionId()).thenReturn(sessionId);
             var op =
                     new PutOperation(
                             1L,
@@ -328,7 +333,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.of(sessionId),
+                            Optional.of(session),
                             Optional.of("client-id"),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -357,7 +362,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.of(42L),
@@ -386,7 +391,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -428,7 +433,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.of(KEY_NOT_EXISTS),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -458,7 +463,7 @@ class OperationTest {
                             Optional.empty(),
                             payload,
                             OptionalLong.empty(),
-                            OptionalLong.of(5),
+                            Optional.of(mock(Session.class)),
                             Optional.of("client-id"),
                             Collections.emptyList(),
                             OptionalLong.empty(),

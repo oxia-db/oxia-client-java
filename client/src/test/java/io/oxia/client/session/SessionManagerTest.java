@@ -18,6 +18,7 @@ package io.oxia.client.session;
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
@@ -374,19 +375,101 @@ class SessionManagerTest {
     }
 
     @Test
-    void testSessionExpired() throws Exception {
+    void testSessionExpired() {
         var shardId = 1L;
         when(rpcProvider.createSession(any(CreateSessionRequest.class)))
                 .thenReturn(
                         CompletableFuture.completedFuture(createSessionResponse(10L)),
                         CompletableFuture.completedFuture(createSessionResponse(20L)));
-        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+
+        var session = manager.getSession(() -> shardId).join();
+
+        // Both expiry funnels — the local timeout tick and an in-flight SESSION_NOT_FOUND
+        // keep-alive response — end here. The expired session is abandoned without any
+        // CloseSession RPC: a late close could destroy a new server-side session that
+        // happens to reuse the same session id.
+        manager.onSessionExpired(session);
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+        assertThat(manager.getSession(() -> shardId).join()).isNotSameAs(session);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void explicitCloseAfterExpirySendsNoRpc() {
+        var shardId = 1L;
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
 
         var session = manager.getSession(() -> shardId).join();
 
         manager.onSessionExpired(session);
-        assertThat(manager.getSession(() -> shardId).join()).isNotSameAs(session);
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void rejectedSessionIsReplacedOnNextGetSession() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+
+        var rejected = manager.getSession(() -> 1L).join();
+        manager.onSessionRejected(rejected);
+        assertThat(rejected.isClosed()).isTrue();
+
+        var replacement = manager.getSession(() -> 1L).join();
+        assertThat(replacement.getSessionId()).isEqualTo(20L);
+
+        // Other writes of the rejected session come back rejected after it has been replaced:
+        // they must not touch the replacement
+        manager.onSessionRejected(rejected);
+        assertThat(manager.getSession(() -> 1L).join()).isSameAs(replacement);
+        assertThat(replacement.isClosed()).isFalse();
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void lateRejectionDoesNotTouchNewerSessionWithSameId() {
+        // A server that lost its state may give a new session the id of an old one
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(14L)),
+                        CompletableFuture.completedFuture(createSessionResponse(14L)));
+
+        var expired = manager.getSession(() -> 1L).join();
+        manager.onSessionExpired(expired);
+        var current = manager.getSession(() -> 1L).join();
+        assertThat(current.getSessionId()).isEqualTo(expired.getSessionId());
+
+        // A late rejection of a write of the expired session is about that session only
+        manager.onSessionRejected(expired);
+
+        assertThat(manager.getSession(() -> 1L).join()).isSameAs(current);
+        assertThat(current.isClosed()).isFalse();
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void lateRejectionDoesNotTouchSessionUnderCreation() {
+        var pending = new CompletableFuture<CreateSessionResponse>();
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)), pending);
+
+        var rejected = manager.getSession(() -> 1L).join();
+        manager.onSessionRejected(rejected);
+        var creating = manager.getSession(() -> 1L);
+
+        // A late rejection racing the creation of the replacement neither waits for it nor
+        // disturbs it
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> manager.onSessionRejected(rejected));
+        assertThat(creating).isNotDone();
+
+        pending.complete(createSessionResponse(20L));
+        assertThat(manager.getSession(() -> 1L).join()).isSameAs(creating.join());
         verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
     }
 
