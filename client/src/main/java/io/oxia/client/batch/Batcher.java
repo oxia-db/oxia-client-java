@@ -17,7 +17,7 @@ package io.oxia.client.batch;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
 import java.util.HashMap;
 import java.util.Map;

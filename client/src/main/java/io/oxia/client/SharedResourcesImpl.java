@@ -17,7 +17,7 @@ package io.oxia.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
-import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.Authentication;

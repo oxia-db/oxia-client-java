@@ -66,6 +66,7 @@ grpc-inprocess = { module = "io.grpc:grpc-inprocess" }
 
 # Netty
 netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
+netty-common = { module = "io.netty:netty-common", version.ref = "netty" }
 
 # Client dependencies
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
