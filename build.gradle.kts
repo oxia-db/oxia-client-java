@@ -122,6 +122,7 @@ subprojects {
         testAnnotationProcessor(rootProject.libs.lombok)
 
         implementation(platform(rootProject.libs.grpc.bom))
+        implementation(platform(rootProject.libs.netty.bom))
         implementation(platform(rootProject.libs.opentelemetry.bom))
         implementation(platform(rootProject.libs.opentelemetry.bom.alpha))
         implementation(platform(rootProject.libs.junit.bom))
