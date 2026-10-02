@@ -162,13 +162,29 @@ public class Session {
      * request is unnecessary — and a late close for an expired session could destroy a new
      * server-side session that reused the same id. Subsequent {@link #close()} calls on an expired
      * session send no RPC either.
+     *
+     * @return whether this call expired the session, i.e. it was not already closed or expired
      */
-    void expire() {
+    boolean expire() {
         if (!closed.compareAndSet(false, true)) {
-            return;
+            return false;
         }
         heartbeatFuture.cancel(true);
         log.debug("Session expired: abandoned without close request");
+        return true;
+    }
+
+    /**
+     * The server rejected an operation carrying this session with SESSION_DOES_NOT_EXIST: the session
+     * no longer exists server-side, so it is abandoned like a local expiry, and counted as one.
+     */
+    void onRejectedByServer() {
+        if (expire()) {
+            sessionsExpired.increment();
+            log.warn(
+                    "Session rejected by server (session does not exist): abandoned, a new session"
+                            + " will be created on the next operation");
+        }
     }
 
     public CompletableFuture<Void> close() {

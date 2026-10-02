@@ -19,17 +19,21 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static io.oxia.proto.OxiaClientGrpc.OxiaClientImplBase;
 import static io.oxia.proto.Status.KEY_NOT_FOUND;
 import static io.oxia.proto.Status.OK;
+import static io.oxia.proto.Status.SESSION_DOES_NOT_EXIST;
 import static io.oxia.proto.Status.UNEXPECTED_VERSION_ID;
 import static java.time.Duration.ZERO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import io.grpc.CallCredentials;
@@ -47,6 +51,7 @@ import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
@@ -76,6 +81,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.awaitility.Awaitility;
@@ -225,30 +231,32 @@ class BatchTest {
                         Optional.empty(),
                         new byte[0],
                         OptionalLong.of(1),
-                        OptionalLong.empty(),
+                        Optional.empty(),
                         Optional.empty(),
                         Collections.emptyList(),
                         OptionalLong.empty(),
                         OptionalLong.empty());
-        PutOperation putEphemeral =
-                new PutOperation(
-                        1L,
-                        putEphemeralCallable,
-                        "",
-                        Optional.empty(),
-                        Optional.empty(),
-                        new byte[0],
-                        OptionalLong.of(1),
-                        OptionalLong.of(1),
-                        Optional.of("client-id"),
-                        Collections.emptyList(),
-                        OptionalLong.empty(),
-                        OptionalLong.empty());
+        PutOperation putEphemeral;
         DeleteOperation delete = new DeleteOperation(1L, deleteCallable, "", OptionalLong.of(1));
         DeleteRangeOperation deleteRange = new DeleteRangeOperation(1L, deleteRangeCallable, "a", "b");
 
         @BeforeEach
         void setup() {
+            // Built here, as the session mock is not yet initialized when the fields are
+            putEphemeral =
+                    new PutOperation(
+                            1L,
+                            putEphemeralCallable,
+                            "",
+                            Optional.empty(),
+                            Optional.empty(),
+                            new byte[0],
+                            OptionalLong.of(1),
+                            Optional.of(session),
+                            Optional.of("client-id"),
+                            Collections.emptyList(),
+                            OptionalLong.empty(),
+                            OptionalLong.empty());
             writeStream = mock(ManagedWriteStream.class);
             lenient().when(clientByShardId.getWriteStream(shardId)).thenReturn(writeStream);
 
@@ -294,7 +302,7 @@ class BatchTest {
                             Optional.empty(),
                             value,
                             OptionalLong.empty(),
-                            OptionalLong.empty(),
+                            Optional.empty(),
                             Optional.empty(),
                             Collections.emptyList(),
                             OptionalLong.empty(),
@@ -355,6 +363,46 @@ class BatchTest {
             assertThatThrownBy(putCallable::get)
                     .hasCauseExactlyInstanceOf(UnexpectedVersionIdException.class);
             assertThat(deleteCallable).isCompletedWithValueMatching(r -> !r);
+            assertThat(deleteRangeCallable).isCompleted();
+            verifyNoInteractions(sessionManager);
+        }
+
+        @Test
+        public void sendSessionDoesNotExistRejectsTheSessionBeforeFailingThePut() {
+            var resp = new WriteResponse();
+            resp.addPut().setStatus(SESSION_DOES_NOT_EXIST);
+            resp.addPut().setStatus(SESSION_DOES_NOT_EXIST);
+            resp.addDelete().setStatus(OK);
+            resp.addDeleteRange().setStatus(OK);
+            when(writeStream.send(any())).thenReturn(CompletableFuture.completedFuture(resp));
+            var putFailedOnRejection = new AtomicBoolean(true);
+            doAnswer(
+                            invocation -> {
+                                putFailedOnRejection.set(putEphemeralCallable.isDone());
+                                return null;
+                            })
+                    .when(sessionManager)
+                    .onSessionRejected(session);
+
+            batch.add(put);
+            batch.add(putEphemeral);
+            batch.add(delete);
+            batch.add(deleteRange);
+
+            batch.send();
+
+            // Only the put that carries a session rejects it, before failing the put, so that the
+            // caller's retry gets a new session
+            verify(sessionManager).onSessionRejected(session);
+            verifyNoMoreInteractions(sessionManager);
+            assertThat(putFailedOnRejection).isFalse();
+            assertThat(putEphemeralCallable).isCompletedExceptionally();
+            assertThatThrownBy(putEphemeralCallable::get)
+                    .hasCauseExactlyInstanceOf(SessionDoesNotExistException.class);
+            assertThat(putCallable).isCompletedExceptionally();
+            assertThatThrownBy(putCallable::get)
+                    .hasCauseExactlyInstanceOf(SessionDoesNotExistException.class);
+            assertThat(deleteCallable).isCompletedWithValue(true);
             assertThat(deleteRangeCallable).isCompleted();
         }
 

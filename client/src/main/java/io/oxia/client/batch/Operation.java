@@ -31,6 +31,7 @@ import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.options.GetOptions;
+import io.oxia.client.session.Session;
 import io.oxia.proto.DeleteRangeRequest;
 import io.oxia.proto.DeleteRangeResponse;
 import io.oxia.proto.DeleteRequest;
@@ -96,7 +97,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 @NonNull Optional<List<Long>> sequenceKeysDeltas,
                 byte @NonNull [] value,
                 @NonNull OptionalLong expectedVersionId,
-                OptionalLong sessionId,
+                @NonNull Optional<Session> session,
                 Optional<String> clientIdentifier,
                 List<OptionSecondaryIndex> secondaryIndexes,
                 @NonNull OptionalLong overrideVersionId,
@@ -128,7 +129,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 req.setKey(key).setValue(value);
                 partitionKey.ifPresent(req::setPartitionKey);
                 expectedVersionId.ifPresent(req::setExpectedVersionId);
-                sessionId.ifPresent(req::setSessionId);
+                session.ifPresent(s -> req.setSessionId(s.getSessionId()));
                 clientIdentifier.ifPresent(req::setClientIdentity);
                 sequenceKeysDeltas.ifPresent(deltas -> deltas.forEach(req::addSequenceKeyDelta));
                 if (!secondaryIndexes.isEmpty()) {

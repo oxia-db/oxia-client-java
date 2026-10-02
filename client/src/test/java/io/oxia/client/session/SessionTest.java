@@ -25,10 +25,12 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.ManagedObservers;
+import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
@@ -39,7 +41,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import io.grpc.protobuf.StatusProto;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -244,6 +245,36 @@ class SessionTest {
         session.close().join();
 
         assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void rejectedByServerCountsOneExpiryAndSendsNoCloseRequest() {
+        var sessionsExpired = mock(Counter.class);
+        var instrumentProvider = mock(InstrumentProvider.class);
+        when(instrumentProvider.newCounter(any(), any(), any(), any()))
+                .thenAnswer(
+                        invocation ->
+                                "oxia.client.sessions.expired".equals(invocation.getArgument(0))
+                                        ? sessionsExpired
+                                        : mock(Counter.class));
+        var session =
+                new Session(
+                        executor,
+                        rpcProvider,
+                        config,
+                        shardId,
+                        sessionId,
+                        instrumentProvider,
+                        mock(SessionNotificationListener.class));
+
+        // Several writes of the session are rejected: it expires once, without close RPC
+        session.onRejectedByServer();
+        session.onRejectedByServer();
+        session.close().join();
+
+        assertThat(session.isClosed()).isTrue();
+        verify(sessionsExpired, times(1)).increment();
         verify(rpcProvider, never()).closeSession(any(CloseSessionRequest.class));
     }
 

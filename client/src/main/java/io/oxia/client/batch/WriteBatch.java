@@ -132,12 +132,12 @@ final class WriteBatch extends BatchBase implements Batch {
         for (var i = 0; i < puts.size(); i++) {
             final var put = puts.get(i);
             final var putResponse = response.getPutAt(i);
-            if (put.sessionId().isPresent() && putResponse.getStatus() == Status.SESSION_DOES_NOT_EXIST) {
+            if (put.session().isPresent() && putResponse.getStatus() == Status.SESSION_DOES_NOT_EXIST) {
                 // The server rejected a write carrying this session: the session is dead
                 // server-side. Judge it dead — exactly once — so the next ephemeral operation
                 // re-establishes a fresh session. The rejected operation itself still fails
                 // with SessionDoesNotExistException; convergence relies on the caller's retry.
-                sessionManager.onSessionExpired(getShardId(), put.sessionId().getAsLong());
+                sessionManager.onSessionRejected(put.session().get());
             }
             put.complete(putResponse);
         }
