@@ -24,6 +24,7 @@ dependencies {
     implementation(libs.caffeine)
     implementation(libs.failsafe)
     implementation(libs.netty.buffer)
+    implementation(libs.netty.common)
     implementation(libs.grpc.netty.shaded)
     implementation(libs.grpc.protobuf)
     implementation(libs.grpc.services)

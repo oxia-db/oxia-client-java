@@ -15,8 +15,8 @@
  */
 package io.oxia.client;
 
-import io.grpc.netty.shaded.io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.api.AsyncOxiaClient;
