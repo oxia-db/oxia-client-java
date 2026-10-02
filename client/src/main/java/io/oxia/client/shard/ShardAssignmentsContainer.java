@@ -15,6 +15,8 @@
  */
 package io.oxia.client.shard;
 
+import static java.util.stream.Collectors.toUnmodifiableSet;
+
 import com.google.common.base.Strings;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.util.List;
@@ -26,6 +28,11 @@ import lombok.Getter;
 
 public class ShardAssignmentsContainer {
     private final ConcurrentMap<Long, Shard> shards = new ConcurrentHashMap<>();
+
+    // The shards that replaced each shard removed from the shard map, e.g. the children of a split
+    // shard, when it was removed
+    private final ConcurrentMap<Long, Set<Long>> removedShardSuccessors = new ConcurrentHashMap<>();
+
     private final ShardStrategy shardStrategy;
 
     // Immutable lookup structure, rebuilt on each assignments update
@@ -66,7 +73,27 @@ public class ShardAssignmentsContainer {
         changes.added().forEach(s -> shards.put(s.id(), s));
         changes.reassigned().forEach(s -> shards.put(s.id(), s));
         changes.removed().forEach(s -> shards.remove(s.id(), s));
+        // Before the router, so that the shards found through it have the successors of the shards
+        // they replaced
+        changes
+                .removed()
+                .forEach(
+                        removed ->
+                                removedShardSuccessors.put(
+                                        removed.id(),
+                                        shards.values().stream()
+                                                .filter(removed::overlaps)
+                                                .map(Shard::id)
+                                                .collect(toUnmodifiableSet())));
         router = shardStrategy.createRouter(shards.values());
+    }
+
+    /**
+     * The shards that replaced a shard when it was removed from the shard map, or an empty set if it
+     * was never removed.
+     */
+    Set<Long> successors(long shardId) {
+        return removedShardSuccessors.getOrDefault(shardId, Set.of());
     }
 
     Set<Long> allShardIds() {

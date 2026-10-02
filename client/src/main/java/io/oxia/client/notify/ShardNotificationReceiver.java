@@ -21,12 +21,12 @@ import static lombok.AccessLevel.PACKAGE;
 
 import io.github.merlimat.slog.Logger;
 import io.grpc.Status;
-import io.grpc.stub.StreamObserver;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
@@ -38,7 +38,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 
-public class ShardNotificationReceiver implements Closeable, StreamObserver<NotificationBatch> {
+public class ShardNotificationReceiver implements Closeable {
 
     private final Logger log;
 
@@ -53,6 +53,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
     @Getter private volatile @NonNull OptionalLong offset;
 
     private volatile boolean closed = false;
+    private CancelableStreamObserver<NotificationBatch> stream;
 
     private final Backoff backoff = new Backoff();
 
@@ -72,19 +73,39 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         start();
     }
 
-    void start() {
+    synchronized void start() {
+        if (closed) {
+            return;
+        }
         var request = new NotificationsRequest();
         request.setShard(shardId);
         offset.ifPresent(request::setStartOffsetExclusive);
+        var observer =
+                new CancelableStreamObserver<NotificationBatch>() {
+                    @Override
+                    protected void handleNext(NotificationBatch batch) {
+                        ShardNotificationReceiver.this.handleNext(batch);
+                    }
+
+                    @Override
+                    protected void handleError(Throwable t) {
+                        ShardNotificationReceiver.this.handleError(t);
+                    }
+
+                    @Override
+                    protected void handleComplete() {
+                        ShardNotificationReceiver.this.handleCompleted();
+                    }
+                };
+        stream = observer;
         try {
-            rpcProvider.getNotifications(request, this);
+            rpcProvider.getNotifications(request, observer);
         } catch (Throwable ex) {
-            onError(ex);
+            observer.onError(ex);
         }
     }
 
-    @Override
-    public void onNext(NotificationBatch batch) {
+    private void handleNext(NotificationBatch batch) {
         backoff.reset();
         if (offset.isPresent() && offset.getAsLong() >= batch.getOffset()) {
             // Ignore repeated notifications
@@ -116,8 +137,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
                 });
     }
 
-    @Override
-    public void onError(Throwable t) {
+    private void handleError(Throwable t) {
         if (closed) {
             return;
         }
@@ -137,8 +157,7 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
         scheduleRestart(retryDelayMillis);
     }
 
-    @Override
-    public void onCompleted() {
+    private void handleCompleted() {
         if (!closed) {
             scheduleRestart(0);
         }
@@ -176,6 +195,12 @@ public class ShardNotificationReceiver implements Closeable, StreamObserver<Noti
 
     @Override
     public void close() {
-        this.closed = true;
+        final CancelableStreamObserver<NotificationBatch> currentStream;
+        synchronized (this) {
+            closed = true;
+            currentStream = stream;
+        }
+        // Cancel the live call: a batch being delivered completes first, and later ones are ignored
+        currentStream.cancel();
     }
 }

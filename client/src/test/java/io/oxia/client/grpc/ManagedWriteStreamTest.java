@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.util.Backoff.DEFAULT_INITIAL_DELAY_MILLIS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -41,8 +42,12 @@ import java.time.Duration;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ManagedWriteStreamTest {
@@ -381,6 +386,119 @@ class ManagedWriteStreamTest {
         }
     }
 
+    @Test
+    void backsOffReconnectsWhileShardMapPointsToFormerLeader() throws Exception {
+        var formerLeaderOpens = new AtomicInteger();
+        Server formerLeader =
+                writeServer(
+                        new OxiaClientGrpc.OxiaClientImplBase() {
+                            @Override
+                            public StreamObserver<WriteRequest> writeStream(
+                                    StreamObserver<WriteResponse> responseObserver) {
+                                formerLeaderOpens.incrementAndGet();
+                                responseObserver.onError(notLeaderError());
+                                return new StreamObserver<>() {
+                                    @Override
+                                    public void onNext(WriteRequest value) {}
+
+                                    @Override
+                                    public void onError(Throwable t) {}
+
+                                    @Override
+                                    public void onCompleted() {}
+                                };
+                            }
+                        });
+        Server newLeader = writeServer(respondingWriteService(new ConcurrentLinkedQueue<>()));
+        var leader = new AtomicReference<>("localhost:" + formerLeader.getPort());
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config = clientConfig(leader.get());
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> leader.get())) {
+            var future = provider.getWriteStream(1).send(() -> new WriteRequest().setShard(1));
+
+            Thread.sleep(500);
+            assertThat(formerLeaderOpens.get()).isBetween(2, 10);
+
+            leader.set("localhost:" + newLeader.getPort());
+            future.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+            formerLeader.shutdownNow();
+            newLeader.shutdownNow();
+        }
+    }
+
+    @Test
+    void backsOffReconnectsUntilStreamGetsResponse() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            responseObservers.add(invocation.getArgument(2));
+                            return new StreamObserver<WriteRequest>() {
+                                @Override
+                                public void onNext(WriteRequest value) {}
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {}
+                            };
+                        });
+        var retryDelays = new LinkedBlockingQueue<Long>();
+        var executor =
+                new ScheduledThreadPoolExecutor(1) {
+                    @Override
+                    public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+                        retryDelays.add(unit.toMillis(delay));
+                        return super.schedule(command, delay, unit);
+                    }
+                };
+
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
+            var first = stream.send(() -> writeRequest(1));
+
+            // The first reconnect is right away, the next ones back off more and more, even when
+            // the stream opens fine
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(notLeaderError());
+            assertThat(retryDelays.poll()).isZero();
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(notLeaderError());
+            assertThat(retryDelays.poll()).isGreaterThanOrEqualTo(DEFAULT_INITIAL_DELAY_MILLIS);
+            // A write sent meanwhile doesn't open another stream: the scheduled retry replays it
+            var second = stream.send(() -> writeRequest(2));
+            assertThat(responseObservers).isEmpty();
+            responseObservers.poll(5, TimeUnit.SECONDS).onCompleted();
+            assertThat(retryDelays.poll()).isGreaterThanOrEqualTo(2 * DEFAULT_INITIAL_DELAY_MILLIS);
+
+            // Until the stream gets a response, which also restarts the backoff
+            var working = responseObservers.poll(5, TimeUnit.SECONDS);
+            working.onNext(new WriteResponse());
+            working.onNext(new WriteResponse());
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            var third = stream.send(() -> writeRequest(3));
+            working.onError(notLeaderError());
+            assertThat(retryDelays.poll()).isZero();
+
+            // A hint naming a new leader is followed right away, but the same hint again backs off:
+            // a node that no longer leads the shard may keep naming itself
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(retryableErrorWithLeaderHint("b:6648"));
+            assertThat(retryDelays.poll()).isZero();
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(retryableErrorWithLeaderHint("b:6648"));
+            assertThat(retryDelays.poll())
+                    .isGreaterThanOrEqualTo(DEFAULT_INITIAL_DELAY_MILLIS)
+                    .isLessThan(2 * DEFAULT_INITIAL_DELAY_MILLIS);
+
+            responseObservers.poll(5, TimeUnit.SECONDS).onNext(new WriteResponse());
+            third.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static OxiaClientGrpc.OxiaClientImplBase respondingWriteService(
             Queue<WriteRequest> requests) {
         return new OxiaClientGrpc.OxiaClientImplBase() {
@@ -432,6 +550,20 @@ class ManagedWriteStreamTest {
                         OxiaClientBuilder.create(address)
                                 .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
                 .getClientConfig();
+    }
+
+    private static Throwable notLeaderError() {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.ABORTED.value())
+                        .addDetails(
+                                Any.pack(
+                                        ErrorInfo.newBuilder()
+                                                .setDomain("oxia.io")
+                                                .setReason("NODE_IS_NOT_LEADER")
+                                                .build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
     }
 
     private static Throwable retryableErrorWithLeaderHint(String leaderAddress) {

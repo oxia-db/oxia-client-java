@@ -141,6 +141,8 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
             return;
         }
         closed = true;
-        shardReceivers.values().parallelStream().forEach(ShardNotificationReceiver::close);
+        // Not in parallel: closing a receiver waits for the batch it is delivering, so a client closed
+        // from a notification callback must close that callback's receiver on the same thread
+        shardReceivers.values().forEach(ShardNotificationReceiver::close);
     }
 }

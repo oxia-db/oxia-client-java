@@ -48,6 +48,11 @@ public final class ManagedWriteStream implements AutoCloseable {
     private OxiaStatusException closedError;
     private final Deque<InflightWrite> inflightWrites;
     private ManagedSubWriteStream subStreamObserver;
+    // Whether the stream reconnected, and the last leader hint, since it last got a response
+    private boolean reconnecting;
+    private String lastLeaderHint;
+    // Whether a retry is scheduled: it replays the writes sent meanwhile
+    private boolean retryScheduled;
 
     public ManagedWriteStream(
             long shardId,
@@ -117,6 +122,10 @@ public final class ManagedWriteStream implements AutoCloseable {
             }
             inflight = inflightWrites.pollFirst();
             pendingWrites = inflightWrites.size();
+            // The stream works: if it fails, reconnect right away again
+            reconnecting = false;
+            lastLeaderHint = null;
+            backoff.reset();
         } finally {
             lock.unlock();
         }
@@ -135,6 +144,7 @@ public final class ManagedWriteStream implements AutoCloseable {
         final boolean shouldRetry;
         final OxiaStatusException maybeLeaderHint;
         final Runnable deferFail;
+        final long retryDelayMillis;
         lock.lock();
         try {
             if (source != subStreamObserver) {
@@ -152,17 +162,19 @@ public final class ManagedWriteStream implements AutoCloseable {
             subStreamObserver = null;
             deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
             shouldRetry = !inflightWrites.isEmpty();
+            retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
         } finally {
             lock.unlock();
         }
         deferFail.run(); // call it without lock
         if (shouldRetry) {
-            scheduleRetry(maybeLeaderHint, 0); // retry immediately
+            scheduleRetry(maybeLeaderHint, retryDelayMillis);
         }
     }
 
     void handleCompleted(ManagedSubWriteStream source) {
         boolean shouldRetry;
+        long retryDelayMillis;
         lock.lock();
         try {
             if (source != subStreamObserver) {
@@ -176,11 +188,12 @@ public final class ManagedWriteStream implements AutoCloseable {
                     .log("Write stream completed");
             subStreamObserver = null;
             shouldRetry = !inflightWrites.isEmpty();
+            retryDelayMillis = shouldRetry ? nextRetryDelayMillis(null) : 0;
         } finally {
             lock.unlock();
         }
         if (shouldRetry) {
-            scheduleRetry(null, 0); // retry immediately
+            scheduleRetry(null, retryDelayMillis);
         }
     }
 
@@ -209,7 +222,9 @@ public final class ManagedWriteStream implements AutoCloseable {
                                     .log("Queued write request"));
             try {
                 if (subStreamObserver == null) {
-                    initWithRecovery(null);
+                    if (!retryScheduled) {
+                        initWithRecovery(null);
+                    }
                 } else {
                     subStreamObserver.send(inflightWrite.requestSupplier.get());
                     log.debug(
@@ -222,7 +237,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                 log.warn().exceptionMessage(ex).log("Failed to send write request, retrying");
                 subStreamObserver = null;
                 // we are using null here to avoid the new request exception discard old.
-                scheduleRetry(null, 0);
+                scheduleRetry(null, nextRetryDelayMillis(null));
             }
             return future;
         } finally {
@@ -241,8 +256,10 @@ public final class ManagedWriteStream implements AutoCloseable {
                     Runnable deferFail = () -> {};
                     OxiaStatusException oxiaStatusException = null;
                     boolean shouldRetry = false;
+                    long retryDelayMillis = 0;
                     lock.lock();
                     try {
+                        retryScheduled = false;
                         if (closed) {
                             log.info("Skipping write stream recovery after close");
                             return;
@@ -262,11 +279,12 @@ public final class ManagedWriteStream implements AutoCloseable {
                         subStreamObserver = null;
                         deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
                         shouldRetry = !inflightWrites.isEmpty();
+                        retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
                     } finally {
                         lock.unlock();
                         deferFail.run();
                         if (shouldRetry) {
-                            scheduleRetry(oxiaStatusException, backoff.nextDelayMillis());
+                            scheduleRetry(oxiaStatusException, retryDelayMillis);
                         }
                     }
                 },
@@ -306,7 +324,24 @@ public final class ManagedWriteStream implements AutoCloseable {
         log.debug(
                 event ->
                         event.attr("pendingWrites", inflightWrites.size()).log("Replayed inflight writes"));
-        backoff.reset();
+    }
+
+    // Called when scheduling a retry: returns its delay. Reconnect right away the first time, or
+    // to follow a hint that names a new leader, so that a leader move is quick. Otherwise back off
+    // until the stream gets a response: the shard map may still point to a node that no longer
+    // leads the shard, which may still name itself as leader.
+    private long nextRetryDelayMillis(OxiaStatusException error) {
+        retryScheduled = true;
+        final String leaderHint = error == null ? null : error.getLeaderHint(shardId).orElse(null);
+        final boolean newLeaderHint = leaderHint != null && !leaderHint.equals(lastLeaderHint);
+        if (newLeaderHint) {
+            lastLeaderHint = leaderHint;
+        }
+        if (!reconnecting || newLeaderHint) {
+            reconnecting = true;
+            return 0;
+        }
+        return backoff.nextDelayMillis();
     }
 
     @Override

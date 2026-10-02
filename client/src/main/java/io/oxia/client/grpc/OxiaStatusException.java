@@ -20,6 +20,7 @@ import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
 import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
 
+import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.oxia.client.util.CompletableFutures;
@@ -100,7 +101,7 @@ public class OxiaStatusException extends RuntimeException {
             if (cause instanceof OxiaStatusException oxiaError) {
                 return oxiaError;
             }
-            if (cause instanceof TimeoutException) {
+            if (cause instanceof TimeoutException || cause instanceof TimeoutExceededException) {
                 return timeout(cause);
             }
             if (!(cause instanceof StatusException || cause instanceof StatusRuntimeException)) {

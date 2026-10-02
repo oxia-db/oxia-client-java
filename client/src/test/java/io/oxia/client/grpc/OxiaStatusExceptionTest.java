@@ -21,11 +21,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.rpc.ErrorInfo;
+import dev.failsafe.Timeout;
+import dev.failsafe.TimeoutExceededException;
 import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.protobuf.ProtoUtils;
 import io.grpc.protobuf.StatusProto;
 import io.oxia.proto.LeaderHint;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -263,6 +266,18 @@ class OxiaStatusExceptionTest {
     @Test
     void returnsTimeoutOxiaError() {
         var timeout = new TimeoutException("timed out");
+
+        var translated = OxiaStatusException.from(new CompletionException(timeout));
+
+        assertThat(translated.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT);
+        assertThat(translated).hasMessage("Request timed out");
+        assertThat(translated).hasCause(timeout);
+        assertThat(translated.isRetryable()).isFalse();
+    }
+
+    @Test
+    void returnsTimeoutOxiaErrorForFailsafeTimeout() {
+        var timeout = new TimeoutExceededException(Timeout.of(Duration.ofSeconds(1)));
 
         var translated = OxiaStatusException.from(new CompletionException(timeout));
 
