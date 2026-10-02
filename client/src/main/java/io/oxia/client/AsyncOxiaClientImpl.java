@@ -94,7 +94,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         var readBatchManager =
                 BatchManager.newReadBatchManager(
                         config, rpcProvider, instrumentProvider, readBatcherPool, true);
-        var sessionManager = new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
+        var sessionManager =
+                new SessionManager(asyncExecutor, config, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(sessionManager);
         var writeBatcherPool = new BatcherPool("oxia-write-batcher", config.batchingThreads());
         var writeBatchManager =
@@ -148,7 +149,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                             sharedResources.readBatcherPool(),
                                             false);
                             var sessionManager =
-                                    new SessionManager(asyncExecutor, config, rpcProvider, instrumentProvider);
+                                    new SessionManager(
+                                            asyncExecutor, config, rpcProvider, shardManager, instrumentProvider);
                             shardManager.addCallback(sessionManager);
                             var writeBatchManager =
                                     BatchManager.newWriteBatchManager(
@@ -398,7 +400,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         gaugePendingPutBytes.add(value.length);
 
         var partitionKey = OptionsUtils.getPartitionKey(options);
-        var shardId = shardManager.getShardForKey(partitionKey.orElse(key));
         var versionId = OptionsUtils.getVersionId(options);
         var sequenceKeysDeltas = OptionsUtils.getSequenceKeysDeltas(options);
         var secondaryIndexes = OptionsUtils.getSecondaryIndexes(options);
@@ -410,7 +411,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         if (!OptionsUtils.isEphemeral(options)) {
             var op =
                     new PutOperation(
-                            shardId,
+                            shardManager.getShardForKey(partitionKey.orElse(key)),
                             future,
                             key,
                             partitionKey,
@@ -425,14 +426,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             writeBatchManager.add(op);
         } else {
             // The put operation is trying to write an ephemeral record. We need to have a valid session
-            // id for this
+            // id for this. The session manager looks up the shard with its session: the session of a
+            // split shard moves to the shards that replaced it
             sessionManager
-                    .getSession(shardId)
+                    .getSession(() -> shardManager.getShardForKey(partitionKey.orElse(key)))
                     .thenAccept(
                             session -> {
                                 var op =
                                         new PutOperation(
-                                                shardId,
+                                                session.getShardId(),
                                                 future,
                                                 key,
                                                 partitionKey,

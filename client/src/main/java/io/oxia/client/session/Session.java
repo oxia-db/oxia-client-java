@@ -154,6 +154,18 @@ public class Session {
         return closed.get();
     }
 
+    /**
+     * Stops using the session on its shard without closing it there: the shard was split, and the
+     * shards that replaced it inherited the session and keep it alive instead. In the metrics, it
+     * counts as closed on its shard.
+     */
+    void detach() {
+        if (closed.compareAndSet(false, true)) {
+            sessionsClosed.increment();
+            heartbeatFuture.cancel(true);
+        }
+    }
+
     public CompletableFuture<Void> close() {
         if (!closed.compareAndSet(false, true)) {
             return CompletableFuture.completedFuture(null);

@@ -251,6 +251,14 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         return assignments.leader(shardId);
     }
 
+    /**
+     * The shards that replaced a shard when it was removed from the shard map, e.g. the children of a
+     * split shard, or an empty set if the shard was never removed.
+     */
+    public Set<Long> getSuccessors(long shardId) {
+        return assignments.successors(shardId);
+    }
+
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
         callbacks.add(callback);
     }
