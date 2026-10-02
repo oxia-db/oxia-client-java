@@ -39,6 +39,7 @@ jmh-plugin = "0.7.3"
 [libraries]
 # BOMs
 grpc-bom = { module = "io.grpc:grpc-bom", version.ref = "grpc" }
+netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
 opentelemetry-bom = { module = "io.opentelemetry:opentelemetry-bom", version.ref = "opentelemetry" }
 opentelemetry-bom-alpha = { module = "io.opentelemetry:opentelemetry-bom-alpha", version = "1.63.0-alpha" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -58,7 +59,8 @@ opentelemetry-exporter-logging = { module = "io.opentelemetry:opentelemetry-expo
 opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semconv", version.ref = "opentelemetry-semconv" }
 
 # gRPC
-grpc-netty-shaded = { module = "io.grpc:grpc-netty-shaded" }
+grpc-core = { module = "io.grpc:grpc-core" }
+grpc-netty = { module = "io.grpc:grpc-netty" }
 grpc-services = { module = "io.grpc:grpc-services" }
 grpc-stub = { module = "io.grpc:grpc-stub" }
 grpc-protobuf = { module = "io.grpc:grpc-protobuf" }
@@ -67,6 +69,7 @@ grpc-inprocess = { module = "io.grpc:grpc-inprocess" }
 # Netty
 netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
 netty-common = { module = "io.netty:netty-common", version.ref = "netty" }
+netty-transport-native-epoll = { module = "io.netty:netty-transport-native-epoll", version.ref = "netty" }
 
 # Client dependencies
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
