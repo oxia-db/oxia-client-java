@@ -50,6 +50,7 @@ import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.util.PendingBytesLimiter;
+import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
@@ -67,7 +68,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -184,7 +184,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private final @NonNull BatchManager readBatchManager;
     private final @NonNull BatchManager writeBatchManager;
     private final @NonNull SessionManager sessionManager;
-    private final long requestTimeoutMs;
+    private final @NonNull TimeoutSweeper requestTimeouts;
     private final @NonNull PendingBytesLimiter pendingBytesLimiter;
     private volatile boolean closed;
 
@@ -242,7 +242,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         this.sessionManager = sessionManager;
         this.scheduledExecutor = scheduledExecutor;
         this.ownsResources = ownsResources;
-        this.requestTimeoutMs = requestTimeout.toMillis();
+        this.requestTimeouts = new TimeoutSweeper(scheduledExecutor, requestTimeout);
 
         counterPutBytes =
                 instrumentProvider.newCounter(
@@ -375,8 +375,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             callback = CompletableFuture.failedFuture(e);
         }
         final long pendingBytes = acquiredBytes;
-        return callback
-                .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
+        return requestTimeouts
+                .add(callback)
                 .whenComplete(
                         (putResult, throwable) -> {
                             if (pendingBytes > 0) {
@@ -488,8 +488,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             callback.completeExceptionally(e);
         }
         final long pendingBytes = acquiredBytes;
-        return callback
-                .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
+        return requestTimeouts
+                .add(callback)
                 .whenComplete(
                         (putResult, throwable) -> {
                             if (pendingBytes > 0) {
@@ -552,8 +552,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             callback = CompletableFuture.failedFuture(e);
         }
         final long pendingBytes = acquiredBytes;
-        return callback
-                .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
+        return requestTimeouts
+                .add(callback)
                 .whenComplete(
                         (putResult, throwable) -> {
                             if (pendingBytes > 0) {
@@ -593,8 +593,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             callback.completeExceptionally(e);
         }
         final long pendingBytes = acquiredBytes;
-        return callback
-                .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
+        return requestTimeouts
+                .add(callback)
                 .whenComplete(
                         (getResult, throwable) -> {
                             if (pendingBytes > 0) {
@@ -697,8 +697,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         } catch (Exception e) {
             callback = CompletableFuture.failedFuture(e);
         }
-        return callback
-                .orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS)
+        return requestTimeouts
+                .add(callback)
                 .whenComplete(
                         (listResult, throwable) -> {
                             gaugePendingListRequests.decrement();
@@ -965,6 +965,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         // In shared mode the RpcProvider does not own the connection pool, so this only closes the
         // per-client write streams; the shared connections stay open for other clients.
         rpcProvider.close();
+        requestTimeouts.close();
         if (ownsResources) {
             scheduledExecutor.shutdownNow();
         }
