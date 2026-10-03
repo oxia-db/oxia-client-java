@@ -27,6 +27,7 @@ import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.grpc.observer.ManagedObservers;
+import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.CloseSessionRequest;
 import io.oxia.proto.CloseSessionResponse;
 import io.oxia.proto.CreateSessionRequest;
@@ -71,6 +72,7 @@ final class GrpcRpcProvider implements RpcProvider {
     private final ScheduledExecutorService asyncExecutor;
     private final LongFunction<String> shardLeaderProvider;
     private final Map<Long, ManagedWriteStream> writeStreams;
+    private final TimeoutSweeper requestTimeouts;
 
     GrpcRpcProvider(
             @NonNull ClientConfig clientConfig,
@@ -104,6 +106,7 @@ final class GrpcRpcProvider implements RpcProvider {
         this.ownsConnectionManager = ownsConnectionManager;
         this.shardLeaderProvider = shardLeaderProvider;
         this.writeStreams = Maps.newConcurrentMap();
+        this.requestTimeouts = new TimeoutSweeper(asyncExecutor, clientConfig.requestTimeout());
     }
 
     @Override
@@ -117,9 +120,7 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 final var attemptContext = Context.current().withCancellation();
@@ -165,8 +166,7 @@ final class GrpcRpcProvider implements RpcProvider {
                                 // resumed one gets nothing until a new notification is written, so it is only
                                 // bounded by the subscription max age, like the sequence updates.
                                 if (!request.hasStartOffsetExclusive()) {
-                                    barrierFuture.orTimeout(
-                                            clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                    requestTimeouts.add(barrierFuture);
                                 }
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
@@ -284,9 +284,7 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
                                 final var attemptContext = Context.current().withCancellation();
@@ -364,9 +362,7 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 final var attemptContext = Context.current().withCancellation();
@@ -410,9 +406,7 @@ final class GrpcRpcProvider implements RpcProvider {
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
-                                final var barrierFuture =
-                                        new CompletableFuture<Void>()
-                                                .orTimeout(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 final var attemptContext = Context.current().withCancellation();
@@ -495,6 +489,7 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public void close() throws Exception {
+        requestTimeouts.close();
         try {
             writeStreams.values().forEach(ManagedWriteStream::close);
             writeStreams.clear();
