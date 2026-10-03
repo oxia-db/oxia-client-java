@@ -84,7 +84,7 @@ public abstract class MetricsBenchmark {
         }
     }
 
-    /** Latencies spread across the histogram buckets, from 100us to ~400ms. */
+    /** Latencies spread across the histogram buckets, from 100us to ~200ms. */
     @State(Scope.Thread)
     public static class Values {
         private static final int MASK = 1023;
