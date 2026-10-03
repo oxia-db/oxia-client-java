@@ -20,6 +20,8 @@ plugins {
 
 dependencies {
     jmh(project(":client"))
+    jmh(libs.opentelemetry.sdk)
+    jmh(libs.opentelemetry.sdk.testing)
 }
 
 jmh {
