@@ -86,6 +86,10 @@ public class PerfClient {
     AsyncOxiaClient client =
         OxiaClientBuilder.create(arguments.serviceAddr)
             .maxRequestsPerBatch(arguments.maxRequestsPerBatch)
+            .maxPendingBytes(arguments.maxPendingBytes)
+            .maxWriteBatchesInFlight(arguments.maxWriteBatchesInFlight)
+            .maxReadBatchesInFlight(arguments.maxReadBatchesInFlight)
+            .batchingThreads(arguments.batchingThreads)
             .requestTimeout(Duration.ofMillis(arguments.requestTimeoutMs))
             .namespace(arguments.namespace)
             .openTelemetry(sdk.getOpenTelemetrySdk())

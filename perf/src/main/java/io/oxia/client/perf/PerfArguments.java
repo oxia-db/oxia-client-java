@@ -69,6 +69,29 @@ public class PerfArguments {
     long requestTimeoutMs = OxiaClientBuilderImpl.DefaultRequestTimeout.toMillis();
 
     @Parameter(
+            names = {"--max-pending-bytes"},
+            description =
+                    "Max total size of pending operations in the client, e.g. 512K, 10M, 1G"
+                            + " (0 to disable)",
+            converter = SizeConverter.class)
+    long maxPendingBytes = OxiaClientBuilderImpl.DefaultMaxPendingBytes;
+
+    @Parameter(
+            names = {"--max-write-batches-in-flight"},
+            description = "Max number of in-flight write batches per shard")
+    int maxWriteBatchesInFlight = OxiaClientBuilderImpl.DefaultMaxWriteBatchesInFlight;
+
+    @Parameter(
+            names = {"--max-read-batches-in-flight"},
+            description = "Max number of in-flight read batches per shard")
+    int maxReadBatchesInFlight = OxiaClientBuilderImpl.DefaultMaxReadBatchesInFlight;
+
+    @Parameter(
+            names = {"--batching-threads"},
+            description = "Number of threads assembling operation batches")
+    int batchingThreads = OxiaClientBuilderImpl.DefaultBatchingThreads;
+
+    @Parameter(
             names = {"-o", "--max-outstanding-requests"},
             description = "Max number of outstanding requests to server")
     int maxOutstandingRequests = 100_000;
