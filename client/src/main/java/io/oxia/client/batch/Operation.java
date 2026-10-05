@@ -57,6 +57,12 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
     /** The shard this operation is routed to; the batching threads group operations by shard. */
     long shardId();
 
+    /**
+     * The batch manager the operation is submitted to. It identifies the client, so that a batching
+     * thread shared by several clients batches each operation through its own client's factory.
+     */
+    BatchManager batchManager();
+
     default void fail(Throwable t) {
         callback().completeExceptionally(t);
     }
@@ -72,6 +78,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
     sealed interface ReadOperation<R> extends Operation<R> permits GetOperation {
         record GetOperation(
+                @NonNull BatchManager batchManager,
                 long shardId,
                 @NonNull CompletableFuture<GetResult> callback,
                 @NonNull String key,
@@ -107,6 +114,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
         int byteSize();
 
         record PutOperation(
+                @NonNull BatchManager batchManager,
                 long shardId,
                 @NonNull CompletableFuture<PutResult> callback,
                 @NonNull String key,
@@ -143,6 +151,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             }
 
             public PutOperation(
+                    @NonNull BatchManager batchManager,
                     long shardId,
                     @NonNull CompletableFuture<PutResult> callback,
                     @NonNull String key,
@@ -156,6 +165,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                     @NonNull OptionalLong overrideVersionId,
                     @NonNull OptionalLong overrideModificationsCount) {
                 this(
+                        batchManager,
                         shardId,
                         callback,
                         key,
@@ -228,6 +238,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
         }
 
         record DeleteOperation(
+                @NonNull BatchManager batchManager,
                 long shardId,
                 @NonNull CompletableFuture<Boolean> callback,
                 @NonNull String key,
@@ -259,20 +270,25 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             }
 
             public DeleteOperation(
+                    @NonNull BatchManager batchManager,
                     long shardId,
                     @NonNull CompletableFuture<Boolean> callback,
                     @NonNull String key,
                     @NonNull OptionalLong expectedVersionId) {
-                this(shardId, callback, key, expectedVersionId, ByteBufUtil.utf8Bytes(key));
+                this(batchManager, shardId, callback, key, expectedVersionId, ByteBufUtil.utf8Bytes(key));
             }
 
             public DeleteOperation(
-                    long shardId, @NonNull CompletableFuture<Boolean> callback, @NonNull String key) {
-                this(shardId, callback, key, OptionalLong.empty());
+                    @NonNull BatchManager batchManager,
+                    long shardId,
+                    @NonNull CompletableFuture<Boolean> callback,
+                    @NonNull String key) {
+                this(batchManager, shardId, callback, key, OptionalLong.empty());
             }
         }
 
         record DeleteRangeOperation(
+                @NonNull BatchManager batchManager,
                 long shardId,
                 @NonNull CompletableFuture<Void> callback,
                 @NonNull String startKeyInclusive,
@@ -281,11 +297,13 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 implements WriteOperation<Void> {
 
             public DeleteRangeOperation(
+                    @NonNull BatchManager batchManager,
                     long shardId,
                     @NonNull CompletableFuture<Void> callback,
                     @NonNull String startKeyInclusive,
                     @NonNull String endKeyExclusive) {
                 this(
+                        batchManager,
                         shardId,
                         callback,
                         startKeyInclusive,

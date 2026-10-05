@@ -127,6 +127,7 @@ class AsyncOxiaClientImplTest {
                             assertThat(o.expectedVersionId()).isEmpty();
                             assertThat(o.value()).isEqualTo(value);
                             assertThat(o.byteSize()).isEqualTo(key.length() + value.length);
+                            assertThat(o.batchManager()).isSameAs(writeBatchManager);
                             var putResult = new PutResult(key, new Version(1, 2, 3, 4, empty(), empty()));
                             o.callback().complete(putResult);
                         });
@@ -408,6 +409,7 @@ class AsyncOxiaClientImplTest {
                 .satisfies(
                         o -> {
                             assertThat(o.key()).isEqualTo(key);
+                            assertThat(o.batchManager()).isSameAs(readBatchManager);
                             var getResult =
                                     new GetResult(key, new byte[1], new Version(1, 2, 3, 4, empty(), empty()));
                             o.callback().complete(getResult);

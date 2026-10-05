@@ -68,10 +68,13 @@ class BatcherTest {
                     1);
 
     Batcher batcher;
+    BatchManager batchManager;
 
     @BeforeEach
     void setup() {
         batcher = new Batcher("test-batcher");
+        // The client's batch manager, which the operations carry: its own pool is not used here
+        batchManager = new BatchManager(batchFactory, mock(BatcherPool.class), false);
     }
 
     @AfterEach
@@ -80,11 +83,12 @@ class BatcherTest {
     }
 
     private void add(Operation<?> operation) {
-        batcher.add(batchFactory, operation);
+        batcher.add(operation);
     }
 
-    private static Operation<?> newOp(long shardId) {
+    private Operation<?> newOp(long shardId) {
         return new GetOperation(
+                batchManager,
                 shardId,
                 new CompletableFuture<GetResult>(),
                 "key",

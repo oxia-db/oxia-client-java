@@ -37,8 +37,8 @@ public final class BatcherPool implements AutoCloseable {
         }
     }
 
-    void route(@NonNull BatchFactory factory, @NonNull Operation<?> operation) {
-        batchers[(int) Math.floorMod(operation.shardId(), batchers.length)].add(factory, operation);
+    void route(@NonNull Operation<?> operation) {
+        batchers[(int) Math.floorMod(operation.shardId(), batchers.length)].add(operation);
     }
 
     /**

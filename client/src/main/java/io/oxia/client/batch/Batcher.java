@@ -17,6 +17,8 @@ package io.oxia.client.batch;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
+import io.netty.util.collection.LongObjectHashMap;
+import io.netty.util.collection.LongObjectMap;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
 import java.util.HashMap;
@@ -31,27 +33,23 @@ import lombok.NonNull;
  * batches. A batch is sent when full, and any open batch is flushed as soon as the queue is found
  * empty, since there is nothing left to coalesce with.
  *
- * <p>Each operation carries the {@link BatchFactory} of the client that submitted it (the factory
- * binds to that client's {@code RpcProvider}, session and config), so a single batcher can serve
- * many clients without being tied to any one of them.
+ * <p>Each operation carries the {@link BatchManager} of the client that submitted it, and through
+ * it that client's {@link BatchFactory} (bound to the client's {@code RpcProvider}, session and
+ * config), so a single batcher can serve many clients without being tied to any one of them.
  */
 final class Batcher implements AutoCloseable {
 
     private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
-    /** Identifies an open batch: the submitting client's factory and the target shard. */
-    private record BatchKey(BatchFactory factory, long shardId) {}
+    record CloseFactory(BatchFactory factory, CompletableFuture<Void> done) {}
 
-    sealed interface Command permits Enqueue, CloseFactory {}
+    // Operations, queued bare since each carries its client's batch manager, and CloseFactory
+    // commands
+    @NonNull private final BatchedArrayBlockingQueue<Object> commands;
 
-    record Enqueue(BatchFactory factory, Operation<?> operation) implements Command {}
-
-    record CloseFactory(BatchFactory factory, CompletableFuture<Void> done) implements Command {}
-
-    @NonNull private final BatchedArrayBlockingQueue<Command> commands;
-
-    // Open batches, grouped by (client factory, shard). Only accessed by the batcher thread.
-    private final Map<BatchKey, Batch> openBatches = new HashMap<>();
+    // Open batches, by client factory and then by shard, so that looking up an operation's batch
+    // allocates no key. Only accessed by the batcher thread.
+    private final Map<BatchFactory, LongObjectHashMap<Batch>> openBatches = new HashMap<>();
 
     private final Thread thread;
     private volatile boolean closed;
@@ -62,12 +60,12 @@ final class Batcher implements AutoCloseable {
         this.thread.start();
     }
 
-    <R> void add(@NonNull BatchFactory factory, @NonNull Operation<R> operation) {
+    <R> void add(@NonNull Operation<R> operation) {
         if (closed) {
             operation.fail(new IllegalStateException("Batcher has been closed"));
             return;
         }
-        put(new Enqueue(factory, operation));
+        put(operation);
     }
 
     /**
@@ -86,7 +84,7 @@ final class Batcher implements AutoCloseable {
         return done;
     }
 
-    private void put(Command command) {
+    private void put(Object command) {
         try {
             commands.put(command);
         } catch (InterruptedException e) {
@@ -96,14 +94,14 @@ final class Batcher implements AutoCloseable {
     }
 
     private void batcherLoop() {
-        Command[] local = new Command[DEFAULT_QUEUE_CAPACITY];
+        Object[] local = new Object[DEFAULT_QUEUE_CAPACITY];
         int index = 0;
         int count = 0;
 
         while (true) {
             try {
                 if (index >= count) {
-                    if (openBatches.isEmpty()) {
+                    if (!hasOpenBatches()) {
                         // No pending batches — block until at least one command arrives.
                         count = commands.takeAll(local);
                     } else {
@@ -128,10 +126,10 @@ final class Batcher implements AutoCloseable {
                 return;
             }
 
-            Command command = local[index];
+            Object command = local[index];
             local[index++] = null;
-            if (command instanceof Enqueue enqueue) {
-                process(enqueue.factory(), enqueue.operation());
+            if (command instanceof Operation<?> operation) {
+                process(operation.batchManager().factory(), operation);
             } else if (command instanceof CloseFactory closeFactory) {
                 closeFactoryBatches(closeFactory.factory());
                 closeFactory.done().complete(null);
@@ -140,52 +138,57 @@ final class Batcher implements AutoCloseable {
     }
 
     private void process(BatchFactory factory, Operation<?> operation) {
-        var key = new BatchKey(factory, operation.shardId());
+        long shardId = operation.shardId();
+        LongObjectHashMap<Batch> shardBatches =
+                openBatches.computeIfAbsent(factory, f -> new LongObjectHashMap<>());
         try {
-            Batch batch = openBatches.get(key);
+            Batch batch = shardBatches.get(shardId);
             if (batch == null) {
                 // Take back a batch parked in the shard's dispatch window, if any: it must keep
                 // accumulating, and stay ahead of newer operations, until a slot frees up.
-                DispatchWindow window = factory.getDispatchWindow(operation.shardId());
+                DispatchWindow window = factory.getDispatchWindow(shardId);
                 batch = window != null ? window.reclaim() : null;
                 if (batch == null) {
-                    batch = factory.getBatch(operation.shardId());
+                    batch = factory.getBatch(shardId);
                 }
-                openBatches.put(key, batch);
+                shardBatches.put(shardId, batch);
             }
             if (!batch.canAdd(operation) && batch.size() > 0) {
-                send(factory, operation.shardId(), batch);
-                batch = factory.getBatch(operation.shardId());
-                openBatches.put(key, batch);
+                send(factory, shardId, batch);
+                batch = factory.getBatch(shardId);
+                shardBatches.put(shardId, batch);
             }
             batch.add(operation);
             if (batch.size() >= factory.getConfig().maxRequestsPerBatch()) {
-                send(factory, operation.shardId(), batch);
-                openBatches.remove(key);
+                send(factory, shardId, batch);
+                shardBatches.remove(shardId);
             }
         } catch (Exception e) {
             operation.fail(e);
             // Don't leave behind an open batch that the failed operation just created:
             // it would be flushed empty
-            Batch open = openBatches.get(key);
+            Batch open = shardBatches.get(shardId);
             if (open != null && open.size() == 0) {
-                openBatches.remove(key);
+                shardBatches.remove(shardId);
             }
         }
     }
 
+    private boolean hasOpenBatches() {
+        for (LongObjectHashMap<Batch> shardBatches : openBatches.values()) {
+            if (!shardBatches.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void closeFactoryBatches(BatchFactory factory) {
         var closedException = new IllegalStateException("Batch manager is closed");
-        openBatches
-                .entrySet()
-                .removeIf(
-                        entry -> {
-                            if (entry.getKey().factory() == factory) {
-                                entry.getValue().fail(closedException);
-                                return true;
-                            }
-                            return false;
-                        });
+        LongObjectHashMap<Batch> shardBatches = openBatches.remove(factory);
+        if (shardBatches != null) {
+            shardBatches.values().forEach(batch -> batch.fail(closedException));
+        }
     }
 
     // Dispatch a batch that takes no more operations, through the shard's window when it has one.
@@ -200,28 +203,33 @@ final class Batcher implements AutoCloseable {
 
     private void sendAll() {
         openBatches.forEach(
-                (key, batch) -> {
-                    // If the shard's window is exhausted, the batch is parked instead: it is
-                    // flushed when an in-flight request completes, or reclaimed to accumulate
-                    // more operations.
-                    DispatchWindow window = key.factory().getDispatchWindow(key.shardId());
-                    if (window == null) {
-                        batch.send();
-                    } else {
-                        window.sendOrPark(batch);
+                (factory, shardBatches) -> {
+                    for (LongObjectMap.PrimitiveEntry<Batch> entry : shardBatches.entries()) {
+                        // If the shard's window is exhausted, the batch is parked instead: it is
+                        // flushed when an in-flight request completes, or reclaimed to accumulate
+                        // more operations.
+                        DispatchWindow window = factory.getDispatchWindow(entry.key());
+                        if (window == null) {
+                            entry.value().send();
+                        } else {
+                            window.sendOrPark(entry.value());
+                        }
                     }
+                    // Keep the emptied map for the factory's next operations
+                    shardBatches.clear();
                 });
-        openBatches.clear();
     }
 
     private void failPending() {
         var closedException = new IllegalStateException("Batcher has been closed");
-        openBatches.values().forEach(batch -> batch.fail(closedException));
+        for (LongObjectHashMap<Batch> shardBatches : openBatches.values()) {
+            shardBatches.values().forEach(batch -> batch.fail(closedException));
+        }
         openBatches.clear();
-        Command command;
+        Object command;
         while ((command = commands.poll()) != null) {
-            if (command instanceof Enqueue enqueue) {
-                enqueue.operation().fail(closedException);
+            if (command instanceof Operation<?> operation) {
+                operation.fail(closedException);
             } else if (command instanceof CloseFactory closeFactory) {
                 closeFactory.done().complete(null);
             }

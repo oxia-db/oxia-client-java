@@ -79,8 +79,9 @@ class BatchManagerTest {
         manager.close();
     }
 
-    private static Operation<?> newOp(long shardId) {
+    private Operation<?> newOp(long shardId) {
         return new GetOperation(
+                manager,
                 shardId,
                 new CompletableFuture<GetResult>(),
                 "key",

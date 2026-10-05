@@ -63,6 +63,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class OperationTest {
 
+    // The batch manager the operations are submitted to: these tests don't route them
+    private static final BatchManager batchManager = mock(BatchManager.class);
+
     @Nested
     @DisplayName("Tests of get operation")
     class GetOperationTests {
@@ -70,7 +73,11 @@ class OperationTest {
         CompletableFuture<GetResult> callback = new CompletableFuture<>();
         GetOperation op =
                 new GetOperation(
-                        1L, callback, "key", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+                        batchManager,
+                        1L,
+                        callback,
+                        "key",
+                        new GetOptions(null, true, KeyComparisonType.EQUAL, null));
 
         @Test
         void toProto() {
@@ -139,6 +146,7 @@ class OperationTest {
         byte[] payload = "hello".getBytes(UTF_8);
         PutOperation op =
                 new PutOperation(
+                        batchManager,
                         1L,
                         callback,
                         "key",
@@ -159,6 +167,7 @@ class OperationTest {
                     .isThrownBy(
                             () ->
                                     new PutOperation(
+                                            batchManager,
                                             1L,
                                             callback,
                                             "key",
@@ -175,6 +184,7 @@ class OperationTest {
                     .isThrownBy(
                             () ->
                                     new PutOperation(
+                                            batchManager,
                                             1L,
                                             callback,
                                             "key",
@@ -190,6 +200,7 @@ class OperationTest {
             assertThatThrownBy(
                             () ->
                                     new PutOperation(
+                                            batchManager,
                                             1L,
                                             callback,
                                             "key",
@@ -209,6 +220,7 @@ class OperationTest {
         void toProtoNoExpectedVersion() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -238,6 +250,7 @@ class OperationTest {
         void toProtoExpectedVersion() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -267,6 +280,7 @@ class OperationTest {
         void toProtoPartitionKey() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -296,6 +310,7 @@ class OperationTest {
         void toProtoNoExistingVersion() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -327,6 +342,7 @@ class OperationTest {
             when(session.getSessionId()).thenReturn(sessionId);
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -356,6 +372,7 @@ class OperationTest {
         void toProtoOverrideVersionMetadata() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -385,6 +402,7 @@ class OperationTest {
         void toProtoNoOverrideVersionMetadata() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -433,6 +451,7 @@ class OperationTest {
         void completeKeyAlreadyExists() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -469,6 +488,7 @@ class OperationTest {
         void completeSessionDoesNotExist() {
             var op =
                     new PutOperation(
+                            batchManager,
                             1L,
                             callback,
                             "key",
@@ -540,22 +560,27 @@ class OperationTest {
     @DisplayName("Tests of delete operation")
     class DeleteOperationTests {
         CompletableFuture<Boolean> callback = new CompletableFuture<>();
-        DeleteOperation op = new DeleteOperation(1L, callback, "key", OptionalLong.of(10L));
+        DeleteOperation op =
+                new DeleteOperation(batchManager, 1L, callback, "key", OptionalLong.of(10L));
 
         @Test
         void constructInvalidExpectedVersionId() {
             assertThatNoException()
-                    .isThrownBy(() -> new DeleteOperation(1L, callback, "key", OptionalLong.of(0L)));
+                    .isThrownBy(
+                            () -> new DeleteOperation(batchManager, 1L, callback, "key", OptionalLong.of(0L)));
             assertThatThrownBy(
-                            () -> new DeleteOperation(1L, callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
+                            () ->
+                                    new DeleteOperation(
+                                            batchManager, 1L, callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
                     .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> new DeleteOperation(1L, callback, "key", OptionalLong.of(-2L)))
+            assertThatThrownBy(
+                            () -> new DeleteOperation(batchManager, 1L, callback, "key", OptionalLong.of(-2L)))
                     .isInstanceOf(IllegalArgumentException.class);
         }
 
         @Test
         void toProtoNoExpectedVersion() {
-            var op = new DeleteOperation(1L, callback, "key");
+            var op = new DeleteOperation(batchManager, 1L, callback, "key");
             var request = new DeleteRequest();
             op.toProto(request);
             assertThat(request)
@@ -621,7 +646,7 @@ class OperationTest {
     @DisplayName("Tests of delete range operation")
     class DeleteRangeOperationTests {
         CompletableFuture<Void> callback = new CompletableFuture<>();
-        DeleteRangeOperation op = new DeleteRangeOperation(1L, callback, "a", "b");
+        DeleteRangeOperation op = new DeleteRangeOperation(batchManager, 1L, callback, "a", "b");
 
         @Test
         void toProto() {

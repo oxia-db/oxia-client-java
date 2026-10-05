@@ -96,6 +96,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class BatchTest {
+
+    // The batch manager the operations are submitted to: these tests don't route them
+    private static final BatchManager batchManager = mock(BatchManager.class);
+
     RpcProvider clientByShardId;
     @Mock SessionManager sessionManager;
     @Mock Session session;
@@ -224,6 +228,7 @@ class BatchTest {
 
         PutOperation put =
                 new PutOperation(
+                        batchManager,
                         1L,
                         putCallable,
                         "",
@@ -237,14 +242,17 @@ class BatchTest {
                         OptionalLong.empty(),
                         OptionalLong.empty());
         PutOperation putEphemeral;
-        DeleteOperation delete = new DeleteOperation(1L, deleteCallable, "", OptionalLong.of(1));
-        DeleteRangeOperation deleteRange = new DeleteRangeOperation(1L, deleteRangeCallable, "a", "b");
+        DeleteOperation delete =
+                new DeleteOperation(batchManager, 1L, deleteCallable, "", OptionalLong.of(1));
+        DeleteRangeOperation deleteRange =
+                new DeleteRangeOperation(batchManager, 1L, deleteRangeCallable, "a", "b");
 
         @BeforeEach
         void setup() {
             // Built here, as the session mock is not yet initialized when the fields are
             putEphemeral =
                     new PutOperation(
+                            batchManager,
                             1L,
                             putEphemeralCallable,
                             "",
@@ -295,6 +303,7 @@ class BatchTest {
 
             var sizedPut =
                     new PutOperation(
+                            batchManager,
                             1L,
                             new CompletableFuture<>(),
                             key,
@@ -310,10 +319,12 @@ class BatchTest {
             assertThat(batch.sizeOf(sizedPut)).isEqualTo(keyBytes + value.length);
 
             var sizedDelete =
-                    new DeleteOperation(1L, new CompletableFuture<>(), key, OptionalLong.empty());
+                    new DeleteOperation(
+                            batchManager, 1L, new CompletableFuture<>(), key, OptionalLong.empty());
             assertThat(batch.sizeOf(sizedDelete)).isEqualTo(keyBytes);
 
-            var sizedDeleteRange = new DeleteRangeOperation(1L, new CompletableFuture<>(), key, key);
+            var sizedDeleteRange =
+                    new DeleteRangeOperation(batchManager, 1L, new CompletableFuture<>(), key, key);
             assertThat(batch.sizeOf(sizedDeleteRange)).isEqualTo(2 * keyBytes);
         }
 
@@ -348,7 +359,7 @@ class BatchTest {
             batch.add(delete);
             batch.add(putEphemeral);
             batch.add(deleteRange);
-            batch.add(new DeleteOperation(1L, new CompletableFuture<>(), ""));
+            batch.add(new DeleteOperation(batchManager, 1L, new CompletableFuture<>(), ""));
 
             // The op_index of each operation is its position in the batch, across the three lists
             var request = batch.toProto();
@@ -611,7 +622,11 @@ class BatchTest {
         CompletableFuture<GetResult> getCallable = new CompletableFuture<>();
         GetOperation get =
                 new GetOperation(
-                        1L, getCallable, "", new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+                        batchManager,
+                        1L,
+                        getCallable,
+                        "",
+                        new GetOptions(null, true, KeyComparisonType.EQUAL, null));
 
         @BeforeEach
         void setup() {
