@@ -126,6 +126,7 @@ class AsyncOxiaClientImplTest {
                             assertThat(o.key()).isEqualTo(key);
                             assertThat(o.expectedVersionId()).isEmpty();
                             assertThat(o.value()).isEqualTo(value);
+                            assertThat(o.byteSize()).isEqualTo(key.length() + value.length);
                             var putResult = new PutResult(key, new Version(1, 2, 3, 4, empty(), empty()));
                             o.callback().complete(putResult);
                         });
@@ -255,6 +256,7 @@ class AsyncOxiaClientImplTest {
                         o -> {
                             assertThat(o.key()).isEqualTo(key);
                             assertThat(o.expectedVersionId()).isEmpty();
+                            assertThat(o.byteSize()).isEqualTo(key.length());
                             o.callback().complete(true);
                         });
     }
@@ -345,6 +347,7 @@ class AsyncOxiaClientImplTest {
                         o -> {
                             assertThat(o.startKeyInclusive()).isEqualTo(startInclusive);
                             assertThat(o.endKeyExclusive()).isEqualTo(endExclusive);
+                            assertThat(o.byteSize()).isEqualTo(startInclusive.length() + endExclusive.length());
                             assertThat(o.callback()).isNotCompleted();
                         });
 

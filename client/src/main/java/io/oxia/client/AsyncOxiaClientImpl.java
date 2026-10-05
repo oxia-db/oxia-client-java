@@ -366,11 +366,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Objects.requireNonNull(key);
             Objects.requireNonNull(value);
 
-            long size = ByteBufUtil.utf8Bytes(key) + value.length;
+            int size = ByteBufUtil.utf8Bytes(key) + value.length;
             pendingBytesLimiter.acquire(size);
             acquiredBytes = size;
 
-            callback = internalPut(key, value, options);
+            callback = internalPut(key, value, options, size);
         } catch (RuntimeException e) {
             callback = CompletableFuture.failedFuture(e);
         }
@@ -395,7 +395,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     private CompletableFuture<PutResult> internalPut(
-            String key, byte[] value, Set<PutOption> options) {
+            String key, byte[] value, Set<PutOption> options, int size) {
         gaugePendingPutRequests.increment();
         gaugePendingPutBytes.add(value.length);
 
@@ -422,7 +422,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             Optional.empty(),
                             secondaryIndexes,
                             overrideVersionId,
-                            overrideModificationsCount);
+                            overrideModificationsCount,
+                            size);
             writeBatchManager.add(op);
         } else {
             // The put operation is trying to write an ephemeral record. We need to have a valid session
@@ -445,7 +446,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                                 Optional.of(clientIdentifier),
                                                 secondaryIndexes,
                                                 overrideVersionId,
-                                                overrideModificationsCount);
+                                                overrideModificationsCount,
+                                                size);
                                 writeBatchManager.add(op);
                             })
                     .exceptionally(
@@ -479,11 +481,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             var partitionKey = OptionsUtils.getPartitionKey(options);
             var shardId = shardManager.getShardForKey(partitionKey.orElse(key));
 
-            long size = ByteBufUtil.utf8Bytes(key);
+            int size = ByteBufUtil.utf8Bytes(key);
             pendingBytesLimiter.acquire(size);
             acquiredBytes = size;
 
-            writeBatchManager.add(new DeleteOperation(shardId, callback, key, versionId));
+            writeBatchManager.add(new DeleteOperation(shardId, callback, key, versionId, size));
         } catch (RuntimeException e) {
             callback.completeExceptionally(e);
         }
@@ -522,7 +524,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             Objects.requireNonNull(startKeyInclusive);
             Objects.requireNonNull(endKeyExclusive);
 
-            long size = ByteBufUtil.utf8Bytes(startKeyInclusive) + ByteBufUtil.utf8Bytes(endKeyExclusive);
+            int size = ByteBufUtil.utf8Bytes(startKeyInclusive) + ByteBufUtil.utf8Bytes(endKeyExclusive);
             pendingBytesLimiter.acquire(size);
             acquiredBytes = size;
 
@@ -532,7 +534,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 var shardId = shardManager.getShardForKey(partitionKey.get());
                 callback = new CompletableFuture<>();
                 writeBatchManager.add(
-                        new DeleteRangeOperation(shardId, callback, startKeyInclusive, endKeyExclusive));
+                        new DeleteRangeOperation(shardId, callback, startKeyInclusive, endKeyExclusive, size));
             } else {
                 // Perform the delete range on all the shards
                 var shardDeletes =
@@ -542,7 +544,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                             var shardCallback = new CompletableFuture<Void>();
                                             writeBatchManager.add(
                                                     new DeleteRangeOperation(
-                                                            shardId, shardCallback, startKeyInclusive, endKeyExclusive));
+                                                            shardId, shardCallback, startKeyInclusive, endKeyExclusive, size));
                                             return shardCallback;
                                         })
                                 .toArray(CompletableFuture[]::new);
