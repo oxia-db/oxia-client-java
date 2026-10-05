@@ -92,6 +92,13 @@ public class PerfArguments {
     int batchingThreads = OxiaClientBuilderImpl.DefaultBatchingThreads;
 
     @Parameter(
+            names = {"--generator-threads"},
+            description =
+                    "Number of threads generating each type of traffic, sharing the rate and the max"
+                            + " outstanding requests")
+    int generatorThreads = 1;
+
+    @Parameter(
             names = {"-o", "--max-outstanding-requests"},
             description = "Max number of outstanding requests to server")
     int maxOutstandingRequests = 100_000;
