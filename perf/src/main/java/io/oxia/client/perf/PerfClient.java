@@ -83,9 +83,6 @@ public class PerfClient {
                         "otel.logs.exporter", "none"))
             .build();
 
-    // Read by the batching threads when the client creates them
-    System.setProperty("oxia.client.batcher.queue", arguments.batcherQueue);
-
     AsyncOxiaClient client =
         OxiaClientBuilder.create(arguments.serviceAddr)
             .maxRequestsPerBatch(arguments.maxRequestsPerBatch)

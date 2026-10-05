@@ -92,11 +92,6 @@ public class PerfArguments {
     int batchingThreads = OxiaClientBuilderImpl.DefaultBatchingThreads;
 
     @Parameter(
-            names = {"--batcher-queue"},
-            description = "Command queue of the batching threads: array, or mpsc (experimental)")
-    String batcherQueue = "array";
-
-    @Parameter(
             names = {"--generator-threads"},
             description =
                     "Number of threads generating each type of traffic, sharing the rate and the max"

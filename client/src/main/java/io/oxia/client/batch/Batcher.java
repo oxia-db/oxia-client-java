@@ -18,8 +18,6 @@ package io.oxia.client.batch;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import io.netty.util.concurrent.DefaultThreadFactory;
-import io.oxia.client.util.BatchedArrayBlockingQueue;
-import io.oxia.client.util.BatchedBlockingQueue;
 import io.oxia.client.util.MpscUnboundedBatchedQueue;
 import java.util.HashMap;
 import java.util.Map;
@@ -39,10 +37,8 @@ import lombok.NonNull;
  */
 final class Batcher implements AutoCloseable {
 
-    private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
-
-    // Experimental: "mpsc" gives the batchers a lock-free, unbounded command queue
-    static final String COMMAND_QUEUE_PROPERTY = "oxia.client.batcher.queue";
+    // The most commands that the batcher thread takes from its queue at once
+    private static final int MAX_COMMANDS_PER_DRAIN = 10_000;
 
     /** Identifies an open batch: the submitting client's factory and the target shard. */
     private record BatchKey(BatchFactory factory, long shardId) {}
@@ -53,7 +49,9 @@ final class Batcher implements AutoCloseable {
 
     record CloseFactory(BatchFactory factory, CompletableFuture<Void> done) implements Command {}
 
-    @NonNull private final BatchedBlockingQueue<Command> commands;
+    // Unbounded, so producers never block on it: the client's max pending bytes is what limits the
+    // operations in flight
+    @NonNull private final MpscUnboundedBatchedQueue<Command> commands;
 
     // Open batches, grouped by (client factory, shard). Only accessed by the batcher thread.
     private final Map<BatchKey, Batch> openBatches = new HashMap<>();
@@ -62,20 +60,9 @@ final class Batcher implements AutoCloseable {
     private volatile boolean closed;
 
     Batcher(String name) {
-        this(name, newCommandQueue());
-    }
-
-    Batcher(String name, @NonNull BatchedBlockingQueue<Command> commands) {
-        this.commands = commands;
+        this.commands = new MpscUnboundedBatchedQueue<>();
         this.thread = new DefaultThreadFactory(name).newThread(this::batcherLoop);
         this.thread.start();
-    }
-
-    private static BatchedBlockingQueue<Command> newCommandQueue() {
-        if ("mpsc".equals(System.getProperty(COMMAND_QUEUE_PROPERTY))) {
-            return new MpscUnboundedBatchedQueue<>();
-        }
-        return new BatchedArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
     }
 
     <R> void add(@NonNull BatchFactory factory, @NonNull Operation<R> operation) {
@@ -83,7 +70,7 @@ final class Batcher implements AutoCloseable {
             operation.fail(new IllegalStateException("Batcher has been closed"));
             return;
         }
-        put(new Enqueue(factory, operation));
+        commands.put(new Enqueue(factory, operation));
     }
 
     /**
@@ -98,21 +85,12 @@ final class Batcher implements AutoCloseable {
             done.complete(null);
             return done;
         }
-        put(new CloseFactory(factory, done));
+        commands.put(new CloseFactory(factory, done));
         return done;
     }
 
-    private void put(Command command) {
-        try {
-            commands.put(command);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-        }
-    }
-
     private void batcherLoop() {
-        Command[] local = new Command[DEFAULT_QUEUE_CAPACITY];
+        Command[] local = new Command[MAX_COMMANDS_PER_DRAIN];
         int index = 0;
         int count = 0;
 
