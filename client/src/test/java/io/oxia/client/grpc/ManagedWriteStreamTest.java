@@ -195,6 +195,7 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address)) {
             var firstStream = provider.getWriteStream(1);
+            assertThat(provider.getWriteStream(1)).isSameAs(firstStream);
             var timedOut = firstStream.send(() -> writeRequest(1));
 
             assertThatThrownBy(() -> timedOut.get(5, TimeUnit.SECONDS))
