@@ -318,6 +318,11 @@ final class GrpcRpcProvider implements RpcProvider {
 
     @Override
     public ManagedWriteStream getWriteStream(long shardId) {
+        // Fast path: avoid locking the map bin on every batch when the stream is already open
+        final var stream = writeStreams.get(shardId);
+        if (stream != null && !stream.isClosed()) {
+            return stream;
+        }
         return writeStreams.compute(
                 shardId,
                 (__, existingStream) -> {
