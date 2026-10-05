@@ -83,6 +83,9 @@ public class PerfClient {
                         "otel.logs.exporter", "none"))
             .build();
 
+    // Read by the batching threads when the client creates them
+    System.setProperty("oxia.client.batcher.queue", arguments.batcherQueue);
+
     AsyncOxiaClient client =
         OxiaClientBuilder.create(arguments.serviceAddr)
             .maxRequestsPerBatch(arguments.maxRequestsPerBatch)
@@ -111,12 +114,14 @@ public class PerfClient {
                   Runtime.getRuntime().halt(0);
                 }));
 
-    if (arguments.readPercentage != 100) {
-      executor.execute(() -> generateWriteTraffic(client));
-    }
+    for (int i = 0; i < arguments.generatorThreads; i++) {
+      if (arguments.readPercentage != 100) {
+        executor.execute(() -> generateWriteTraffic(client));
+      }
 
-    if (arguments.readPercentage != 0) {
-      executor.execute(() -> generateReadTraffic(client));
+      if (arguments.readPercentage != 0) {
+        executor.execute(() -> generateReadTraffic(client));
+      }
     }
 
     Histogram writeReportHistogram = null;
@@ -169,10 +174,15 @@ public class PerfClient {
     }
   }
 
+  private static int outstandingRequestsPerThread() {
+    return Math.max(1, arguments.maxOutstandingRequests / arguments.generatorThreads);
+  }
+
   private static void generateWriteTraffic(AsyncOxiaClient client) {
-    double writeRate = arguments.requestsRate * (100.0 - arguments.readPercentage) / 100;
+    double writeRate =
+        arguments.requestsRate * (100.0 - arguments.readPercentage) / 100 / arguments.generatorThreads;
     RateLimiter limiter = RateLimiter.create(writeRate);
-    Semaphore semaphore = new Semaphore(arguments.maxOutstandingRequests);
+    Semaphore semaphore = new Semaphore(outstandingRequestsPerThread());
 
     byte[] value = new byte[arguments.valueSize];
     Random rand = new Random();
@@ -204,9 +214,10 @@ public class PerfClient {
   }
 
   private static void generateReadTraffic(AsyncOxiaClient client) {
-    double readRate = arguments.requestsRate * arguments.readPercentage / 100;
+    double readRate =
+        arguments.requestsRate * arguments.readPercentage / 100 / arguments.generatorThreads;
     RateLimiter limiter = RateLimiter.create(readRate);
-    Semaphore semaphore = new Semaphore(arguments.maxOutstandingRequests);
+    Semaphore semaphore = new Semaphore(outstandingRequestsPerThread());
 
     Random rand = new Random();
 

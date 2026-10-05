@@ -19,6 +19,8 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
+import io.oxia.client.util.BatchedBlockingQueue;
+import io.oxia.client.util.MpscUnboundedBatchedQueue;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -39,6 +41,9 @@ final class Batcher implements AutoCloseable {
 
     private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
+    // Experimental: "mpsc" gives the batchers a lock-free, unbounded command queue
+    static final String COMMAND_QUEUE_PROPERTY = "oxia.client.batcher.queue";
+
     /** Identifies an open batch: the submitting client's factory and the target shard. */
     private record BatchKey(BatchFactory factory, long shardId) {}
 
@@ -48,7 +53,7 @@ final class Batcher implements AutoCloseable {
 
     record CloseFactory(BatchFactory factory, CompletableFuture<Void> done) implements Command {}
 
-    @NonNull private final BatchedArrayBlockingQueue<Command> commands;
+    @NonNull private final BatchedBlockingQueue<Command> commands;
 
     // Open batches, grouped by (client factory, shard). Only accessed by the batcher thread.
     private final Map<BatchKey, Batch> openBatches = new HashMap<>();
@@ -57,9 +62,20 @@ final class Batcher implements AutoCloseable {
     private volatile boolean closed;
 
     Batcher(String name) {
-        this.commands = new BatchedArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
+        this(name, newCommandQueue());
+    }
+
+    Batcher(String name, @NonNull BatchedBlockingQueue<Command> commands) {
+        this.commands = commands;
         this.thread = new DefaultThreadFactory(name).newThread(this::batcherLoop);
         this.thread.start();
+    }
+
+    private static BatchedBlockingQueue<Command> newCommandQueue() {
+        if ("mpsc".equals(System.getProperty(COMMAND_QUEUE_PROPERTY))) {
+            return new MpscUnboundedBatchedQueue<>();
+        }
+        return new BatchedArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY);
     }
 
     <R> void add(@NonNull BatchFactory factory, @NonNull Operation<R> operation) {
