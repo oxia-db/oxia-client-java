@@ -17,7 +17,12 @@ package io.oxia.client.api.exceptions;
 
 import lombok.Getter;
 
-/** The key already exists at the server. */
+/**
+ * The key already exists at the server.
+ *
+ * <p>The exception has no stack trace: it is an expected outcome of a conditional put, created on
+ * the client's I/O threads, where the trace would only show transport frames.
+ */
 public class KeyAlreadyExistsException extends OxiaException {
     /** The key that already exists at the server. */
     @Getter private final String key;
@@ -28,7 +33,7 @@ public class KeyAlreadyExistsException extends OxiaException {
      * @param key The key to which the call was scoped.
      */
     public KeyAlreadyExistsException(String key) {
-        super("key already exists: " + key);
+        super("key already exists: " + key, false);
         this.key = key;
     }
 }

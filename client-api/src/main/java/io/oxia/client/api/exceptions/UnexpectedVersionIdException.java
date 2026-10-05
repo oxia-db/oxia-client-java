@@ -17,7 +17,12 @@ package io.oxia.client.api.exceptions;
 
 import lombok.Getter;
 
-/** The versionId at the server did not that match supplied in the call. */
+/**
+ * The versionId at the server did not that match supplied in the call.
+ *
+ * <p>The exception has no stack trace: it is an expected outcome of a conditional put or delete,
+ * created on the client's I/O threads, where the trace would only show transport frames.
+ */
 public class UnexpectedVersionIdException extends OxiaException {
     /** The record versionId present at the server. */
     @Getter private final long version;
@@ -32,7 +37,7 @@ public class UnexpectedVersionIdException extends OxiaException {
      * @param version The record versionId to which the call was scoped.
      */
     public UnexpectedVersionIdException(String key, long version) {
-        super("key '" + key + "' has unexpected versionId (expected " + version + ")");
+        super("key '" + key + "' has unexpected versionId (expected " + version + ")", false);
         this.version = version;
         this.key = key;
     }
