@@ -23,6 +23,7 @@ import static io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import static io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import static io.oxia.client.batch.Operation.WriteOperation.PutOperation;
 
+import io.netty.buffer.ByteBufUtil;
 import io.oxia.client.ProtoUtil;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
@@ -98,6 +99,13 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
     sealed interface WriteOperation<R> extends Operation<R>
             permits PutOperation, DeleteOperation, DeleteRangeOperation {
+
+        /**
+         * The UTF-8 encoded size of the keys, plus the value, that the operation adds to a write batch.
+         * The client computes it once, for the pending bytes limit, and passes it in.
+         */
+        int byteSize();
+
         record PutOperation(
                 long shardId,
                 @NonNull CompletableFuture<PutResult> callback,
@@ -110,7 +118,8 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 Optional<String> clientIdentifier,
                 List<OptionSecondaryIndex> secondaryIndexes,
                 @NonNull OptionalLong overrideVersionId,
-                @NonNull OptionalLong overrideModificationsCount)
+                @NonNull OptionalLong overrideModificationsCount,
+                int byteSize)
                 implements WriteOperation<PutResult> {
 
             public PutOperation {
@@ -131,6 +140,35 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                                 "usage of sequential keys requires PartitionKey() to be set");
                     }
                 }
+            }
+
+            public PutOperation(
+                    long shardId,
+                    @NonNull CompletableFuture<PutResult> callback,
+                    @NonNull String key,
+                    @NonNull Optional<String> partitionKey,
+                    @NonNull Optional<List<Long>> sequenceKeysDeltas,
+                    byte @NonNull [] value,
+                    @NonNull OptionalLong expectedVersionId,
+                    @NonNull Optional<Session> session,
+                    Optional<String> clientIdentifier,
+                    List<OptionSecondaryIndex> secondaryIndexes,
+                    @NonNull OptionalLong overrideVersionId,
+                    @NonNull OptionalLong overrideModificationsCount) {
+                this(
+                        shardId,
+                        callback,
+                        key,
+                        partitionKey,
+                        sequenceKeysDeltas,
+                        value,
+                        expectedVersionId,
+                        session,
+                        clientIdentifier,
+                        secondaryIndexes,
+                        overrideVersionId,
+                        overrideModificationsCount,
+                        ByteBufUtil.utf8Bytes(key) + value.length);
             }
 
             /** Fills in the given request with this operation's fields. */
@@ -193,7 +231,8 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 long shardId,
                 @NonNull CompletableFuture<Boolean> callback,
                 @NonNull String key,
-                @NonNull OptionalLong expectedVersionId)
+                @NonNull OptionalLong expectedVersionId,
+                int byteSize)
                 implements WriteOperation<Boolean> {
 
             public DeleteOperation {
@@ -220,6 +259,14 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             }
 
             public DeleteOperation(
+                    long shardId,
+                    @NonNull CompletableFuture<Boolean> callback,
+                    @NonNull String key,
+                    @NonNull OptionalLong expectedVersionId) {
+                this(shardId, callback, key, expectedVersionId, ByteBufUtil.utf8Bytes(key));
+            }
+
+            public DeleteOperation(
                     long shardId, @NonNull CompletableFuture<Boolean> callback, @NonNull String key) {
                 this(shardId, callback, key, OptionalLong.empty());
             }
@@ -229,8 +276,23 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 long shardId,
                 @NonNull CompletableFuture<Void> callback,
                 @NonNull String startKeyInclusive,
-                @NonNull String endKeyExclusive)
+                @NonNull String endKeyExclusive,
+                int byteSize)
                 implements WriteOperation<Void> {
+
+            public DeleteRangeOperation(
+                    long shardId,
+                    @NonNull CompletableFuture<Void> callback,
+                    @NonNull String startKeyInclusive,
+                    @NonNull String endKeyExclusive) {
+                this(
+                        shardId,
+                        callback,
+                        startKeyInclusive,
+                        endKeyExclusive,
+                        ByteBufUtil.utf8Bytes(startKeyInclusive) + ByteBufUtil.utf8Bytes(endKeyExclusive));
+            }
+
             /** Fills in the given request with this operation's fields. */
             void toProto(DeleteRangeRequest req) {
                 req.setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);

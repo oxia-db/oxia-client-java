@@ -16,7 +16,6 @@
 package io.oxia.client.batch;
 
 import com.google.common.annotations.VisibleForTesting;
-import io.netty.buffer.ByteBufUtil;
 import io.oxia.client.grpc.ManagedWriteStream;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.session.SessionManager;
@@ -65,15 +64,10 @@ final class WriteBatch extends BatchBase implements Batch {
         this.maxBatchSize = maxBatchSize;
     }
 
-    // ByteBufUtil.utf8Bytes() computes the UTF-8 encoded length without materializing the bytes
+    // The operation carries its size, so that canAdd() and add() don't scan the keys again
     int sizeOf(@NonNull Operation<?> operation) {
-        if (operation instanceof Operation.WriteOperation.PutOperation p) {
-            return ByteBufUtil.utf8Bytes(p.key()) + p.value().length;
-        } else if (operation instanceof Operation.WriteOperation.DeleteOperation d) {
-            return ByteBufUtil.utf8Bytes(d.key());
-        } else if (operation instanceof Operation.WriteOperation.DeleteRangeOperation r) {
-            return ByteBufUtil.utf8Bytes(r.startKeyInclusive())
-                    + ByteBufUtil.utf8Bytes(r.endKeyExclusive());
+        if (operation instanceof Operation.WriteOperation<?> w) {
+            return w.byteSize();
         }
         return 0;
     }
