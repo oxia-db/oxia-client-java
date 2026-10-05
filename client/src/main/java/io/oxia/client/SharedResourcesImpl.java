@@ -121,7 +121,19 @@ public class SharedResourcesImpl implements SharedResources {
         }
         var key = new NamespaceKey(config.serviceAddress(), config.namespace());
         var ns = namespaces.computeIfAbsent(key, k -> createNamespace(config));
-        return ns.started().thenApply(v -> ns.shardManager());
+        return ns.started()
+                .whenComplete(
+                        (v, error) -> {
+                            // Drop a namespace that failed to start, e.g. because it doesn't exist, so that
+                            // the next client tries it again. Each client waiting for it gets here before
+                            // it sees the failure, and the first one closes it: that's cheap enough for the
+                            // gRPC event loop that reports the failure, as the namespace doesn't own its
+                            // connections.
+                            if (error != null && namespaces.remove(key, ns)) {
+                                ns.close();
+                            }
+                        })
+                .thenApply(v -> ns.shardManager());
     }
 
     private SharedNamespace createNamespace(@NonNull ClientConfig config) {
@@ -146,14 +158,7 @@ public class SharedResourcesImpl implements SharedResources {
         closed = true;
         // Close the shard managers first (stops assignment-stream retries), then their RpcProviders,
         // then the shared connection pool and finally the executor.
-        for (SharedNamespace ns : namespaces.values()) {
-            ns.shardManager().close();
-            try {
-                ns.rpcProvider().close();
-            } catch (Exception e) {
-                log.warn().exception(e).log("Failed to close shared shard RpcProvider");
-            }
-        }
+        namespaces.values().forEach(SharedNamespace::close);
         namespaces.clear();
         try {
             connectionManager.close();
@@ -168,7 +173,16 @@ public class SharedResourcesImpl implements SharedResources {
     record NamespaceKey(String serviceAddress, String namespace) {}
 
     private record SharedNamespace(
-            RpcProvider rpcProvider, ShardManager shardManager, CompletableFuture<Void> started) {}
+            RpcProvider rpcProvider, ShardManager shardManager, CompletableFuture<Void> started) {
+        void close() {
+            shardManager.close();
+            try {
+                rpcProvider.close();
+            } catch (Exception e) {
+                log.warn().exception(e).log("Failed to close shared shard RpcProvider");
+            }
+        }
+    }
 
     /** Builder for {@link SharedResourcesImpl}. */
     public static final class Builder implements SharedResources.Builder {
