@@ -419,6 +419,7 @@ class OperationTest {
                                 assertThat(e.getCause())
                                         .isInstanceOf(UnexpectedVersionIdException.class)
                                         .hasMessage("key 'key' has unexpected versionId (expected 10)");
+                                assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
         }
 
@@ -449,6 +450,7 @@ class OperationTest {
                                 assertThat(e.getCause())
                                         .isInstanceOf(KeyAlreadyExistsException.class)
                                         .hasMessage("key already exists: key");
+                                assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
         }
 
@@ -578,6 +580,7 @@ class OperationTest {
                                 assertThat(e.getCause())
                                         .isInstanceOf(UnexpectedVersionIdException.class)
                                         .hasMessage("key 'key' has unexpected versionId (expected 10)");
+                                assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
         }
 

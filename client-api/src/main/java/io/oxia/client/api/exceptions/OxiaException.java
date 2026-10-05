@@ -35,4 +35,14 @@ public abstract class OxiaException extends Exception {
     OxiaException(String message, Throwable cause) {
         super(message, cause);
     }
+
+    /**
+     * Creates an instance of the exception, optionally without a stack trace.
+     *
+     * @param message the exception message
+     * @param writableStackTrace whether the stack trace is captured and can be set
+     */
+    OxiaException(String message, boolean writableStackTrace) {
+        super(message, null, true, writableStackTrace);
+    }
 }
