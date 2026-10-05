@@ -116,7 +116,21 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         config.requestTimeout(),
                         config.maxPendingBytes(),
                         true);
-        return shardManager.start().thenApply(v -> client);
+        // If the start fails, the caller never gets the client to close it. Close it off the gRPC
+        // event loop that reports the failure: closing waits for the client's connections to shut
+        // down, which needs that event loop.
+        return shardManager
+                .start()
+                .exceptionallyComposeAsync(
+                        error -> {
+                            try {
+                                client.close();
+                            } catch (Exception e) {
+                                error.addSuppressed(e);
+                            }
+                            return CompletableFuture.failedFuture(error);
+                        })
+                .thenApply(v -> client);
     }
 
     /**
