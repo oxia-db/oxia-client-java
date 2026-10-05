@@ -60,6 +60,15 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
         callback().completeExceptionally(t);
     }
 
+    /**
+     * Fails the operation with an expected outcome, such as a failed conditional write, without
+     * walking the stack. Dependent stages pass a {@code CompletionException} on as is, but wrap any
+     * other exception in a new one, which walks the stack.
+     */
+    default void failExpected(Throwable t) {
+        callback().completeExceptionally(new StacklessCompletionException(t));
+    }
+
     sealed interface ReadOperation<R> extends Operation<R> permits GetOperation {
         record GetOperation(
                 long shardId,
@@ -148,9 +157,9 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                     case SESSION_DOES_NOT_EXIST -> fail(new SessionDoesNotExistException());
                     case UNEXPECTED_VERSION_ID -> {
                         if (expectedVersionId.getAsLong() == KEY_NOT_EXISTS) {
-                            fail(new KeyAlreadyExistsException(key));
+                            failExpected(new KeyAlreadyExistsException(key));
                         } else {
-                            fail(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
+                            failExpected(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
                         }
                     }
                     case OK -> callback.complete(ProtoUtil.getPutResultFromProto(key, response));
@@ -203,7 +212,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             void complete(@NonNull DeleteResponse response) {
                 switch (response.getStatus()) {
                     case UNEXPECTED_VERSION_ID ->
-                            fail(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
+                            failExpected(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
                     case KEY_NOT_FOUND -> callback.complete(false);
                     case OK -> callback.complete(true);
                     default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));

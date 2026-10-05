@@ -52,6 +52,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -421,6 +422,11 @@ class OperationTest {
                                         .hasMessage("key 'key' has unexpected versionId (expected 10)");
                                 assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
+            var stage = callback.whenComplete((r, t) -> {});
+            assertThatThrownBy(stage::join)
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(UnexpectedVersionIdException.class)
+                    .satisfies(e -> assertThat(e.getStackTrace()).isEmpty());
         }
 
         @Test
@@ -452,6 +458,11 @@ class OperationTest {
                                         .hasMessage("key already exists: key");
                                 assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
+            var stage = callback.whenComplete((r, t) -> {});
+            assertThatThrownBy(stage::join)
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(KeyAlreadyExistsException.class)
+                    .satisfies(e -> assertThat(e.getStackTrace()).isEmpty());
         }
 
         @Test
@@ -582,6 +593,11 @@ class OperationTest {
                                         .hasMessage("key 'key' has unexpected versionId (expected 10)");
                                 assertThat(e.getCause().getStackTrace()).isEmpty();
                             });
+            var stage = callback.whenComplete((r, t) -> {});
+            assertThatThrownBy(stage::join)
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(UnexpectedVersionIdException.class)
+                    .satisfies(e -> assertThat(e.getStackTrace()).isEmpty());
         }
 
         @Test
