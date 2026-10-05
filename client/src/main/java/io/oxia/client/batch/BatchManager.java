@@ -47,7 +47,11 @@ public class BatchManager implements AutoCloseable {
         if (closed) {
             throw new IllegalStateException("Batch manager is closed");
         }
-        pool.route(factory, operation);
+        pool.route(operation);
+    }
+
+    BatchFactory factory() {
+        return factory;
     }
 
     @Override

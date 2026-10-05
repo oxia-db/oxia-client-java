@@ -67,10 +67,14 @@ class BatcherPoolTest {
                     1);
 
     BatcherPool pool;
+    BatchManager managerA;
+    BatchManager managerB;
 
     @BeforeEach
     void setup() {
         pool = new BatcherPool("test-shared-batcher", 2);
+        managerA = new BatchManager(factoryA, pool, false);
+        managerB = new BatchManager(factoryB, pool, false);
     }
 
     @AfterEach
@@ -78,8 +82,9 @@ class BatcherPoolTest {
         pool.close();
     }
 
-    private static Operation<?> newOp(long shardId) {
+    private static Operation<?> newOp(BatchManager manager, long shardId) {
         return new GetOperation(
+                manager,
                 shardId,
                 new CompletableFuture<GetResult>(),
                 "key",
@@ -99,8 +104,8 @@ class BatcherPoolTest {
 
         // Both operations target shard 1, so they land on the same batcher thread, but each is
         // batched through its own client's factory.
-        pool.route(factoryA, newOp(1L));
-        pool.route(factoryB, newOp(1L));
+        pool.route(newOp(managerA, 1L));
+        pool.route(newOp(managerB, 1L));
 
         await()
                 .untilAsserted(
@@ -122,7 +127,7 @@ class BatcherPoolTest {
         // A closing client only detaches itself; the shared pool stays up.
         pool.closeFactory(factoryA).join();
 
-        pool.route(factoryB, newOp(1L));
+        pool.route(newOp(managerB, 1L));
         await()
                 .untilAsserted(
                         () -> {
