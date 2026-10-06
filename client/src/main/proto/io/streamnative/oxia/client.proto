@@ -159,6 +159,9 @@ message NamespaceShardsAssignment {
   // Indicates the mechanism by which the keys are assigned to the individual
   // shards.
   ShardKeyRouter shard_key_router = 2;
+
+  // The order of the keys in all shards of this namespace.
+  KeySorting key_sorting = 3;
 }
 
 /**
@@ -181,6 +184,19 @@ enum ShardKeyRouter {
   UNKNOWN = 0;
 
   XXHASH3 = 1;
+}
+
+/**
+ * The order of keys in a namespace.
+ */
+enum KeySorting {
+  KEY_SORTING_UNKNOWN = 0;
+
+  // Keys are sorted by their UTF-8 bytes.
+  KEY_SORTING_NATURAL = 1;
+
+  // Keys with fewer / sort first, then by bytes with / sorting last.
+  KEY_SORTING_HIERARCHICAL = 2;
 }
 
 /**
