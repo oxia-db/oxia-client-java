@@ -16,13 +16,15 @@
 package io.oxia.client.grpc;
 
 import io.grpc.stub.StreamObserver;
+import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.io.InputStream;
 
 final class ManagedSubWriteStream implements StreamObserver<WriteResponse> {
 
     private final ManagedWriteStream parent;
-    private final StreamObserver<WriteRequest> requestObserver;
+    private final StreamObserver<InputStream> requestObserver;
 
     ManagedSubWriteStream(
             ManagedWriteStream parent,
@@ -33,8 +35,14 @@ final class ManagedSubWriteStream implements StreamObserver<WriteResponse> {
         this.requestObserver = rpcProvider.writeStream(shardId, leaderHint, this);
     }
 
-    void send(WriteRequest request) {
-        requestObserver.onNext(request);
+    // Serializes a request for send(), so that the caller can do it before taking its lock. The
+    // result can be sent once: sending it reads it
+    static InputStream serialize(WriteRequest request) {
+        return OxiaClientGrpc.getWriteStreamMethod().streamRequest(request);
+    }
+
+    void send(InputStream serializedRequest) {
+        requestObserver.onNext(serializedRequest);
     }
 
     void complete() {

@@ -19,6 +19,7 @@ import io.github.merlimat.slog.Logger;
 import io.oxia.client.util.Backoff;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -196,9 +197,11 @@ public final class ManagedWriteStream implements AutoCloseable {
     }
 
     public CompletableFuture<WriteResponse> send(WriteRequest request) {
-        lock.lock();
+        // Serialize the request before taking the lock, which every response for the shard needs
+        final InputStream serializedRequest = ManagedSubWriteStream.serialize(request);
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
         final InflightWrite inflightWrite = new InflightWrite(request, future, System.nanoTime());
+        lock.lock();
         try {
             log.debug(
                     event ->
@@ -223,7 +226,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                         initWithRecovery(null);
                     }
                 } else {
-                    subStreamObserver.send(inflightWrite.request);
+                    subStreamObserver.send(serializedRequest);
                     log.debug(
                             event ->
                                     event
@@ -316,7 +319,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                                 .attr("leaderHint", leaderHint)
                                 .log("Replaying inflight writes on opened stream"));
         for (InflightWrite inflightWrite : inflightWrites) {
-            subStreamObserver.send(inflightWrite.request);
+            subStreamObserver.send(ManagedSubWriteStream.serialize(inflightWrite.request));
         }
         log.debug(
                 event ->

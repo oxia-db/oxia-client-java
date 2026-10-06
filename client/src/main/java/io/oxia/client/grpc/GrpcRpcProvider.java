@@ -22,6 +22,8 @@ import dev.failsafe.Timeout;
 import io.github.merlimat.slog.Logger;
 import io.grpc.Context;
 import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.stub.ClientCalls;
 import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.ClientConfig;
@@ -47,8 +49,8 @@ import io.oxia.proto.ReadResponse;
 import io.oxia.proto.SessionHeartbeat;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
-import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -65,6 +67,25 @@ final class GrpcRpcProvider implements RpcProvider {
             Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SHARD_ID_KEY =
             Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
+
+    // The write stream takes requests that ManagedSubWriteStream.serialize() serialized, and sends
+    // them as they are, so that serializing them doesn't hold the ManagedWriteStream lock. Each one
+    // can only be streamed once, which holds as the channel doesn't retry calls.
+    private static final MethodDescriptor<InputStream, WriteResponse> WRITE_STREAM_METHOD =
+            OxiaClientGrpc.getWriteStreamMethod().toBuilder(
+                            new MethodDescriptor.Marshaller<InputStream>() {
+                                @Override
+                                public InputStream stream(InputStream value) {
+                                    return value;
+                                }
+
+                                @Override
+                                public InputStream parse(InputStream stream) {
+                                    return stream;
+                                }
+                            },
+                            OxiaClientGrpc.getWriteStreamMethod().getResponseMarshaller())
+                    .build();
 
     private final ClientConfig clientConfig;
     private final ConnectionManager connectionManager;
@@ -335,7 +356,7 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public StreamObserver<WriteRequest> writeStream(
+    public StreamObserver<InputStream> writeStream(
             long shardId,
             OxiaStatusException leaderHint,
             StreamObserver<WriteResponse> responseObserver) {
@@ -345,12 +366,14 @@ final class GrpcRpcProvider implements RpcProvider {
         final var headers = new Metadata();
         headers.put(NAMESPACE_KEY, clientConfig.namespace());
         headers.put(SHARD_ID_KEY, Long.toString(shardId));
-        final var requestObserver =
+        final var stub =
                 connectionManager
                         .getConnection(getLeader(shardId, hint))
                         .stub()
-                        .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
-                        .writeStream(barrierObserver);
+                        .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
+        final var requestObserver =
+                ClientCalls.asyncBidiStreamingCall(
+                        stub.getChannel().newCall(WRITE_STREAM_METHOD, stub.getCallOptions()), barrierObserver);
         // we don't need to wait for the stream to be ready, only need to check if it's fast failed
         future.complete(null);
         future.join();
