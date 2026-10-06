@@ -23,17 +23,15 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.NonNull;
 
 public final class ManagedWriteStream implements AutoCloseable {
     private final Logger log;
 
+    // A replay sends the same request again: serializing it doesn't consume its buffers
     record InflightWrite(
-            Supplier<WriteRequest> requestSupplier,
-            CompletableFuture<WriteResponse> future,
-            long timestampNanos) {}
+            WriteRequest request, CompletableFuture<WriteResponse> future, long timestampNanos) {}
 
     private final long shardId;
     private final RpcProvider rpcProvider;
@@ -197,11 +195,10 @@ public final class ManagedWriteStream implements AutoCloseable {
         }
     }
 
-    public CompletableFuture<WriteResponse> send(Supplier<WriteRequest> requestSupplier) {
+    public CompletableFuture<WriteResponse> send(WriteRequest request) {
         lock.lock();
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();
-        final InflightWrite inflightWrite =
-                new InflightWrite(requestSupplier, future, System.nanoTime());
+        final InflightWrite inflightWrite = new InflightWrite(request, future, System.nanoTime());
         try {
             log.debug(
                     event ->
@@ -226,7 +223,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                         initWithRecovery(null);
                     }
                 } else {
-                    subStreamObserver.send(inflightWrite.requestSupplier.get());
+                    subStreamObserver.send(inflightWrite.request);
                     log.debug(
                             event ->
                                     event
@@ -319,7 +316,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                                 .attr("leaderHint", leaderHint)
                                 .log("Replaying inflight writes on opened stream"));
         for (InflightWrite inflightWrite : inflightWrites) {
-            subStreamObserver.send(inflightWrite.requestSupplier.get());
+            subStreamObserver.send(inflightWrite.request);
         }
         log.debug(
                 event ->
