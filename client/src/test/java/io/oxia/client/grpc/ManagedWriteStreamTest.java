@@ -32,15 +32,21 @@ import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.buffer.UnpooledHeapByteBuf;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledFuture;
@@ -73,6 +79,66 @@ class ManagedWriteStreamTest {
 
             await().untilAsserted(() -> assertThat(keys(requests)).containsExactly("key-1", "key-2"));
         } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void handlesResponseWhileAnotherWriteIsSerialized() throws Exception {
+        var requests = new LinkedBlockingQueue<WriteRequest>();
+        var responses = new CompletableFuture<StreamObserver<WriteResponse>>();
+        Server server =
+                writeServer(
+                        new OxiaClientGrpc.OxiaClientImplBase() {
+                            @Override
+                            public StreamObserver<WriteRequest> writeStream(
+                                    StreamObserver<WriteResponse> responseObserver) {
+                                responses.complete(responseObserver);
+                                return new StreamObserver<>() {
+                                    @Override
+                                    public void onNext(WriteRequest value) {
+                                        requests.add(value);
+                                    }
+
+                                    @Override
+                                    public void onError(Throwable t) {}
+
+                                    @Override
+                                    public void onCompleted() {}
+                                };
+                            }
+                        });
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var sender = Executors.newSingleThreadExecutor();
+        var config = clientConfig(address);
+        var value = new BlockingValue("value-2".getBytes(StandardCharsets.UTF_8));
+
+        try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
+                var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
+            var first = stream.send(writeRequest(1));
+            assertThat(requests.poll(5, TimeUnit.SECONDS)).isNotNull();
+
+            var request = new WriteRequest().setShard(1);
+            request.addPut().setKey("key-2").setValue(value);
+            var second = sender.submit(() -> stream.send(request));
+            try {
+                assertThat(value.serializing.await(5, TimeUnit.SECONDS)).isTrue();
+                // The response to the first write doesn't wait for the second one to be serialized
+                responses.get().onNext(new WriteResponse());
+                first.get(5, TimeUnit.SECONDS);
+            } finally {
+                value.proceed.countDown();
+            }
+
+            var secondRequest = requests.poll(5, TimeUnit.SECONDS);
+            assertThat(secondRequest.getPutAt(0).getValue())
+                    .isEqualTo("value-2".getBytes(StandardCharsets.UTF_8));
+            responses.get().onNext(new WriteResponse());
+            second.get(5, TimeUnit.SECONDS).get(5, TimeUnit.SECONDS);
+        } finally {
+            sender.shutdownNow();
             executor.shutdownNow();
             server.shutdownNow();
         }
@@ -131,9 +197,9 @@ class ManagedWriteStreamTest {
                 .thenAnswer(
                         invocation -> {
                             var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
-                            return new StreamObserver<WriteRequest>() {
+                            return new StreamObserver<InputStream>() {
                                 @Override
-                                public void onNext(WriteRequest value) {}
+                                public void onNext(InputStream value) {}
 
                                 @Override
                                 public void onError(Throwable t) {}
@@ -292,10 +358,10 @@ class ManagedWriteStreamTest {
                             var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
                             responseObservers.add(responseObserver);
                             var attempt = openAttempts.incrementAndGet();
-                            return new StreamObserver<WriteRequest>() {
+                            return new StreamObserver<InputStream>() {
                                 @Override
-                                public void onNext(WriteRequest value) {
-                                    requests.add(value);
+                                public void onNext(InputStream value) {
+                                    requests.add(OxiaClientGrpc.getWriteStreamMethod().parseRequest(value));
                                     if (attempt == 2) {
                                         replayFailures.incrementAndGet();
                                         throw Status.UNAVAILABLE.withDescription("failed replay").asRuntimeException();
@@ -351,9 +417,9 @@ class ManagedWriteStreamTest {
                         invocation -> {
                             var responseObserver = invocation.<StreamObserver<WriteResponse>>getArgument(2);
                             responseObservers.add(responseObserver);
-                            return new StreamObserver<WriteRequest>() {
+                            return new StreamObserver<InputStream>() {
                                 @Override
-                                public void onNext(WriteRequest value) {
+                                public void onNext(InputStream value) {
                                     requestCount.incrementAndGet();
                                 }
 
@@ -438,9 +504,9 @@ class ManagedWriteStreamTest {
                 .thenAnswer(
                         invocation -> {
                             responseObservers.add(invocation.getArgument(2));
-                            return new StreamObserver<WriteRequest>() {
+                            return new StreamObserver<InputStream>() {
                                 @Override
-                                public void onNext(WriteRequest value) {}
+                                public void onNext(InputStream value) {}
 
                                 @Override
                                 public void onError(Throwable t) {}
@@ -544,6 +610,27 @@ class ManagedWriteStreamTest {
         return requests.stream()
                 .map(request -> new String(request.getPutAt(0).getValue(), StandardCharsets.UTF_8))
                 .toList();
+    }
+
+    // A value whose serialization waits until the test lets it proceed
+    private static final class BlockingValue extends UnpooledHeapByteBuf {
+        final CountDownLatch serializing = new CountDownLatch(1);
+        final CountDownLatch proceed = new CountDownLatch(1);
+
+        BlockingValue(byte[] value) {
+            super(UnpooledByteBufAllocator.DEFAULT, value, value.length);
+        }
+
+        @Override
+        public ByteBuf getBytes(int index, byte[] dst, int dstIndex, int length) {
+            serializing.countDown();
+            try {
+                proceed.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return super.getBytes(index, dst, dstIndex, length);
+        }
     }
 
     private static io.oxia.client.ClientConfig clientConfig(String address) {
