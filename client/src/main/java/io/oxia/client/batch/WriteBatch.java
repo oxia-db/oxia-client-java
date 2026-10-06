@@ -104,7 +104,7 @@ final class WriteBatch extends BatchBase implements Batch {
         try {
             final ManagedWriteStream writeStream = rpcProvider.getWriteStream(getShardId());
             writeStream
-                    .send(this::toProto)
+                    .send(toProto())
                     .whenComplete(
                             (response, ex) -> {
                                 // Free the window slot first, so the next batch is dispatched

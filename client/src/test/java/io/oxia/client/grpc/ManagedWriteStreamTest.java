@@ -65,8 +65,8 @@ class ManagedWriteStreamTest {
             var first = writeRequest(1);
             var second = writeRequest(2);
 
-            var firstFuture = stream.send(() -> first);
-            var secondFuture = stream.send(() -> second);
+            var firstFuture = stream.send(first);
+            var secondFuture = stream.send(second);
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
@@ -104,7 +104,7 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address);
                 var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
-            var pending = stream.send(() -> writeRequest(1));
+            var pending = stream.send(writeRequest(1));
 
             stream.close();
 
@@ -117,7 +117,7 @@ class ManagedWriteStreamTest {
                                 assertThat(oxiaError.getStatusCode())
                                         .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
                             });
-            assertThat(stream.send(() -> writeRequest(2))).isCompletedExceptionally();
+            assertThat(stream.send(writeRequest(2))).isCompletedExceptionally();
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -147,7 +147,7 @@ class ManagedWriteStreamTest {
 
         var executor = Executors.newSingleThreadScheduledExecutor();
         try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
-            var pending = stream.send(() -> writeRequest(1));
+            var pending = stream.send(writeRequest(1));
 
             stream.close();
 
@@ -196,7 +196,7 @@ class ManagedWriteStreamTest {
         try (var provider = new GrpcRpcProvider(config, executor, shard -> address)) {
             var firstStream = provider.getWriteStream(1);
             assertThat(provider.getWriteStream(1)).isSameAs(firstStream);
-            var timedOut = firstStream.send(() -> writeRequest(1));
+            var timedOut = firstStream.send(writeRequest(1));
 
             assertThatThrownBy(() -> timedOut.get(5, TimeUnit.SECONDS))
                     .hasCauseInstanceOf(OxiaStatusException.class)
@@ -208,7 +208,7 @@ class ManagedWriteStreamTest {
 
             await().untilAsserted(() -> assertThat(firstStream.isClosed()).isTrue());
             firstStream.close();
-            assertThatThrownBy(() -> firstStream.send(() -> writeRequest(2)).get())
+            assertThatThrownBy(() -> firstStream.send(writeRequest(2)).get())
                     .hasCauseInstanceOf(OxiaStatusException.class)
                     .satisfies(
                             error -> {
@@ -259,8 +259,8 @@ class ManagedWriteStreamTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shard -> staleAddress);
                 var stream = new ManagedWriteStream(1, provider, executor, config.requestTimeout())) {
-            var firstFuture = stream.send(() -> writeRequest(1));
-            var secondFuture = stream.send(() -> writeRequest(2));
+            var firstFuture = stream.send(writeRequest(1));
+            var secondFuture = stream.send(writeRequest(2));
 
             firstFuture.get(5, TimeUnit.SECONDS);
             secondFuture.get(5, TimeUnit.SECONDS);
@@ -315,7 +315,7 @@ class ManagedWriteStreamTest {
 
         var executor = Executors.newSingleThreadScheduledExecutor();
         try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
-            var future = stream.send(() -> writeRequest(1));
+            var future = stream.send(writeRequest(1));
             await()
                     .untilAsserted(
                             () -> {
@@ -367,7 +367,7 @@ class ManagedWriteStreamTest {
 
         var executor = Executors.newSingleThreadScheduledExecutor();
         try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
-            var future = stream.send(() -> writeRequest(1));
+            var future = stream.send(writeRequest(1));
             assertThat(requestCount).hasValue(1);
             assertThat(responseObservers).hasSize(1);
 
@@ -416,7 +416,7 @@ class ManagedWriteStreamTest {
         var config = clientConfig(leader.get());
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> leader.get())) {
-            var future = provider.getWriteStream(1).send(() -> new WriteRequest().setShard(1));
+            var future = provider.getWriteStream(1).send(new WriteRequest().setShard(1));
 
             Thread.sleep(500);
             assertThat(formerLeaderOpens.get()).isBetween(2, 10);
@@ -460,7 +460,7 @@ class ManagedWriteStreamTest {
                 };
 
         try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
-            var first = stream.send(() -> writeRequest(1));
+            var first = stream.send(writeRequest(1));
 
             // The first reconnect is right away, the next ones back off more and more, even when
             // the stream opens fine
@@ -469,7 +469,7 @@ class ManagedWriteStreamTest {
             responseObservers.poll(5, TimeUnit.SECONDS).onError(notLeaderError());
             assertThat(retryDelays.poll()).isGreaterThanOrEqualTo(DEFAULT_INITIAL_DELAY_MILLIS);
             // A write sent meanwhile doesn't open another stream: the scheduled retry replays it
-            var second = stream.send(() -> writeRequest(2));
+            var second = stream.send(writeRequest(2));
             assertThat(responseObservers).isEmpty();
             responseObservers.poll(5, TimeUnit.SECONDS).onCompleted();
             assertThat(retryDelays.poll()).isGreaterThanOrEqualTo(2 * DEFAULT_INITIAL_DELAY_MILLIS);
@@ -480,7 +480,7 @@ class ManagedWriteStreamTest {
             working.onNext(new WriteResponse());
             first.get(5, TimeUnit.SECONDS);
             second.get(5, TimeUnit.SECONDS);
-            var third = stream.send(() -> writeRequest(3));
+            var third = stream.send(writeRequest(3));
             working.onError(notLeaderError());
             assertThat(retryDelays.poll()).isZero();
 
