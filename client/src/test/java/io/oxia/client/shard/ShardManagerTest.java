@@ -29,16 +29,19 @@ import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
+import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -202,6 +205,32 @@ public class ShardManagerTest {
             verify(rpcProvider, org.mockito.Mockito.times(2))
                     .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
             assertThat(stubCalls).hasValue(2);
+        }
+
+        @Test
+        void callbacksOnlyReceiveChangedAssignments() {
+            var received = new ArrayList<ShardAssignmentChanges>();
+            manager.addCallback(received::add);
+            Function<String, ShardAssignments> assignments =
+                    leader -> {
+                        var sa = new ShardAssignments();
+                        var assignment = sa.putNamespaces(namespace).addAssignment();
+                        assignment.setShard(0).setLeader(leader);
+                        assignment
+                                .setInt32HashRange()
+                                .setMinHashInclusive(0)
+                                .setMaxHashInclusive(Integer.MAX_VALUE);
+                        return sa;
+                    };
+
+            manager.onNext(assignments.apply("leader0"));
+            manager.onNext(assignments.apply("leader0"));
+            manager.onNext(assignments.apply("leader1"));
+
+            assertThat(received).hasSize(2);
+            assertThat(received.get(0).added()).extracting(Shard::id).containsExactly(0L);
+            assertThat(received.get(1).reassigned()).extracting(Shard::leader).containsExactly("leader1");
+            assertThat(manager.leader(0)).isEqualTo("leader1");
         }
 
         @Test

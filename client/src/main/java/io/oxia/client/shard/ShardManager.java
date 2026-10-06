@@ -20,8 +20,6 @@ import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
 import static io.oxia.client.shard.HashRangeShardStrategy.Xxh332HashRangeShardStrategy;
 import static java.util.Collections.unmodifiableMap;
 import static java.util.Collections.unmodifiableSet;
-import static java.util.function.Function.identity;
-import static java.util.stream.Collectors.toMap;
 import static java.util.stream.Collectors.toSet;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -39,15 +37,14 @@ import io.oxia.client.util.Backoff;
 import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 import lombok.NonNull;
 
 public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignments> {
@@ -178,6 +175,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 nsSharedAssignments.getAssignmentsList().stream().map(Shard::fromProto).collect(toSet());
         var updatedMap = recomputeShardHashBoundaries(assignments.allShards(), updates);
         var changes = computeShardLeaderChanges(assignments.allShards(), updatedMap);
+        // The server sends the shards of this namespace whenever any namespace changes, and again on
+        // each stream restart: most updates change nothing here
+        if (changes.added().isEmpty()
+                && changes.removed().isEmpty()
+                && changes.reassigned().isEmpty()) {
+            return;
+        }
         assignments.update(changes);
         callbacks.accept(changes);
     }
@@ -185,30 +189,25 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @VisibleForTesting
     static Map<Long, Shard> recomputeShardHashBoundaries(
             Map<Long, Shard> assignments, Set<Shard> updates) {
-        var toDelete = new ArrayList<>();
+        var updated = new HashMap<>(assignments);
         var log = Logger.get(ShardManager.class);
         for (var update : updates) {
+            // The shards don't overlap each other, so a known shard that keeps its hash range can't
+            // overlap any other: only the new shards and the changed hash ranges need the scan
+            var current = assignments.get(update.id());
+            if (current != null && current.hashRange().equals(update.hashRange())) {
+                continue;
+            }
             for (var existing : update.findOverlapping(assignments.values())) {
                 log.info()
                         .attr("existing", existing)
                         .attr("update", update)
                         .log("Deleting shard as it overlaps");
-                toDelete.add(existing.id());
+                updated.remove(existing.id());
             }
         }
-
-        return unmodifiableMap(
-                Stream.concat(
-                                assignments.entrySet().stream()
-                                        .filter(e -> !toDelete.contains(e.getKey()))
-                                        .map(Map.Entry::getValue),
-                                updates.stream())
-                        .collect(
-                                toMap(
-                                        Shard::id,
-                                        identity(),
-                                        // merge function to avoid throw any exception when receive unchanged events
-                                        (existing, newValue) -> newValue)));
+        updates.forEach(update -> updated.put(update.id(), update));
+        return unmodifiableMap(updated);
     }
 
     @VisibleForTesting
