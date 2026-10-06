@@ -77,9 +77,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     static @NonNull CompletableFuture<AsyncOxiaClient> newInstance(@NonNull ClientConfig config) {
         final ScheduledExecutorService asyncExecutor =
-                Executors.newScheduledThreadPool(
-                        Runtime.getRuntime().availableProcessors(),
-                        new DefaultThreadFactory("oxia-client-async"));
+                Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client-async"));
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
         var shardManagerRef = new AtomicReference<ShardManager>();
         var rpcProvider =
