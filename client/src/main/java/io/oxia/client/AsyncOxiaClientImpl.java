@@ -883,7 +883,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         startKeyInclusive,
                         endKeyExclusive,
                         secondaryIndexName,
-                        timedConsumer,
+                        new CompositeRangeScanConsumer(1, timedConsumer),
                         flowControl);
                 return;
             }
@@ -909,7 +909,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
-            RangeScanConsumer consumer,
+            CompositeRangeScanConsumer consumer,
             FlowControlledRangeScanConsumer flowControl) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
@@ -924,11 +924,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private static final class RangeScanShardObserver
             extends CancelableStreamObserver<RangeScanResponse>
             implements FlowControlledRangeScanConsumer.StreamHandle {
-        private final RangeScanConsumer consumer;
+        private final CompositeRangeScanConsumer consumer;
         private final FlowControlledRangeScanConsumer flowControl;
 
         RangeScanShardObserver(
-                RangeScanConsumer consumer, FlowControlledRangeScanConsumer flowControl) {
+                CompositeRangeScanConsumer consumer, FlowControlledRangeScanConsumer flowControl) {
             super(flowControl != null);
             this.consumer = consumer;
             this.flowControl = flowControl;
@@ -936,13 +936,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
         @Override
         protected void handleNext(RangeScanResponse response) {
+            // Convert the records before handing them over: the consumer delivers them under
+            // a lock shared with the other shard streams of the scan.
+            final List<GetResult> results = new ArrayList<>(response.getRecordsCount());
             for (int i = 0; i < response.getRecordsCount(); i++) {
-                final boolean needNext =
-                        consumer.onNext(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
-                if (!needNext) {
-                    cancelAndComplete();
-                    return;
-                }
+                results.add(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
+            }
+            if (!consumer.onNext(results)) {
+                cancelAndComplete();
+                return;
             }
             if (flowControl != null) {
                 flowControl.onStreamIdle(this);

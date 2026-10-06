@@ -57,6 +57,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -699,6 +700,105 @@ class AsyncOxiaClientImplTest {
         // Subsequent per-shard onCompleted calls (e.g., from cancel-induced errors) do not
         // re-trigger user onCompleted.
         shared.onCompleted();
+        shared.onCompleted();
+        Assertions.assertEquals(1, onCompletedCount.get());
+    }
+
+    @Test
+    void testCompositeRangeScanConsumerResponses() {
+        final int shards = 4;
+        final int responses = 50;
+        final int recordsPerResponse = 100;
+        final List<String> keys = new ArrayList<>();
+        final AtomicInteger onCompletedCount = new AtomicInteger(0);
+        final var shared =
+                new CompositeRangeScanConsumer(
+                        shards,
+                        new RangeScanConsumer() {
+                            @Override
+                            public boolean onNext(GetResult result) {
+                                keys.add(result.key());
+                                return true;
+                            }
+
+                            @Override
+                            public void onError(Throwable throwable) {}
+
+                            @Override
+                            public void onCompleted() {
+                                onCompletedCount.incrementAndGet();
+                            }
+                        });
+
+        final var tasks = new ArrayList<ForkJoinTask<?>>();
+        for (int s = 0; s < shards; s++) {
+            final int shard = s;
+            tasks.add(
+                    ForkJoinPool.commonPool()
+                            .submit(
+                                    () -> {
+                                        for (int r = 0; r < responses; r++) {
+                                            final List<GetResult> response = new ArrayList<>();
+                                            for (int i = 0; i < recordsPerResponse; i++) {
+                                                response.add(
+                                                        new GetResult(
+                                                                shard + "-" + r + "-" + i,
+                                                                new byte[1],
+                                                                new Version(1, 2, 3, 4, empty(), empty())));
+                                            }
+                                            Assertions.assertTrue(shared.onNext(response));
+                                        }
+                                        shared.onCompleted();
+                                    }));
+        }
+        tasks.forEach(ForkJoinTask::join);
+
+        // The records of a response reach the user consumer together, in order.
+        Assertions.assertEquals(shards * responses * recordsPerResponse, keys.size());
+        for (int start = 0; start < keys.size(); start += recordsPerResponse) {
+            final String response = keys.get(start).substring(0, keys.get(start).lastIndexOf('-'));
+            for (int i = 0; i < recordsPerResponse; i++) {
+                Assertions.assertEquals(response + "-" + i, keys.get(start + i));
+            }
+        }
+        Assertions.assertEquals(1, onCompletedCount.get());
+    }
+
+    @Test
+    void testCompositeRangeScanConsumerResponseEarlyStop() {
+        final int stopAfter = 2;
+        final List<GetResult> results = new ArrayList<>();
+        final AtomicInteger onCompletedCount = new AtomicInteger(0);
+        final var shared =
+                new CompositeRangeScanConsumer(
+                        2,
+                        new RangeScanConsumer() {
+                            @Override
+                            public boolean onNext(GetResult result) {
+                                results.add(result);
+                                return results.size() < stopAfter;
+                            }
+
+                            @Override
+                            public void onError(Throwable throwable) {}
+
+                            @Override
+                            public void onCompleted() {
+                                onCompletedCount.incrementAndGet();
+                            }
+                        });
+        final Function<String, GetResult> record =
+                key -> new GetResult(key, new byte[1], new Version(1, 2, 3, 4, empty(), empty()));
+
+        // The user stops in the middle of a response: the rest of it is dropped.
+        Assertions.assertFalse(
+                shared.onNext(List.of(record.apply("k1"), record.apply("k2"), record.apply("k3"))));
+        Assertions.assertEquals(List.of("k1", "k2"), results.stream().map(GetResult::key).toList());
+        Assertions.assertEquals(1, onCompletedCount.get());
+
+        // The responses of the other shard are dropped too.
+        Assertions.assertFalse(shared.onNext(List.of(record.apply("k4"))));
+        Assertions.assertEquals(stopAfter, results.size());
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
     }

@@ -17,6 +17,7 @@ package io.oxia.client.operation.rangescan;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.RangeScanConsumer;
+import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class CompositeRangeScanConsumer implements RangeScanConsumer {
@@ -36,18 +37,40 @@ public class CompositeRangeScanConsumer implements RangeScanConsumer {
     public boolean onNext(GetResult result) {
         lock.lock();
         try {
-            if (completed) {
-                return false; // ignore the dirty data
-            }
-            final boolean wantNext = delegate.onNext(result);
-            if (!wantNext) {
-                completed = true;
-                delegate.onCompleted();
-            }
-            return wantNext;
+            return deliver(result);
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Delivers the records of one shard response, taking the lock shared by all the shard streams
+     * once for the whole response rather than once per record.
+     */
+    public boolean onNext(List<GetResult> results) {
+        lock.lock();
+        try {
+            for (GetResult result : results) {
+                if (!deliver(result)) {
+                    return false;
+                }
+            }
+            return true;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private boolean deliver(GetResult result) {
+        if (completed) {
+            return false; // ignore the dirty data
+        }
+        final boolean wantNext = delegate.onNext(result);
+        if (!wantNext) {
+            completed = true;
+            delegate.onCompleted();
+        }
+        return wantNext;
     }
 
     @Override
