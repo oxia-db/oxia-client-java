@@ -60,6 +60,7 @@ import java.io.Closeable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -650,6 +651,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private void internalGetMultiShards(
             String key, GetOptions options, CompletableFuture<GetResult> result) {
+        // Keep one ordering snapshot for the whole operation. Index results contain primary keys.
+        var keyComparator =
+                options.secondaryIndexName() == null
+                        ? shardManager.getKeyComparator()
+                        : CompareWithSlash.INSTANCE;
         // We need check on all the shards for a floor/ceiling query
         List<CompletableFuture<GetResult>> futures = new ArrayList<>();
         for (long shardId : shardManager.allShardIds()) {
@@ -671,7 +677,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                         futures.stream()
                                                 .map(CompletableFuture::join)
                                                 .filter(Objects::nonNull)
-                                                .sorted((o1, o2) -> CompareWithSlash.INSTANCE.compare(o1.key(), o2.key()))
+                                                .sorted(Comparator.comparing(GetResult::key, keyComparator))
                                                 .toList();
                                 if (results.isEmpty()) {
                                     result.complete(null);
@@ -742,6 +748,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private CompletableFuture<List<String>> internalListMultiShards(
             String startKeyInclusive, String endKeyExclusive, Optional<String> secondaryIndex) {
+        // Preserve the existing primary-key order for secondary-index results.
+        var keyComparator =
+                secondaryIndex.isEmpty() ? shardManager.getKeyComparator() : CompareWithSlash.INSTANCE;
         List<CompletableFuture<List<String>>> futures = new ArrayList<>();
         for (long shardId : shardManager.allShardIds()) {
             futures.add(internalShardlist(shardId, startKeyInclusive, endKeyExclusive, secondaryIndex));
@@ -756,7 +765,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 list.addAll(future.join());
                             }
 
-                            list.sort(CompareWithSlash.INSTANCE);
+                            list.sort(keyComparator);
                             result.complete(list);
                         })
                 .exceptionally(
