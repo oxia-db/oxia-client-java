@@ -15,6 +15,7 @@
  */
 package io.oxia.client.notify;
 
+import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
@@ -36,6 +37,8 @@ import lombok.Getter;
 import lombok.NonNull;
 
 public class NotificationManager implements AutoCloseable, Consumer<ShardAssignmentChanges> {
+    private static final Logger log = Logger.get(NotificationManager.class);
+
     private final ConcurrentMap<Long, ShardNotificationReceiver> shardReceivers =
             new ConcurrentHashMap<>();
     private final @NonNull ShardNotificationReceiver.Factory receiverFactory;
@@ -87,10 +90,13 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
 
     @Override
     public void accept(@NonNull ShardAssignmentChanges changes) {
-        if (!started || closed) {
-            return;
+        // Waits for the first registration, which may have read the shard map before this change
+        synchronized (this) {
+            if (!started || closed) {
+                return;
+            }
+            connectNotificationReceivers(changes);
         }
-        connectNotificationReceivers(changes);
     }
 
     public void registerCallback(@NonNull Consumer<Notification> callback) {
@@ -115,7 +121,16 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
     }
 
     private void connectNotificationReceivers(@NonNull ShardAssignmentChanges changes) {
-        changes.removed().forEach(shard -> shardReceivers.remove(shard.id()).close());
+        changes
+                .removed()
+                .forEach(
+                        shard -> {
+                            // None if the first registration saw the shard map without the shard
+                            var receiver = shardReceivers.remove(shard.id());
+                            if (receiver != null) {
+                                followSplit(shard.id(), receiver);
+                            }
+                        });
         changes
                 .added()
                 .forEach(
@@ -133,6 +148,32 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                             shardReceivers.computeIfAbsent(
                                     s.id(), id -> receiverFactory.newReceiver(s.id(), this, offset));
                         });
+    }
+
+    /**
+     * Closes the receiver of a shard removed from the shard map and, if the shard was split, starts
+     * the receivers of the shards that replaced it from the last batch it received: they continue its
+     * offsets, and each of them sends the notifications of the shard that the receiver didn't get, on
+     * its side of the split, before its own. Without a batch received, they start where they are.
+     */
+    private void followSplit(long shardId, ShardNotificationReceiver receiver) {
+        // The stream of a split shard doesn't end by itself: it's canceled right away, once the batch
+        // being delivered is done
+        receiver.close();
+        var successors = shardManager.currentSuccessors(shardId);
+        if (successors.isEmpty()) {
+            return;
+        }
+        var offset = receiver.getOffset();
+        log.info()
+                .attr("shard", shardId)
+                .attr("shards", successors)
+                .attr("offset", offset)
+                .log("Following the split of the shard");
+        successors.forEach(
+                successor ->
+                        shardReceivers.computeIfAbsent(
+                                successor, id -> receiverFactory.newReceiver(id, this, offset)));
     }
 
     @Override

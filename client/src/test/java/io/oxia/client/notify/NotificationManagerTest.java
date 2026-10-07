@@ -193,6 +193,62 @@ class NotificationManagerTest {
         }
 
         @Test
+        void acceptRemovedShardWithoutReceiver() {
+            // The first callback was registered with the shard map that replaced shard 0 with shards 1
+            // and 2, before the change got here
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
+
+            manager.registerCallback(n -> {});
+
+            var changes =
+                    new ShardAssignmentChanges(
+                            Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)),
+                            Set.of(new Shard(0L, "leader0", r)),
+                            Set.of());
+            assertThatNoException().isThrownBy(() -> manager.accept(changes));
+
+            verify(receiverFactory).newReceiver(1L, manager, OptionalLong.empty());
+            verify(receiverFactory).newReceiver(2L, manager, OptionalLong.empty());
+            verifyNoInteractions(receiver1, receiver2);
+        }
+
+        @Test
+        void acceptShardMapChangeDuringFirstRegistration() throws Exception {
+            var changes =
+                    new ShardAssignmentChanges(
+                            Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)),
+                            Set.of(new Shard(0L, "leader0", r)),
+                            Set.of());
+            var change = new Thread(() -> manager.accept(changes));
+            // The shard map changes after the first registration read it
+            when(shardManager.allShards())
+                    .thenAnswer(
+                            invocation -> {
+                                change.start();
+                                await()
+                                        .until(
+                                                () ->
+                                                        change.getState() != Thread.State.NEW
+                                                                && change.getState() != Thread.State.RUNNABLE);
+                                return Set.of(new Shard(0L, "leader0", r));
+                            });
+            when(receiverFactory.newReceiver(0L, manager, OptionalLong.empty())).thenReturn(receiver3);
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
+
+            manager.registerCallback(n -> {});
+            change.join();
+
+            // The change is applied once the registration is done
+            verify(receiver3).close();
+            verify(receiverFactory).newReceiver(1L, manager, OptionalLong.empty());
+            verify(receiverFactory).newReceiver(2L, manager, OptionalLong.empty());
+        }
+
+        @Test
         void closeNotStarted() {
             assertThatNoException().isThrownBy(() -> manager.close());
         }
