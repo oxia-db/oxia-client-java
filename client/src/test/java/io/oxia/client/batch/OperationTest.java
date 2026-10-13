@@ -16,6 +16,7 @@
 package io.oxia.client.batch;
 
 import static io.oxia.client.api.options.defs.OptionVersionId.KEY_NOT_EXISTS;
+import static io.oxia.proto.Status.INVALID_ARGUMENT;
 import static io.oxia.proto.Status.KEY_NOT_FOUND;
 import static io.oxia.proto.Status.OK;
 import static io.oxia.proto.Status.SESSION_DOES_NOT_EXIST;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -516,6 +518,22 @@ class OperationTest {
         }
 
         @Test
+        void completeInvalidArgument() {
+            var response = new PutResponse();
+            response.setStatus(INVALID_ARGUMENT);
+            op.complete(response);
+            assertThat(callback).isCompletedExceptionally();
+            assertThatThrownBy(callback::get)
+                    .satisfies(
+                            e -> {
+                                assertThat(e).isInstanceOf(ExecutionException.class);
+                                assertThat(e.getCause())
+                                        .isInstanceOf(InvalidArgumentException.class)
+                                        .hasMessage("put of key 'key' rejected for an invalid argument");
+                            });
+        }
+
+        @Test
         void completeOk() {
             var response = new PutResponse();
             response.setStatus(OK).setKey("my-key");
@@ -662,6 +680,22 @@ class OperationTest {
             response.setStatus(OK);
             op.complete(response);
             assertThat(callback).isCompleted();
+        }
+
+        @Test
+        void completeInvalidArgument() {
+            var response = new DeleteRangeResponse();
+            response.setStatus(INVALID_ARGUMENT);
+            op.complete(response);
+            assertThat(callback).isCompletedExceptionally();
+            assertThatThrownBy(callback::get)
+                    .satisfies(
+                            e -> {
+                                assertThat(e).isInstanceOf(ExecutionException.class);
+                                assertThat(e.getCause())
+                                        .isInstanceOf(InvalidArgumentException.class)
+                                        .hasMessage("delete range ['a', 'b') rejected for an invalid argument");
+                            });
         }
     }
 }

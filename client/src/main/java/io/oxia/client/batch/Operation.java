@@ -27,6 +27,7 @@ import io.netty.buffer.ByteBufUtil;
 import io.oxia.client.ProtoUtil;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -210,6 +211,10 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                             failExpected(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
                         }
                     }
+                    case INVALID_ARGUMENT ->
+                            fail(
+                                    new InvalidArgumentException(
+                                            "put of key '" + key + "' rejected for an invalid argument"));
                     case OK -> callback.complete(ProtoUtil.getPutResultFromProto(key, response));
                     default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
                 }
@@ -319,6 +324,14 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             void complete(@NonNull DeleteRangeResponse response) {
                 if (response.getStatus() == Status.OK) {
                     callback.complete(null);
+                } else if (response.getStatus() == Status.INVALID_ARGUMENT) {
+                    fail(
+                            new InvalidArgumentException(
+                                    "delete range ['"
+                                            + startKeyInclusive
+                                            + "', '"
+                                            + endKeyExclusive
+                                            + "') rejected for an invalid argument"));
                 } else {
                     fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
                 }
