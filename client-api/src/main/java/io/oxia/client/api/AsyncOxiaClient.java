@@ -71,7 +71,10 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     UnexpectedVersionIdException} if the versionId at the server did not that match supplied in
      *     the call, or with a {@link io.oxia.client.api.exceptions.KeyAlreadyExistsException
      *     KeyAlreadyExistsException} if the key already exists on the server and the put was
-     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
+     *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}), or with an
+     *     {@link io.oxia.client.api.exceptions.InvalidArgumentException InvalidArgumentException} if
+     *     the server rejected the put for an invalid argument, such as a sequential put that doesn't
+     *     fit its sequence.
      */
     CompletableFuture<PutResult> put(String key, byte[] value, Set<PutOption> options);
 
