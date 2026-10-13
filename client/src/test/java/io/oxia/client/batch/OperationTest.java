@@ -68,6 +68,21 @@ class OperationTest {
     // The batch manager the operations are submitted to: these tests don't route them
     private static final BatchManager batchManager = mock(BatchManager.class);
 
+    // A response with status 99, a number the client's Status enum doesn't define: field 1, a varint
+    private static final byte[] UNKNOWN_STATUS = {0x08, 99};
+
+    private static void assertFailedWithIllegalState(CompletableFuture<?> callback, String message) {
+        assertThat(callback).isCompletedExceptionally();
+        assertThatThrownBy(callback::get)
+                .satisfies(
+                        e -> {
+                            assertThat(e).isInstanceOf(ExecutionException.class);
+                            assertThat(e.getCause())
+                                    .isInstanceOf(IllegalStateException.class)
+                                    .hasMessage(message);
+                        });
+    }
+
     @Nested
     @DisplayName("Tests of get operation")
     class GetOperationTests {
@@ -138,6 +153,22 @@ class OperationTest {
                                     payload,
                                     new io.oxia.client.api.Version(
                                             1L, 2L, 3L, 4L, Optional.of(5L), Optional.of("client-id"))));
+        }
+
+        @Test
+        void completeUnexpectedStatus() {
+            var response = new GetResponse();
+            response.setStatus(SESSION_DOES_NOT_EXIST);
+            op.complete(response);
+            assertFailedWithIllegalState(callback, "GRPC.Status: SESSION_DOES_NOT_EXIST");
+        }
+
+        @Test
+        void completeUnknownStatus() {
+            var response = new GetResponse();
+            response.parseFrom(UNKNOWN_STATUS);
+            op.complete(response);
+            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
     }
 
@@ -534,6 +565,14 @@ class OperationTest {
         }
 
         @Test
+        void completeUnknownStatus() {
+            var response = new PutResponse();
+            response.parseFrom(UNKNOWN_STATUS);
+            op.complete(response);
+            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+        }
+
+        @Test
         void completeOk() {
             var response = new PutResponse();
             response.setStatus(OK).setKey("my-key");
@@ -658,6 +697,14 @@ class OperationTest {
             op.complete(response);
             assertThat(callback).isCompletedWithValueMatching(r -> !r);
         }
+
+        @Test
+        void completeUnknownStatus() {
+            var response = new DeleteResponse();
+            response.parseFrom(UNKNOWN_STATUS);
+            op.complete(response);
+            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+        }
     }
 
     @Nested
@@ -696,6 +743,14 @@ class OperationTest {
                                         .isInstanceOf(InvalidArgumentException.class)
                                         .hasMessage("delete range ['a', 'b') rejected for an invalid argument");
                             });
+        }
+
+        @Test
+        void completeUnknownStatus() {
+            var response = new DeleteRangeResponse();
+            response.parseFrom(UNKNOWN_STATUS);
+            op.complete(response);
+            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
     }
 }

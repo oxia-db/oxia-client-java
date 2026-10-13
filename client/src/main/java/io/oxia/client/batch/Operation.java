@@ -77,6 +77,16 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
         callback().completeExceptionally(new StacklessCompletionException(t));
     }
 
+    /**
+     * The failure for a status the operation doesn't handle. A status that the client's proto doesn't
+     * define reads as {@code UNRECOGNIZED}, so the message names its number.
+     */
+    private static IllegalStateException unexpectedStatus(int statusValue) {
+        Status status = Status.valueOf(statusValue);
+        return new IllegalStateException(
+                "GRPC.Status: " + (status != null ? status.name() : "UNRECOGNIZED(" + statusValue + ")"));
+    }
+
     sealed interface ReadOperation<R> extends Operation<R> permits GetOperation {
         record GetOperation(
                 @NonNull BatchManager batchManager,
@@ -99,7 +109,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 switch (response.getStatus()) {
                     case KEY_NOT_FOUND -> callback.complete(null);
                     case OK -> callback.complete(ProtoUtil.getResultFromProto(key, response));
-                    default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
+                    default -> fail(unexpectedStatus(response.getStatusValue()));
                 }
             }
         }
@@ -216,7 +226,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                                     new InvalidArgumentException(
                                             "put of key '" + key + "' rejected for an invalid argument"));
                     case OK -> callback.complete(ProtoUtil.getPutResultFromProto(key, response));
-                    default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
+                    default -> fail(unexpectedStatus(response.getStatusValue()));
                 }
             }
 
@@ -270,7 +280,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                             failExpected(new UnexpectedVersionIdException(key, expectedVersionId.getAsLong()));
                     case KEY_NOT_FOUND -> callback.complete(false);
                     case OK -> callback.complete(true);
-                    default -> fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
+                    default -> fail(unexpectedStatus(response.getStatusValue()));
                 }
             }
 
@@ -333,7 +343,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                                             + endKeyExclusive
                                             + "') rejected for an invalid argument"));
                 } else {
-                    fail(new IllegalStateException("GRPC.Status: " + response.getStatus().name()));
+                    fail(unexpectedStatus(response.getStatusValue()));
                 }
             }
         }
