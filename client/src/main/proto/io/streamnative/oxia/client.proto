@@ -19,7 +19,7 @@
  */
 syntax = "proto3";
 
-package io.streamnative.oxia.proto;
+package io.oxia.proto.v1;
 
 option go_package = "github.com/oxia-db/oxia/proto";
 option java_package = "io.oxia.proto";
@@ -492,6 +492,8 @@ enum Status {
   UNEXPECTED_VERSION_ID = 2;
   // The session that the put request referred to is not alive
   SESSION_DOES_NOT_EXIST = 3;
+  // The request contains an invalid argument
+  INVALID_ARGUMENT = 4;
 }
 
 message CreateSessionRequest {

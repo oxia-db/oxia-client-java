@@ -28,6 +28,9 @@
  *       IfRecordDoesNotExist} found an existing record.
  *   <li>{@link io.oxia.client.api.exceptions.SessionDoesNotExistException} — an operation tied to
  *       an ephemeral session was attempted after the session expired.
+ *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the server rejected a put
+ *       or delete range for an invalid argument, such as a sequential put that doesn't fit its
+ *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
  * </ul>

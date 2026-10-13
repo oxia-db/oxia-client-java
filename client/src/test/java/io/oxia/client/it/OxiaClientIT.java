@@ -45,6 +45,7 @@ import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.SyncOxiaClient;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
@@ -522,6 +523,33 @@ class OxiaClientIT {
                     syncClient.get(
                             String.format("sk_a-%020d-%020d", 5, 6), Set.of(GetOption.PartitionKey("x")));
             assertThat(getResult.value()).isEqualTo("2".getBytes());
+        }
+    }
+
+    @Test
+    void testInvalidSequentialPut() throws Exception {
+        try (SyncOxiaClient syncClient =
+                OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
+            PutResult putResult =
+                    syncClient.put(
+                            "/p/seg:x-%E5%A4%87",
+                            "0".getBytes(),
+                            Set.of(PutOption.PartitionKey("x"), PutOption.SequenceKeysDeltas(List.of(1L))));
+            assertThat(putResult.key()).isEqualTo("/p/seg:x-%E5%A4%87-00000000000000000001");
+
+            // The server takes that key as the last one of the "/p/seg:x" sequence, and "%E5%A4%87" is
+            // not a sequence number: it rejects the put with the INVALID_ARGUMENT status
+            assertThatThrownBy(
+                            () ->
+                                    syncClient.put(
+                                            "/p/seg:x",
+                                            "1".getBytes(),
+                                            Set.of(
+                                                    PutOption.PartitionKey("x"), PutOption.SequenceKeysDeltas(List.of(1L)))))
+                    .isInstanceOf(InvalidArgumentException.class);
+
+            assertThat(syncClient.list("/p/seg:x", "/p/seg:y", Set.of(ListOption.PartitionKey("x"))))
+                    .containsExactly("/p/seg:x-%E5%A4%87-00000000000000000001");
         }
     }
 
