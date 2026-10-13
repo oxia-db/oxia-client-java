@@ -25,7 +25,6 @@ import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import io.oxia.proto.CreateSessionRequest;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -197,7 +196,7 @@ public class SessionManager
             if (shardManager.allShardIds().contains(shardId)) {
                 continue;
             }
-            final List<Long> successors = currentSuccessors(shardId);
+            final List<Long> successors = shardManager.currentSuccessors(shardId);
             final CompletableFuture<Session> sessionFuture = sessions.get(shardId);
             // A session that is still being created is moved by a later call
             if (successors.isEmpty() || !isUsable(sessionFuture) || !sessionFuture.isDone()) {
@@ -218,22 +217,6 @@ public class SessionManager
             sessions.remove(shardId);
             session.detach();
         }
-    }
-
-    /**
-     * The shards of the shard map that replaced a shard removed from it: the ones that replaced it
-     * may have been split in turn.
-     */
-    private List<Long> currentSuccessors(long shardId) {
-        final List<Long> current = new ArrayList<>();
-        for (long successor : shardManager.getSuccessors(shardId)) {
-            if (shardManager.allShardIds().contains(successor)) {
-                current.add(successor);
-            } else {
-                current.addAll(currentSuccessors(successor));
-            }
-        }
-        return current;
     }
 
     private CompletableFuture<Session> createSession(long shardId) {

@@ -234,6 +234,39 @@ public class ShardManagerTest {
         }
 
         @Test
+        void currentSuccessorsOfShardsSplitInTurn() {
+            long max = (1L << 32) - 1;
+            manager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, max))));
+            // Shard 0 is split into shards 1 and 2, then shard 2 into shards 3 and 4
+            var shard1 = new Shard(1, "leader0", new HashRange(0, (1L << 31) - 1));
+            manager.onNext(assignments(shard1, new Shard(2, "leader0", new HashRange(1L << 31, max))));
+            manager.onNext(
+                    assignments(
+                            shard1,
+                            new Shard(3, "leader0", new HashRange(1L << 31, (3L << 30) - 1)),
+                            new Shard(4, "leader0", new HashRange(3L << 30, max))));
+
+            assertThat(manager.getSuccessors(0)).containsExactlyInAnyOrder(1L, 2L);
+            assertThat(manager.currentSuccessors(0)).containsExactlyInAnyOrder(1L, 3L, 4L);
+            assertThat(manager.currentSuccessors(2)).containsExactlyInAnyOrder(3L, 4L);
+            assertThat(manager.currentSuccessors(1)).isEmpty();
+        }
+
+        private ShardAssignments assignments(Shard... shards) {
+            var sa = new ShardAssignments();
+            var nsAssignments = sa.putNamespaces(namespace);
+            for (var shard : shards) {
+                var assignment =
+                        nsAssignments.addAssignment().setShard(shard.id()).setLeader(shard.leader());
+                assignment
+                        .setInt32HashRange()
+                        .setMinHashInclusive((int) shard.hashRange().minInclusive())
+                        .setMaxHashInclusive((int) shard.hashRange().maxInclusive());
+            }
+            return sa;
+        }
+
+        @Test
         void get() {
             assertThatThrownBy(() -> manager.getShardForKey("a"))
                     .isInstanceOf(OxiaStatusException.class)

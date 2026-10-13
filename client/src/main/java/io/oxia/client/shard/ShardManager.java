@@ -37,8 +37,10 @@ import io.oxia.client.util.Backoff;
 import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -256,6 +258,22 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
      */
     public Set<Long> getSuccessors(long shardId) {
         return assignments.successors(shardId);
+    }
+
+    /**
+     * The shards of the shard map that replaced a shard removed from it: the ones that replaced it
+     * may have been split in turn.
+     */
+    public List<Long> currentSuccessors(long shardId) {
+        final List<Long> current = new ArrayList<>();
+        for (long successor : getSuccessors(shardId)) {
+            if (allShardIds().contains(successor)) {
+                current.add(successor);
+            } else {
+                current.addAll(currentSuccessors(successor));
+            }
+        }
+        return current;
     }
 
     public void addCallback(@NonNull Consumer<ShardAssignmentChanges> callback) {
