@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 /**
- * Checked exceptions raised by the Oxia client.
+ * Unchecked exceptions raised by the Oxia client.
  *
  * <p>All client-side errors extend the abstract {@link
  * io.oxia.client.api.exceptions.OxiaException}. The synchronous client throws them directly; the
@@ -33,6 +33,15 @@
  *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
+ *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
+ *       while the server was unavailable. The outcome of a write that fails with it is unknown: it
+ *       may have been applied.
+ *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
+ *       complete within the request timeout. The outcome of a write that fails with it is unknown.
+ *   <li>{@link io.oxia.client.api.exceptions.NamespaceNotFoundException} — the namespace of the
+ *       client does not exist.
+ *   <li>{@link io.oxia.client.api.exceptions.OxiaServerException} — any other error reported by the
+ *       server or the client transport.
  * </ul>
  */
 package io.oxia.client.api.exceptions;

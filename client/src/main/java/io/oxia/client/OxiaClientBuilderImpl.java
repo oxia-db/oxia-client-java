@@ -38,6 +38,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import lombok.NonNull;
@@ -393,9 +394,11 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                                 + "SharedResources.builder() instead.");
             }
             return AsyncOxiaClientImpl.newInstance(
-                    getClientConfig(), (SharedResourcesImpl) sharedResources);
+                            getClientConfig(), (SharedResourcesImpl) sharedResources)
+                    .exceptionallyCompose(PublicExceptions::failedFuture);
         }
-        return AsyncOxiaClientImpl.newInstance(getClientConfig());
+        return AsyncOxiaClientImpl.newInstance(getClientConfig())
+                .exceptionallyCompose(PublicExceptions::failedFuture);
     }
 
     public ClientConfig getClientConfig() {
@@ -424,7 +427,15 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
 
     @Override
     public SyncOxiaClient syncClient() throws OxiaException {
-        return new SyncOxiaClientImpl(asyncClient().join());
+        try {
+            return new SyncOxiaClientImpl(asyncClient().join());
+        } catch (CompletionException e) {
+            // Throw the public exception, as the synchronous client does
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
     }
 
     private static @NonNull String randomClientIdentifier() {
