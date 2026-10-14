@@ -65,6 +65,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -966,7 +967,8 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(OxiaException.class);
+                    .isInstanceOf(CompletionException.class)
+                    .hasCauseInstanceOf(OxiaException.class);
         }
     }
 }

@@ -15,11 +15,8 @@
  */
 package io.oxia.client.api.exceptions;
 
-/**
- * A super-class of exceptions describing errors that occurred on an Oxia server. They are
- * unchecked: the synchronous client can throw any of them from any operation.
- */
-public abstract class OxiaException extends RuntimeException {
+/** A super-class of exceptions describing errors that occurred on an Oxia server. */
+public abstract class OxiaException extends Exception {
     /**
      * Creates an instance of the exception.
      *
