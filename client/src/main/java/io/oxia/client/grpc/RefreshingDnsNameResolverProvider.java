@@ -30,14 +30,14 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Resolves {@code oxia-dns:///host:port} targets on every refresh.
+ * Resolves {@code oxia-passthrough:///host:port} targets on every refresh.
  *
  * <p>The default gRPC DNS resolver ignores a refresh within 30s of its last lookup, so a server
  * that restarts with a new IP stays unreachable for up to 30s. The JVM still caches lookups for
  * {@code networkaddress.cache.ttl}.
  */
 final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
-    static final String SCHEME = "oxia-dns";
+    static final String SCHEME = "oxia-passthrough";
 
     interface HostResolver {
         InetAddress[] resolve(String host) throws UnknownHostException;

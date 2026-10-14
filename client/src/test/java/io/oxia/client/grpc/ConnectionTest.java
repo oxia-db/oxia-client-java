@@ -33,9 +33,10 @@ class ConnectionTest {
 
     @Test
     public void testTarget() {
-        Assertions.assertEquals("oxia-dns:///localhost:6648", Connection.getTarget("localhost:6648"));
         Assertions.assertEquals(
-                "oxia-dns:///localhost:6648", Connection.getTarget("tls://localhost:6648"));
+                "oxia-passthrough:///localhost:6648", Connection.getTarget("localhost:6648"));
+        Assertions.assertEquals(
+                "oxia-passthrough:///localhost:6648", Connection.getTarget("tls://localhost:6648"));
         Assertions.assertEquals("dns:///localhost:6648", Connection.getTarget("dns:///localhost:6648"));
     }
 
