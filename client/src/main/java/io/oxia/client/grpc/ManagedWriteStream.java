@@ -159,7 +159,7 @@ public final class ManagedWriteStream implements AutoCloseable {
             final OxiaStatusException oxiaStatusException = OxiaStatusException.from(t);
             maybeLeaderHint = oxiaStatusException;
             subStreamObserver = null;
-            deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
+            deferFail = failInflightUnlessNotLeader(oxiaStatusException);
             shouldRetry = !inflightWrites.isEmpty();
             retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
         } finally {
@@ -277,7 +277,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                         log.error().exceptionMessage(exception).log("Failed to recover write stream");
                         oxiaStatusException = OxiaStatusException.from(exception);
                         subStreamObserver = null;
-                        deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
+                        deferFail = failInflightUnlessNotLeader(oxiaStatusException);
                         shouldRetry = !inflightWrites.isEmpty();
                         retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
                     } finally {
@@ -292,20 +292,25 @@ public final class ManagedWriteStream implements AutoCloseable {
                 TimeUnit.MILLISECONDS);
     }
 
-    private Runnable failHeadInflightIfNonRetryable(OxiaStatusException oxiaStatusException) {
-        if (!oxiaStatusException.isRetryable()) {
-            final InflightWrite inflightWrite = inflightWrites.pollFirst();
-            if (inflightWrite != null) {
-                return () -> {
-                    try {
-                        inflightWrite.future.completeExceptionally(oxiaStatusException);
-                    } catch (Throwable ex) {
-                        log.warn().exceptionMessage(ex).log("Failed to complete non-retryable inflight write");
-                    }
-                };
-            }
+    // The server rejects a stream with NODE_IS_NOT_LEADER before it applies any of its writes, so
+    // they can be sent again. After any other failure, the server may still apply the writes the
+    // stream sent: sending them again could apply them twice, so they fail.
+    private Runnable failInflightUnlessNotLeader(OxiaStatusException oxiaStatusException) {
+        if (oxiaStatusException.getStatusCode() == OxiaStatusCode.NODE_IS_NOT_LEADER
+                || inflightWrites.isEmpty()) {
+            return () -> {};
         }
-        return () -> {};
+        final List<InflightWrite> inflightsToFail = new ArrayList<>(inflightWrites);
+        inflightWrites.clear();
+        return () -> {
+            for (InflightWrite inflight : inflightsToFail) {
+                try {
+                    inflight.future.completeExceptionally(oxiaStatusException);
+                } catch (Throwable ex) {
+                    log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
+                }
+            }
+        };
     }
 
     private void initWithRecovery(OxiaStatusException leaderHint) {
