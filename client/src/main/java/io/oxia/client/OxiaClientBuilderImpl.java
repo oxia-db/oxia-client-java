@@ -431,7 +431,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
             return new SyncOxiaClientImpl(asyncClient().join());
         } catch (CompletionException e) {
             // Throw the public exception, as the synchronous client does
-            if (e.getCause() instanceof RuntimeException cause) {
+            if (e.getCause() instanceof OxiaException cause) {
                 throw cause;
             }
             throw e;
