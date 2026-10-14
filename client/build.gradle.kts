@@ -25,6 +25,7 @@ dependencies {
     implementation(libs.failsafe)
     implementation(libs.netty.buffer)
     implementation(libs.netty.common)
+    implementation(libs.netty.resolver.dns)
     implementation(libs.grpc.core)
     implementation(libs.grpc.netty)
     runtimeOnly(variantOf(libs.netty.transport.native.epoll) { classifier("linux-x86_64") })

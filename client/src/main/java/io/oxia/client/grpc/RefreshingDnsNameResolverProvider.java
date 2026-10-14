@@ -20,20 +20,48 @@ import io.grpc.NameResolver;
 import io.grpc.NameResolverProvider;
 import io.grpc.Status;
 import io.grpc.StatusOr;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
+import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.resolver.dns.DnsNameResolver;
+import io.netty.resolver.dns.DnsNameResolverBuilder;
+import io.netty.util.concurrent.DefaultThreadFactory;
+import io.netty.util.concurrent.Future;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Resolves {@code oxia-passthrough:///host:port} targets on every refresh. The default gRPC DNS
- * resolver ignores a refresh within 30s of its last lookup, so a server that restarts with a new IP
- * stays unreachable for up to 30s.
+ * Resolves {@code oxia-passthrough:///host:port} targets with Netty's DNS resolver on every
+ * refresh.
+ *
+ * <p>The default gRPC DNS resolver ignores a refresh within 30s of its last lookup, and the JVM
+ * caches lookups for another 30s, so a server that restarts with a new IP stays unreachable for up
+ * to 30s. Netty's resolver caches a record only for its DNS TTL.
  */
 final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
     static final String SCHEME = "oxia-passthrough";
+
+    private final DnsNameResolver dns;
+
+    RefreshingDnsNameResolverProvider() {
+        this(
+                new DnsNameResolverBuilder(
+                                new MultiThreadIoEventLoopGroup(
+                                                1,
+                                                new DefaultThreadFactory("oxia-dns-resolver", true),
+                                                NioIoHandler.newFactory())
+                                        .next())
+                        .datagramChannelType(NioDatagramChannel.class)
+                        .socketChannelType(NioSocketChannel.class)
+                        .build());
+    }
+
+    RefreshingDnsNameResolverProvider(DnsNameResolver dns) {
+        this.dns = dns;
+    }
 
     @Override
     public NameResolver newNameResolver(URI targetUri, NameResolver.Args args) {
@@ -42,8 +70,12 @@ final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
         }
         var authority = targetUri.getPath().substring(1);
         var hostAndPort = URI.create("//" + authority);
+        var syncContext = args.getSynchronizationContext();
         return new NameResolver() {
+            // Only accessed in the synchronization context
             private Listener2 listener;
+            private boolean resolving;
+            private boolean shutdown;
 
             @Override
             public String getServiceAuthority() {
@@ -58,28 +90,47 @@ final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
 
             @Override
             public void refresh() {
-                listener.onResult2(
-                        ResolutionResult.newBuilder()
-                                .setAddressesOrError(lookup(hostAndPort.getHost(), hostAndPort.getPort()))
-                                .build());
+                if (resolving || shutdown) {
+                    return;
+                }
+                resolving = true;
+                dns.resolveAll(hostAndPort.getHost())
+                        .addListener(
+                                (Future<List<InetAddress>> lookup) ->
+                                        syncContext.execute(
+                                                () -> {
+                                                    resolving = false;
+                                                    if (!shutdown) {
+                                                        listener.onResult2(
+                                                                ResolutionResult.newBuilder()
+                                                                        .setAddressesOrError(toAddresses(lookup, hostAndPort))
+                                                                        .build());
+                                                    }
+                                                }));
             }
 
             @Override
-            public void shutdown() {}
+            public void shutdown() {
+                shutdown = true;
+            }
         };
     }
 
-    private static StatusOr<List<EquivalentAddressGroup>> lookup(String host, int port) {
-        try {
-            List<EquivalentAddressGroup> addresses = new ArrayList<>();
-            for (var address : InetAddress.getAllByName(host)) {
-                addresses.add(new EquivalentAddressGroup(new InetSocketAddress(address, port)));
-            }
-            return StatusOr.fromValue(addresses);
-        } catch (UnknownHostException e) {
+    private static StatusOr<List<EquivalentAddressGroup>> toAddresses(
+            Future<List<InetAddress>> lookup, URI hostAndPort) {
+        if (!lookup.isSuccess()) {
             return StatusOr.fromStatus(
-                    Status.UNAVAILABLE.withDescription("Unable to resolve host " + host).withCause(e));
+                    Status.UNAVAILABLE
+                            .withDescription("Unable to resolve host " + hostAndPort.getHost())
+                            .withCause(lookup.cause()));
         }
+        return StatusOr.fromValue(
+                lookup.getNow().stream()
+                        .map(
+                                address ->
+                                        new EquivalentAddressGroup(
+                                                new InetSocketAddress(address, hostAndPort.getPort())))
+                        .toList());
     }
 
     @Override
