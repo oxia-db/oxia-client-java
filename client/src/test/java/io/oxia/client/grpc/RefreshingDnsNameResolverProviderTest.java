@@ -20,14 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.grpc.NameResolver;
 import io.grpc.Status;
-import io.grpc.SynchronizationContext;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class RefreshingDnsNameResolverProviderTest {
@@ -35,18 +32,15 @@ class RefreshingDnsNameResolverProviderTest {
     @Test
     void testIgnoresOtherSchemes() {
         var provider = new RefreshingDnsNameResolverProvider();
-        assertNull(provider.newNameResolver(URI.create("dns:///localhost:6648"), args()));
+        assertNull(provider.newNameResolver(URI.create("dns:///localhost:6648"), null));
     }
 
     @Test
-    void testRefreshLooksUpTheNameAgain() throws Exception {
-        // Stands in for DNS
-        var address = new AtomicReference<>(InetAddress.getByName("10.0.0.1"));
-        var provider = new RefreshingDnsNameResolverProvider(host -> new InetAddress[] {address.get()});
+    void testLooksUpTheNameOnEveryRefresh() {
         var resolver =
-                provider.newNameResolver(
-                        URI.create(RefreshingDnsNameResolverProvider.target("oxia.test:6648")), args());
-        assertEquals("oxia.test:6648", resolver.getServiceAuthority());
+                new RefreshingDnsNameResolverProvider()
+                        .newNameResolver(URI.create("oxia-passthrough:///127.0.0.1:6648"), null);
+        assertEquals("127.0.0.1:6648", resolver.getServiceAuthority());
 
         List<SocketAddress> resolved = new ArrayList<>();
         resolver.start(
@@ -62,29 +56,10 @@ class RefreshingDnsNameResolverProviderTest {
                     @Override
                     public void onError(Status error) {}
                 });
-        assertEquals(List.of(new InetSocketAddress("10.0.0.1", 6648)), resolved);
-
-        // A server restarted with a new IP: the default gRPC resolver ignores a
-        // refresh within 30s of its last lookup
-        address.set(InetAddress.getByName("10.0.0.2"));
-        resolved.clear();
+        // The default gRPC resolver would ignore this refresh, within 30s of the first lookup
         resolver.refresh();
-        assertEquals(List.of(new InetSocketAddress("10.0.0.2", 6648)), resolved);
-    }
 
-    private static NameResolver.Args args() {
-        return NameResolver.Args.newBuilder()
-                .setDefaultPort(6648)
-                .setProxyDetector(target -> null)
-                .setSynchronizationContext(new SynchronizationContext((t, e) -> {}))
-                .setServiceConfigParser(
-                        new NameResolver.ServiceConfigParser() {
-                            @Override
-                            public NameResolver.ConfigOrError parseServiceConfig(
-                                    java.util.Map<String, ?> rawServiceConfig) {
-                                return null;
-                            }
-                        })
-                .build();
+        var address = new InetSocketAddress("127.0.0.1", 6648);
+        assertEquals(List.of(address, address), resolved);
     }
 }

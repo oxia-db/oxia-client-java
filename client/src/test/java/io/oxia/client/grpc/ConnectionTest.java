@@ -25,10 +25,10 @@ class ConnectionTest {
     @Test
     public void testAddressTrim() {
         final var tlsAddress = "tls://localhost:6648";
-        Assertions.assertEquals("localhost:6648", Connection.getAddress(tlsAddress));
+        Assertions.assertEquals("localhost:6648", Connection.stripTlsSchema(tlsAddress));
 
         final var planTxtAddress = "localhost:6648";
-        Assertions.assertEquals("localhost:6648", Connection.getAddress(planTxtAddress));
+        Assertions.assertEquals("localhost:6648", Connection.stripTlsSchema(planTxtAddress));
     }
 
     @Test

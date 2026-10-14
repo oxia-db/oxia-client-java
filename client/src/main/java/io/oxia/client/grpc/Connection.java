@@ -134,7 +134,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
         return asyncStub;
     }
 
-    static String getAddress(String address) {
+    static String stripTlsSchema(String address) {
         if (address.startsWith(TLS_SCHEMA)) {
             return address.substring(TLS_SCHEMA.length());
         }
@@ -142,11 +142,11 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     }
 
     static String getTarget(String address) {
-        var actualAddress = getAddress(address);
+        var actualAddress = stripTlsSchema(address);
         if (actualAddress.contains("://")) {
             return actualAddress;
         }
-        return RefreshingDnsNameResolverProvider.target(actualAddress);
+        return RefreshingDnsNameResolverProvider.SCHEME + ":///" + actualAddress;
     }
 
     static ChannelCredentials getChannelCredential(String address, boolean tlsEnabled) {

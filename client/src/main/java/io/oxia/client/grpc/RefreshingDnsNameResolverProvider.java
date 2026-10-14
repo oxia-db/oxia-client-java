@@ -22,40 +22,18 @@ import io.grpc.Status;
 import io.grpc.StatusOr;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 /**
- * Resolves {@code oxia-passthrough:///host:port} targets on every refresh.
- *
- * <p>The default gRPC DNS resolver ignores a refresh within 30s of its last lookup, so a server
- * that restarts with a new IP stays unreachable for up to 30s. The JVM still caches lookups for
- * {@code networkaddress.cache.ttl}.
+ * Resolves {@code oxia-passthrough:///host:port} targets on every refresh. The default gRPC DNS
+ * resolver ignores a refresh within 30s of its last lookup, so a server that restarts with a new IP
+ * stays unreachable for up to 30s.
  */
 final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
     static final String SCHEME = "oxia-passthrough";
-
-    interface HostResolver {
-        InetAddress[] resolve(String host) throws UnknownHostException;
-    }
-
-    private final HostResolver hostResolver;
-
-    RefreshingDnsNameResolverProvider() {
-        this(InetAddress::getAllByName);
-    }
-
-    RefreshingDnsNameResolverProvider(HostResolver hostResolver) {
-        this.hostResolver = hostResolver;
-    }
-
-    static String target(String address) {
-        return SCHEME + ":///" + address;
-    }
 
     @Override
     public NameResolver newNameResolver(URI targetUri, NameResolver.Args args) {
@@ -91,10 +69,10 @@ final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
         };
     }
 
-    private StatusOr<List<EquivalentAddressGroup>> lookup(String host, int port) {
+    private static StatusOr<List<EquivalentAddressGroup>> lookup(String host, int port) {
         try {
             List<EquivalentAddressGroup> addresses = new ArrayList<>();
-            for (var address : hostResolver.resolve(host)) {
+            for (var address : InetAddress.getAllByName(host)) {
                 addresses.add(new EquivalentAddressGroup(new InetSocketAddress(address, port)));
             }
             return StatusOr.fromValue(addresses);
@@ -117,10 +95,5 @@ final class RefreshingDnsNameResolverProvider extends NameResolverProvider {
     @Override
     protected int priority() {
         return 5;
-    }
-
-    @Override
-    public Collection<Class<? extends SocketAddress>> getProducedSocketAddressTypes() {
-        return List.of(InetSocketAddress.class);
     }
 }
