@@ -32,6 +32,14 @@ class ConnectionTest {
     }
 
     @Test
+    public void testTarget() {
+        Assertions.assertEquals("oxia-dns:///localhost:6648", Connection.getTarget("localhost:6648"));
+        Assertions.assertEquals(
+                "oxia-dns:///localhost:6648", Connection.getTarget("tls://localhost:6648"));
+        Assertions.assertEquals("dns:///localhost:6648", Connection.getTarget("dns:///localhost:6648"));
+    }
+
+    @Test
     public void testTlsCredential() {
         final var tlsAddress = "tls://localhost:6648";
         var channelCredential = Connection.getChannelCredential(tlsAddress, false);

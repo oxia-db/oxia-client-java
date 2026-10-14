@@ -25,6 +25,7 @@ import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
+import io.grpc.NameResolverRegistry;
 import io.grpc.Status;
 import io.grpc.TlsChannelCredentials;
 import io.grpc.health.v1.HealthCheckRequest;
@@ -49,6 +50,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final Logger log = Logger.get(Connection.class);
     private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
 
+    static {
+        NameResolverRegistry.getDefaultRegistry().register(new RefreshingDnsNameResolverProvider());
+    }
+
     @Getter private final long connectionId;
     private final ManagedChannel channel;
     private final @NonNull OxiaClientGrpc.OxiaClientStub asyncStub;
@@ -66,7 +71,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
         this.connectionId = NEXT_CONNECTION_ID.incrementAndGet();
         this.channel =
                 Grpc.newChannelBuilder(
-                                getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
+                                getTarget(address), getChannelCredential(address, clientConfig.enableTls()))
                         .keepAliveTime(clientConfig.connectionKeepAliveTime().toMillis(), MILLISECONDS)
                         .keepAliveTimeout(clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
                         .keepAliveWithoutCalls(true)
@@ -134,6 +139,14 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             return address.substring(TLS_SCHEMA.length());
         }
         return address;
+    }
+
+    static String getTarget(String address) {
+        var actualAddress = getAddress(address);
+        if (actualAddress.contains("://")) {
+            return actualAddress;
+        }
+        return RefreshingDnsNameResolverProvider.target(actualAddress);
     }
 
     static ChannelCredentials getChannelCredential(String address, boolean tlsEnabled) {
