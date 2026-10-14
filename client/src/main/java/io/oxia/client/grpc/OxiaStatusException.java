@@ -90,6 +90,11 @@ public class OxiaStatusException extends RuntimeException {
         return new OxiaStatusException(RESOURCE_UNAVAILABLE, Map.of(), message, null);
     }
 
+    public static @NonNull OxiaStatusException resourceUnavailable(
+            @NonNull String message, @NonNull Throwable cause) {
+        return new OxiaStatusException(RESOURCE_UNAVAILABLE, Map.of(), message, cause);
+    }
+
     public static @NonNull OxiaStatusException timeout(@NonNull Throwable error) {
         return new OxiaStatusException(
                 TIMEOUT, Map.of(), "Request timed out", CompletableFutures.unwrapException(error));

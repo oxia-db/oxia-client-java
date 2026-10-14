@@ -294,18 +294,25 @@ public final class ManagedWriteStream implements AutoCloseable {
 
     // The server rejects a stream with NODE_IS_NOT_LEADER before it applies any of its writes, so
     // they can be sent again. After any other failure, the server may still apply the writes the
-    // stream sent: sending them again could apply them twice, so they fail.
+    // stream sent: sending them again could apply them twice, so they fail with
+    // RESOURCE_UNAVAILABLE, whose outcome is unknown.
     private Runnable failInflightUnlessNotLeader(OxiaStatusException oxiaStatusException) {
         if (oxiaStatusException.getStatusCode() == OxiaStatusCode.NODE_IS_NOT_LEADER
                 || inflightWrites.isEmpty()) {
             return () -> {};
         }
+        // RESOURCE_UNAVAILABLE tells the caller that the outcome of the write is unknown
+        final OxiaStatusException failure =
+                oxiaStatusException.getStatusCode() == OxiaStatusCode.RESOURCE_UNAVAILABLE
+                        ? oxiaStatusException
+                        : OxiaStatusException.resourceUnavailable(
+                                "Write stream failed, the writes may have been applied", oxiaStatusException);
         final List<InflightWrite> inflightsToFail = new ArrayList<>(inflightWrites);
         inflightWrites.clear();
         return () -> {
             for (InflightWrite inflight : inflightsToFail) {
                 try {
-                    inflight.future.completeExceptionally(oxiaStatusException);
+                    inflight.future.completeExceptionally(failure);
                 } catch (Throwable ex) {
                     log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
                 }

@@ -612,6 +612,48 @@ class ManagedWriteStreamTest {
         }
     }
 
+    @Test
+    void failsInflightWritesWithResourceUnavailableOnTransportError() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            responseObservers.add(invocation.getArgument(2));
+                            return new StreamObserver<InputStream>() {
+                                @Override
+                                public void onNext(InputStream value) {}
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {}
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
+            var future = stream.send(writeRequest(1));
+
+            // A connection reset carries no Oxia status: the write may have been applied
+            var reset = Status.CANCELLED.withDescription("connection reset").asRuntimeException();
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(reset);
+
+            assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            cause -> {
+                                assertThat(cause.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+                                assertThat(cause).hasRootCause(reset);
+                            });
+            assertThat(responseObservers.poll(200, TimeUnit.MILLISECONDS)).isNull();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static OxiaClientGrpc.OxiaClientImplBase respondingWriteService(
             Queue<WriteRequest> requests) {
         return new OxiaClientGrpc.OxiaClientImplBase() {
