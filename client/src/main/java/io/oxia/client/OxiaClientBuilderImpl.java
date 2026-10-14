@@ -28,6 +28,7 @@ import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.UnsupportedAuthenticationException;
 import io.oxia.client.auth.AuthenticationFactory;
+import io.oxia.client.util.CompletableFutures;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -431,7 +432,7 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
             return new SyncOxiaClientImpl(asyncClient().join());
         } catch (CompletionException e) {
             // Throw the public exception, as the synchronous client does
-            if (e.getCause() instanceof OxiaException cause) {
+            if (CompletableFutures.unwrapException(e) instanceof OxiaException cause) {
                 throw cause;
             }
             throw e;
