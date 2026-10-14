@@ -17,25 +17,17 @@ package io.oxia.client.grpc;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.grpc.Grpc;
-import io.grpc.InsecureChannelCredentials;
-import io.grpc.ManagedChannel;
 import io.grpc.NameResolver;
-import io.grpc.Server;
-import io.grpc.StatusRuntimeException;
-import io.grpc.health.v1.HealthCheckRequest;
-import io.grpc.health.v1.HealthGrpc;
-import io.grpc.netty.NettyServerBuilder;
-import io.grpc.protobuf.services.HealthStatusManager;
-import java.io.IOException;
+import io.grpc.Status;
+import io.grpc.SynchronizationContext;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.URI;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class RefreshingDnsNameResolverProviderTest {
@@ -43,90 +35,56 @@ class RefreshingDnsNameResolverProviderTest {
     @Test
     void testIgnoresOtherSchemes() {
         var provider = new RefreshingDnsNameResolverProvider();
-        assertNull(provider.newNameResolver(URI.create("dns:///localhost:6648"), null));
+        assertNull(provider.newNameResolver(URI.create("dns:///localhost:6648"), args()));
     }
 
     @Test
-    @SuppressWarnings("deprecation")
-    void testReconnectsToNewAddressOfRestartedServer() throws Exception {
-        var oldServer = startHealthServer(new InetSocketAddress("127.0.0.1", 0));
-        var port = oldServer.getPort();
-        Server newServer;
-        try {
-            newServer = startHealthServer(new InetSocketAddress("::1", port));
-        } catch (IOException e) {
-            oldServer.shutdownNow();
-            Assumptions.abort("Cannot listen on [::1]:" + port + ": " + e);
-            return;
-        }
-
+    void testRefreshLooksUpTheNameAgain() throws Exception {
         // Stands in for DNS
-        var address = new AtomicReference<>(InetAddress.getByName("127.0.0.1"));
-        var provider =
-                new RefreshingDnsNameResolverProvider(
-                        "oxia-dns-test", host -> new InetAddress[] {address.get()});
-        ManagedChannel channel =
-                Grpc.newChannelBuilder(
-                                "oxia-dns-test:///oxia.test:" + port, InsecureChannelCredentials.create())
-                        .nameResolverFactory(provider)
-                        .build();
-        try {
-            var health = HealthGrpc.newBlockingStub(channel);
-            check(health);
-
-            // Restart the server on a new IP, after the channel resolved the old one
-            address.set(InetAddress.getByName("::1"));
-            oldServer.shutdownNow().awaitTermination();
-
-            // The default gRPC resolver would not look the name up again for 30s
-            var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-            boolean reconnected = false;
-            while (!reconnected && System.nanoTime() < deadline) {
-                try {
-                    check(health);
-                    reconnected = true;
-                } catch (StatusRuntimeException e) {
-                    Thread.sleep(50);
-                }
-            }
-            assertTrue(reconnected);
-        } finally {
-            channel.shutdownNow();
-            oldServer.shutdownNow();
-            newServer.shutdownNow();
-        }
-    }
-
-    @Test
-    void testServiceAuthority() {
-        var provider = new RefreshingDnsNameResolverProvider();
+        var address = new AtomicReference<>(InetAddress.getByName("10.0.0.1"));
+        var provider = new RefreshingDnsNameResolverProvider(host -> new InetAddress[] {address.get()});
         var resolver =
                 provider.newNameResolver(
-                        URI.create(RefreshingDnsNameResolverProvider.target("oxia.test:6648")),
-                        NameResolver.Args.newBuilder()
-                                .setDefaultPort(443)
-                                .setProxyDetector(target -> null)
-                                .setSynchronizationContext(new io.grpc.SynchronizationContext((t, e) -> {}))
-                                .setServiceConfigParser(
-                                        new NameResolver.ServiceConfigParser() {
-                                            @Override
-                                            public NameResolver.ConfigOrError parseServiceConfig(
-                                                    java.util.Map<String, ?> rawServiceConfig) {
-                                                return null;
-                                            }
-                                        })
-                                .build());
+                        URI.create(RefreshingDnsNameResolverProvider.target("oxia.test:6648")), args());
         assertEquals("oxia.test:6648", resolver.getServiceAuthority());
+
+        List<SocketAddress> resolved = new ArrayList<>();
+        resolver.start(
+                new NameResolver.Listener2() {
+                    @Override
+                    public void onResult(NameResolver.ResolutionResult result) {
+                        result
+                                .getAddressesOrError()
+                                .getValue()
+                                .forEach(group -> resolved.addAll(group.getAddresses()));
+                    }
+
+                    @Override
+                    public void onError(Status error) {}
+                });
+        assertEquals(List.of(new InetSocketAddress("10.0.0.1", 6648)), resolved);
+
+        // A server restarted with a new IP: the default gRPC resolver ignores a
+        // refresh within 30s of its last lookup
+        address.set(InetAddress.getByName("10.0.0.2"));
+        resolved.clear();
+        resolver.refresh();
+        assertEquals(List.of(new InetSocketAddress("10.0.0.2", 6648)), resolved);
     }
 
-    private static void check(HealthGrpc.HealthBlockingStub health) {
-        health.withDeadlineAfter(1, TimeUnit.SECONDS).check(HealthCheckRequest.getDefaultInstance());
-    }
-
-    private static Server startHealthServer(InetSocketAddress address) throws IOException {
-        return NettyServerBuilder.forAddress(address)
-                .addService(new HealthStatusManager().getHealthService())
-                .build()
-                .start();
+    private static NameResolver.Args args() {
+        return NameResolver.Args.newBuilder()
+                .setDefaultPort(6648)
+                .setProxyDetector(target -> null)
+                .setSynchronizationContext(new SynchronizationContext((t, e) -> {}))
+                .setServiceConfigParser(
+                        new NameResolver.ServiceConfigParser() {
+                            @Override
+                            public NameResolver.ConfigOrError parseServiceConfig(
+                                    java.util.Map<String, ?> rawServiceConfig) {
+                                return null;
+                            }
+                        })
+                .build();
     }
 }
