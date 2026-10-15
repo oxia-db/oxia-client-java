@@ -24,8 +24,10 @@ import dev.failsafe.TimeoutExceededException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
+import io.oxia.client.api.exceptions.AlreadyClosedException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.exceptions.UnknownException;
@@ -144,11 +146,33 @@ class OxiaExceptionsTest {
     }
 
     @Test
+    void translatesAlreadyClosed() {
+        var closed = OxiaStatusException.alreadyClosed("Client has been closed");
+        assertThat(OxiaExceptions.translate(new CompletionException(closed)))
+                .isInstanceOf(AlreadyClosedException.class)
+                .hasMessage("Client has been closed")
+                .hasCause(closed);
+    }
+
+    @Test
+    void uncheckedWrapsThePublicException() {
+        var closed = OxiaStatusException.alreadyClosed("Client has been closed");
+        assertThat(OxiaExceptions.unchecked(closed))
+                .isInstanceOf(OxiaUncheckedException.class)
+                .cause()
+                .isInstanceOf(AlreadyClosedException.class)
+                .hasCause(closed);
+
+        var error = new IllegalArgumentException("partitionKey must be present");
+        assertThat(OxiaExceptions.unchecked(error)).isSameAs(error);
+    }
+
+    @Test
     void keepsOtherErrorsAsIs() {
         var expected = new CompletionException(new KeyAlreadyExistsException("key"));
         assertThat(OxiaExceptions.translate(expected)).isSameAs(expected);
 
-        var clientError = new IllegalStateException("Client has been closed");
+        var clientError = new IllegalStateException("Range scan iterable is closed");
         assertThat(OxiaExceptions.translate(clientError)).isSameAs(clientError);
 
         var error = new OutOfMemoryError();

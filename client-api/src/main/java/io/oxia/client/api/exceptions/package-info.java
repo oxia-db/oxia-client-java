@@ -41,6 +41,8 @@
  *       client does not exist on the server.
  *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
  *       complete within the request timeout. The outcome of a write that fails with it is unknown.
+ *   <li>{@link io.oxia.client.api.exceptions.AlreadyClosedException} — the client, or a resource
+ *       that it uses, has been closed.
  *   <li>{@link io.oxia.client.api.exceptions.UnknownException} — any other error of the server or
  *       of the client transport. The outcome of a write that fails with it is unknown.
  * </ul>

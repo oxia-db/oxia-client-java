@@ -15,6 +15,7 @@
  */
 package io.oxia.client.batch;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
@@ -26,6 +27,8 @@ import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.options.GetOptions;
 import io.oxia.proto.KeyComparisonType;
 import java.time.Duration;
@@ -112,12 +115,15 @@ class BatchManagerTest {
     @Test
     void addAfterCloseThrows() throws Exception {
         manager.close();
-        assertThatThrownBy(() -> manager.add(newOp(1L))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> manager.add(newOp(1L)))
+                .isInstanceOfSatisfying(
+                        OxiaStatusException.class,
+                        e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.ALREADY_CLOSED));
     }
 
     @Test
     void closeFailsWindowHeldBatches() throws Exception {
         manager.close();
-        verify(batchFactory).failWindows(any(IllegalStateException.class));
+        verify(batchFactory).failWindows(any(OxiaStatusException.class));
     }
 }

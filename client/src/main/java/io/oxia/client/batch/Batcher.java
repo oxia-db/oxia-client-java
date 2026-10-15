@@ -20,6 +20,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import io.netty.util.collection.LongObjectHashMap;
 import io.netty.util.collection.LongObjectMap;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.util.BatchedArrayBlockingQueue;
 import java.util.HashMap;
 import java.util.Map;
@@ -62,7 +63,7 @@ final class Batcher implements AutoCloseable {
 
     <R> void add(@NonNull Operation<R> operation) {
         if (closed) {
-            operation.fail(new IllegalStateException("Batcher has been closed"));
+            operation.fail(OxiaStatusException.alreadyClosed("Batcher has been closed"));
             return;
         }
         put(operation);
@@ -184,7 +185,7 @@ final class Batcher implements AutoCloseable {
     }
 
     private void closeFactoryBatches(BatchFactory factory) {
-        var closedException = new IllegalStateException("Batch manager is closed");
+        var closedException = OxiaStatusException.alreadyClosed("Batch manager is closed");
         LongObjectHashMap<Batch> shardBatches = openBatches.remove(factory);
         if (shardBatches != null) {
             shardBatches.values().forEach(batch -> batch.fail(closedException));
@@ -221,7 +222,7 @@ final class Batcher implements AutoCloseable {
     }
 
     private void failPending() {
-        var closedException = new IllegalStateException("Batcher has been closed");
+        var closedException = OxiaStatusException.alreadyClosed("Batcher has been closed");
         for (LongObjectHashMap<Batch> shardBatches : openBatches.values()) {
             shardBatches.values().forEach(batch -> batch.fail(closedException));
         }

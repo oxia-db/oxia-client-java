@@ -31,5 +31,7 @@ public enum OxiaStatusCode {
     RESOURCE_CONFLICT,
     RESOURCE_UNAVAILABLE,
     TIMEOUT,
+    // The client, or a resource that it uses, has been closed. Never sent by the server
+    ALREADY_CLOSED,
     UNKNOWN
 }

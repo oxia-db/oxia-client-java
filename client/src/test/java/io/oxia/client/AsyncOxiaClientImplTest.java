@@ -33,6 +33,8 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.AlreadyClosedException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
@@ -222,7 +224,20 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var value = "hello".getBytes(UTF_8);
         client.close();
-        assertThat(client.put(key, value)).isCompletedExceptionally();
+        assertThatThrownBy(client.put(key, value)::join)
+                .isInstanceOf(CompletionException.class)
+                .cause()
+                .isInstanceOf(AlreadyClosedException.class)
+                .hasMessage("Client has been closed");
+    }
+
+    @Test
+    void notificationsClosed() throws Exception {
+        client.close();
+        assertThatThrownBy(() -> client.notifications(notification -> {}))
+                .isInstanceOf(OxiaUncheckedException.class)
+                .cause()
+                .isInstanceOf(AlreadyClosedException.class);
     }
 
     @Test

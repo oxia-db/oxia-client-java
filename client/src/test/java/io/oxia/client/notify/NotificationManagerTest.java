@@ -18,6 +18,7 @@ package io.oxia.client.notify;
 import static io.oxia.proto.NotificationType.KEY_CREATED;
 import static io.oxia.proto.NotificationType.KEY_DELETED;
 import static io.oxia.proto.NotificationType.KEY_MODIFIED;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -40,6 +41,8 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
@@ -273,7 +276,9 @@ class NotificationManagerTest {
             verify(receiver2).close();
 
             assertThatThrownBy(() -> manager.registerCallback(callback))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.ALREADY_CLOSED));
 
             var changes1 =
                     new ShardAssignmentChanges(
