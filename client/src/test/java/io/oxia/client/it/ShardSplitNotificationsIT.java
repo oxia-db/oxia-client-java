@@ -229,8 +229,10 @@ class ShardSplitNotificationsIT {
 
     // There is no signal that the subscription is established: it is once it gets a notification
     private void awaitSubscription() {
+        // The writes fail until the shard has a leader: the client doesn't retry them
         await()
                 .atMost(Duration.ofSeconds(30))
+                .ignoreExceptions()
                 .until(
                         () -> {
                             writer.put("warm-up", VALUE).get(10, SECONDS);

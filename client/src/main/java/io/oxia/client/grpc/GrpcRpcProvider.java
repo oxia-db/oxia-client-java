@@ -341,26 +341,16 @@ final class GrpcRpcProvider implements RpcProvider {
     public ManagedWriteStream getWriteStream(long shardId) {
         // Fast path: avoid locking the map bin on every batch when the stream is already open
         final var stream = writeStreams.get(shardId);
-        if (stream != null && !stream.isClosed()) {
+        if (stream != null) {
             return stream;
         }
-        return writeStreams.compute(
-                shardId,
-                (__, existingStream) -> {
-                    if (existingStream == null || existingStream.isClosed()) {
-                        return new ManagedWriteStream(
-                                shardId, this, asyncExecutor, clientConfig.requestTimeout());
-                    }
-                    return existingStream;
-                });
+        return writeStreams.computeIfAbsent(
+                shardId, __ -> new ManagedWriteStream(shardId, this, requestTimeouts));
     }
 
     @Override
     public StreamObserver<InputStream> writeStream(
-            long shardId,
-            OxiaStatusException leaderHint,
-            StreamObserver<WriteResponse> responseObserver) {
-        final var hint = new AtomicReference<>(leaderHint);
+            long shardId, StreamObserver<WriteResponse> responseObserver) {
         final var future = new CompletableFuture<Void>();
         final var barrierObserver = ManagedObservers.toBarrierStreamObserver(responseObserver, future);
         final var headers = new Metadata();
@@ -368,7 +358,7 @@ final class GrpcRpcProvider implements RpcProvider {
         headers.put(SHARD_ID_KEY, Long.toString(shardId));
         final var stub =
                 connectionManager
-                        .getConnection(getLeader(shardId, hint))
+                        .getConnection(shardLeaderProvider.apply(shardId))
                         .stub()
                         .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers));
         final var requestObserver =

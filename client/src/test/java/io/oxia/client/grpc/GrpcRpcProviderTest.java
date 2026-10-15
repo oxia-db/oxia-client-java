@@ -440,7 +440,6 @@ class GrpcRpcProviderTest {
                                             () ->
                                                     provider.writeStream(
                                                             1,
-                                                            null,
                                                             new StreamObserver<WriteResponse>() {
                                                                 @Override
                                                                 public void onNext(WriteResponse value) {}
