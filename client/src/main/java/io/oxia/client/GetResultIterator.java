@@ -102,12 +102,6 @@ public class GetResultIterator
         notifyAll();
     }
 
-    // The client passes on the error of the scan as a public exception: throw an OxiaException,
-    // which the iterator can't declare, in an OxiaUncheckedException
-    private static RuntimeException unchecked(Throwable error) {
-        return error instanceof RuntimeException e ? e : new OxiaUncheckedException(error);
-    }
-
     @Override
     public synchronized boolean hasNext() {
         try {
@@ -120,7 +114,7 @@ public class GetResultIterator
         }
 
         if (error != null) {
-            throw unchecked(error);
+            throw OxiaExceptions.unchecked(error);
         }
 
         return !buffer.isEmpty();
@@ -141,7 +135,7 @@ public class GetResultIterator
             }
 
             if (error != null) {
-                throw unchecked(error);
+                throw OxiaExceptions.unchecked(error);
             }
 
             res = buffer.poll();

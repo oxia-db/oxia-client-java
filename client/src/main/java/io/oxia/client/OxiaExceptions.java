@@ -49,9 +49,9 @@ final class OxiaExceptions {
      * Returns the public exception for an error, to throw from a method that declares no checked
      * exception: an {@link OxiaException} is wrapped in an {@link OxiaUncheckedException}.
      */
-    static RuntimeException unchecked(RuntimeException error) {
+    static RuntimeException unchecked(Throwable error) {
         final Throwable translated = translate(error);
-        return translated instanceof OxiaException e ? new OxiaUncheckedException(e) : error;
+        return translated instanceof RuntimeException e ? e : new OxiaUncheckedException(translated);
     }
 
     /** Returns the public exception for an internal error. Any other error is returned as is. */
