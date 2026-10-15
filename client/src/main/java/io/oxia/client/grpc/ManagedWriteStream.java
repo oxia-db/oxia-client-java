@@ -98,14 +98,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                             OxiaStatusException.resourceUnavailable("Write stream is closed"));
                 }
                 inflightWrites.addLast(future);
-                requestTimeouts
-                        .add(future.thenRun(() -> {}))
-                        .whenComplete(
-                                (__, ex) -> {
-                                    if (ex instanceof TimeoutException) {
-                                        handleTimeout(future);
-                                    }
-                                });
+                handleTimeout(future);
                 if (subStreamObserver == null) {
                     subStreamObserver = new ManagedSubWriteStream(this, rpcProvider, shardId);
                 }
@@ -123,20 +116,28 @@ public final class ManagedWriteStream implements AutoCloseable {
         return future;
     }
 
-    // A write without response after the request timeout: the stream may be stuck without failing,
-    // e.g. behind a proxy whose connection to the server is dead
-    private void handleTimeout(CompletableFuture<WriteResponse> timedOut) {
-        final ManagedSubWriteStream source;
-        lock.lock();
-        try {
-            if (!inflightWrites.contains(timedOut)) {
-                return;
-            }
-            source = subStreamObserver;
-        } finally {
-            lock.unlock();
-        }
-        rolloverSubStream(source, OxiaStatusException.timeout(new TimeoutException()));
+    // Rolls the sub-stream over when the write gets no response within the request timeout: the
+    // stream may be stuck without failing, e.g. behind a proxy whose connection to the server is dead
+    private void handleTimeout(CompletableFuture<WriteResponse> write) {
+        requestTimeouts
+                .add(write.thenRun(() -> {}))
+                .whenComplete(
+                        (__, ex) -> {
+                            if (!(ex instanceof TimeoutException)) {
+                                return;
+                            }
+                            final ManagedSubWriteStream source;
+                            lock.lock();
+                            try {
+                                if (!inflightWrites.contains(write)) {
+                                    return;
+                                }
+                                source = subStreamObserver;
+                            } finally {
+                                lock.unlock();
+                            }
+                            rolloverSubStream(source, OxiaStatusException.timeout(new TimeoutException()));
+                        });
     }
 
     @Override
