@@ -23,7 +23,6 @@ import dev.failsafe.FailsafeException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
-import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaServerException;
@@ -44,7 +43,7 @@ class PublicExceptionsTest {
         "RESOURCE_UNAVAILABLE, io.oxia.client.api.exceptions.ResourceUnavailableException",
         "NAMESPACE_NOT_FOUND, io.oxia.client.api.exceptions.NamespaceNotFoundException",
         "SESSION_NOT_FOUND, io.oxia.client.api.exceptions.SessionDoesNotExistException",
-        "INVALID_SESSION_TIMEOUT, io.oxia.client.api.exceptions.InvalidArgumentException",
+        "INVALID_SESSION_TIMEOUT, io.oxia.client.api.exceptions.OxiaServerException",
         "NODE_IS_NOT_LEADER, io.oxia.client.api.exceptions.OxiaServerException",
         "SHARD_NOT_FOUND, io.oxia.client.api.exceptions.OxiaServerException",
     })
@@ -94,11 +93,9 @@ class PublicExceptionsTest {
     }
 
     @Test
-    void sessionAndArgumentErrorsKeepTheirPublicTypes() {
+    void sessionAndNamespaceErrorsKeepTheirPublicTypes() {
         assertThat(PublicExceptions.translate(oxiaStatusError("SESSION_NOT_FOUND")))
                 .isExactlyInstanceOf(SessionDoesNotExistException.class);
-        assertThat(PublicExceptions.translate(oxiaStatusError("INVALID_SESSION_TIMEOUT")))
-                .isExactlyInstanceOf(InvalidArgumentException.class);
         assertThat(PublicExceptions.translate(oxiaStatusError("NAMESPACE_NOT_FOUND")))
                 .isExactlyInstanceOf(NamespaceNotFoundException.class);
     }

@@ -34,8 +34,8 @@ import java.util.function.Consumer;
  *
  * <p>Each method blocks the calling thread until the operation completes, fails, or the configured
  * request timeout elapses. Errors surface either as a checked {@link
- * io.oxia.client.api.exceptions.OxiaException} subtype that the method declares (e.g. {@link
- * io.oxia.client.api.exceptions.UnexpectedVersionIdException}), or as an unchecked {@link
+ * io.oxia.client.api.exceptions.OxiaException} subtype when the server rejects the request (e.g.
+ * {@link io.oxia.client.api.exceptions.UnexpectedVersionIdException}), or as an unchecked {@link
  * io.oxia.client.api.exceptions.OxiaUncheckedException} subtype for the failures that any operation
  * can hit (e.g. {@link io.oxia.client.api.exceptions.ResourceUnavailableException}).
  *

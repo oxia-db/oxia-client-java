@@ -16,7 +16,7 @@
 /**
  * Exceptions raised by the Oxia client.
  *
- * <p>The outcomes that a method declares extend the checked {@link
+ * <p>The rejections of a request by the server extend the checked {@link
  * io.oxia.client.api.exceptions.OxiaException}:
  *
  * <ul>
@@ -24,6 +24,9 @@
  *       delete failed because the server's versionId does not match the expected one.
  *   <li>{@link io.oxia.client.api.exceptions.KeyAlreadyExistsException} — a put with {@code
  *       IfRecordDoesNotExist} found an existing record.
+ *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the server rejected a put
+ *       or delete range for an invalid argument, such as a sequential put that doesn't fit its
+ *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
  * </ul>
@@ -34,9 +37,6 @@
  * <ul>
  *   <li>{@link io.oxia.client.api.exceptions.SessionDoesNotExistException} — an operation tied to
  *       an ephemeral session was attempted after the session expired.
- *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the server rejected a put
- *       or delete range for an invalid argument, such as a sequential put that doesn't fit its
- *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
  *       while the server was unavailable. The outcome of a write that fails with it is unknown: it
  *       may have been applied.

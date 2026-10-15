@@ -17,8 +17,8 @@ package io.oxia.client.api.exceptions;
 
 /**
  * A super-class of the unchecked exceptions of the Oxia client: the failures that any operation can
- * hit, such as an unavailable server or a request timeout, which no method declares. The outcomes
- * that a method declares, such as {@link KeyAlreadyExistsException}, extend the checked {@link
+ * hit, such as an unavailable server or a request timeout, which no method declares. The rejections
+ * of a request by the server, such as {@link KeyAlreadyExistsException}, extend the checked {@link
  * OxiaException}.
  */
 public abstract class OxiaUncheckedException extends RuntimeException {

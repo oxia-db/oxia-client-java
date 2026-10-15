@@ -19,7 +19,6 @@ import dev.failsafe.FailsafeException;
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
-import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
@@ -69,7 +68,6 @@ final class PublicExceptions {
             case TIMEOUT -> new RequestTimeoutException(message, status);
             case NAMESPACE_NOT_FOUND -> new NamespaceNotFoundException(message, status);
             case SESSION_NOT_FOUND -> withCause(new SessionDoesNotExistException(), status);
-            case INVALID_SESSION_TIMEOUT -> withCause(new InvalidArgumentException(message), status);
             default -> new OxiaServerException(status.getStatusCode() + ": " + message, status);
         };
     }
