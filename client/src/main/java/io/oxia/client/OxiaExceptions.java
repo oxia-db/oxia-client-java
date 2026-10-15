@@ -18,6 +18,7 @@ package io.oxia.client;
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
@@ -54,6 +55,9 @@ final class OxiaExceptions {
                         NOT_INITIALIZED,
                         ABORTED -> {
                     return new ResourceUnavailableException(status.getMessage(), status);
+                }
+                case NAMESPACE_NOT_FOUND -> {
+                    return new NamespaceNotFoundException(status.getMessage(), status);
                 }
                 case TIMEOUT -> {
                     return new RequestTimeoutException(status.getMessage(), status);

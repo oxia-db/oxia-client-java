@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.RESOURCE_UNAVAILABLE;
 import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
@@ -63,6 +64,14 @@ public class OxiaStatusException extends RuntimeException {
             return Optional.empty();
         }
         return Optional.ofNullable(metadata.get("leader")).filter(leader -> !leader.isEmpty());
+    }
+
+    public static @NonNull OxiaStatusException namespaceNotFound(@NonNull String namespace) {
+        return new OxiaStatusException(
+                NAMESPACE_NOT_FOUND,
+                Map.of("namespace", namespace),
+                "Namespace not found: " + namespace,
+                null);
     }
 
     public static @NonNull OxiaStatusException shardNotFound(@NonNull String key) {

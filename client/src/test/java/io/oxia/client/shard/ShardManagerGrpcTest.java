@@ -28,6 +28,8 @@ import io.grpc.Status;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.proto.OxiaClientGrpc;
@@ -164,7 +166,10 @@ class ShardManagerGrpcTest {
                 new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().join())
                     .isInstanceOf(CompletionException.class)
-                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND));
         }
         assertThat(requests).hasValue(1);
     }
@@ -184,7 +189,10 @@ class ShardManagerGrpcTest {
                 new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace)) {
             assertThatThrownBy(() -> shardManager.start().join())
                     .isInstanceOf(CompletionException.class)
-                    .hasCauseInstanceOf(NamespaceNotFoundException.class);
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND));
         }
         assertThat(requests).hasValue(1);
     }

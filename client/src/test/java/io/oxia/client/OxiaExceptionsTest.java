@@ -25,6 +25,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusCode;
@@ -90,6 +91,24 @@ class OxiaExceptionsTest {
                 .isInstanceOfSatisfying(
                         OxiaStatusException.class,
                         status -> assertThat(status.getStatusCode().name()).isEqualTo(reason));
+    }
+
+    @Test
+    void translatesNamespaceNotFound() {
+        assertThat(OxiaExceptions.translate(oxiaStatusError("NAMESPACE_NOT_FOUND")))
+                .isInstanceOf(NamespaceNotFoundException.class)
+                .cause()
+                .isInstanceOfSatisfying(
+                        OxiaStatusException.class,
+                        status ->
+                                assertThat(status.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND));
+
+        // The namespace is missing from the shard assignments
+        var namespace = OxiaStatusException.namespaceNotFound("ns");
+        assertThat(OxiaExceptions.translate(new CompletionException(namespace)))
+                .isInstanceOf(NamespaceNotFoundException.class)
+                .hasMessage("Namespace not found: ns")
+                .hasCause(namespace);
     }
 
     @Test
