@@ -26,13 +26,9 @@ final class ManagedSubWriteStream implements StreamObserver<WriteResponse> {
     private final ManagedWriteStream parent;
     private final StreamObserver<InputStream> requestObserver;
 
-    ManagedSubWriteStream(
-            ManagedWriteStream parent,
-            RpcProvider rpcProvider,
-            long shardId,
-            OxiaStatusException leaderHint) {
+    ManagedSubWriteStream(ManagedWriteStream parent, RpcProvider rpcProvider, long shardId) {
         this.parent = parent;
-        this.requestObserver = rpcProvider.writeStream(shardId, leaderHint, this);
+        this.requestObserver = rpcProvider.writeStream(shardId, this);
     }
 
     // Serializes a request for send(), so that the caller can do it before taking its lock. The

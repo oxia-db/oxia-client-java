@@ -66,7 +66,7 @@ public interface RpcProvider extends AutoCloseable {
 
     /** Opens a write stream, which takes requests serialized by ManagedSubWriteStream.serialize(). */
     StreamObserver<InputStream> writeStream(
-            long shardId, OxiaStatusException leaderHint, StreamObserver<WriteResponse> responseObserver);
+            long shardId, StreamObserver<WriteResponse> responseObserver);
 
     ManagedWriteStream getWriteStream(long shardId);
 
