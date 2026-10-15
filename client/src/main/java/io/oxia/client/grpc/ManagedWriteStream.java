@@ -142,6 +142,7 @@ public final class ManagedWriteStream implements AutoCloseable {
     @Override
     public void close() {
         final ManagedSubWriteStream source;
+        final List<CompletableFuture<WriteResponse>> inflightsToFail;
         lock.lock();
         try {
             if (closed) {
@@ -149,10 +150,28 @@ public final class ManagedWriteStream implements AutoCloseable {
             }
             closed = true;
             source = subStreamObserver;
+            subStreamObserver = null;
+            inflightsToFail = new ArrayList<>(inflightWrites);
+            inflightWrites.clear();
         } finally {
             lock.unlock();
         }
-        rolloverSubStream(source, OxiaStatusException.resourceUnavailable("Write stream is closed"));
+        if (source != null) {
+            try {
+                source.complete();
+            } catch (Throwable ex) {
+                log.debug().exceptionMessage(ex).log("Failed to complete write stream");
+            }
+        }
+        final OxiaStatusException error =
+                OxiaStatusException.resourceUnavailable("Write stream is closed");
+        for (CompletableFuture<WriteResponse> inflight : inflightsToFail) {
+            try {
+                inflight.completeExceptionally(error);
+            } catch (Throwable ex) {
+                log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
+            }
+        }
     }
 
     // Replaces the sub-stream, unless it was already replaced: the next write opens a new one. Fails
