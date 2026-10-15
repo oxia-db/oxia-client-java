@@ -37,6 +37,7 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
@@ -741,8 +742,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     @Override
     public void notifications(@NonNull Consumer<Notification> notificationCallback) {
-        checkIfClosed();
-        notificationManager.registerCallback(notificationCallback);
+        try {
+            checkIfClosed();
+            notificationManager.registerCallback(notificationCallback);
+        } catch (RuntimeException e) {
+            throw OxiaExceptions.unchecked(e);
+        }
     }
 
     private CompletableFuture<List<String>> internalListMultiShards(
@@ -812,7 +817,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull String key,
             @NonNull Consumer<String> listener,
             @NonNull Set<GetSequenceUpdatesOption> options) {
-        checkIfClosed();
+        try {
+            checkIfClosed();
+        } catch (RuntimeException e) {
+            throw OxiaExceptions.unchecked(e);
+        }
         var partitionKey = OptionsUtils.getPartitionKey(options);
         if (partitionKey.isEmpty()) {
             throw new IllegalArgumentException("partitionKey must be present");
@@ -1003,7 +1012,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private void checkIfClosed() {
         if (closed) {
-            throw new IllegalStateException("Client has been closed");
+            throw OxiaStatusException.alreadyClosed("Client has been closed");
         }
     }
 }
