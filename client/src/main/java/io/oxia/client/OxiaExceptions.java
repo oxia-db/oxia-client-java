@@ -15,22 +15,27 @@
  */
 package io.oxia.client;
 
-import dev.failsafe.FailsafeException;
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
+import io.oxia.client.api.exceptions.ClientClosedException;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
+import io.oxia.client.api.exceptions.OxiaClientException;
+import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.client.util.ClosedException;
 import io.oxia.client.util.CompletableFutures;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Translates the errors of the client internals, such as {@link OxiaStatusException} and the gRPC
- * status errors, to the public {@link OxiaException} subclasses, at the boundary of the client API.
+ * Translates the errors of the client internals, such as {@link OxiaStatusException}, the gRPC
+ * status errors and the errors of the client itself, to the public {@link OxiaException}
+ * subclasses, at the boundary of the client API.
  */
 final class OxiaExceptions {
     private OxiaExceptions() {}
@@ -41,22 +46,31 @@ final class OxiaExceptions {
     }
 
     /**
-     * Returns the public exception for an error. Errors that are already public, or that carry no
-     * status, such as an {@link IllegalStateException} for a closed client, are returned as is.
+     * Returns the public exception for an error: an {@link OxiaException} for any error but a JVM
+     * {@link Error}.
      */
     static Throwable translate(Throwable error) {
-        Throwable cause = CompletableFutures.unwrapException(error);
-        while (cause instanceof FailsafeException && cause.getCause() != null) {
-            cause = CompletableFutures.unwrapException(cause.getCause());
+        final Throwable cause = CompletableFutures.unwrapException(error);
+        if (cause instanceof OxiaException || cause instanceof Error) {
+            // Keep the original error, e.g. a stackless completion exception, which the dependent
+            // stages pass on as is
+            return error;
+        }
+        if (cause instanceof io.oxia.client.shard.NamespaceNotFoundException) {
+            return new NamespaceNotFoundException(cause.getMessage(), cause);
+        }
+        if (cause instanceof ClosedException) {
+            return new ClientClosedException(cause.getMessage(), cause);
+        }
+        if (cause instanceof IllegalArgumentException) {
+            return new InvalidArgumentException(cause.getMessage(), cause);
         }
         if (!(cause instanceof OxiaStatusException
                 || cause instanceof StatusException
                 || cause instanceof StatusRuntimeException
                 || cause instanceof TimeoutException
                 || cause instanceof TimeoutExceededException)) {
-            // Already public, or no status: keep the original error, e.g. a stackless completion
-            // exception, which the dependent stages pass on as is
-            return error;
+            return new OxiaClientException("Unexpected error: " + cause, cause);
         }
         final OxiaStatusException status = OxiaStatusException.from(cause);
         final String message = status.getMessage();

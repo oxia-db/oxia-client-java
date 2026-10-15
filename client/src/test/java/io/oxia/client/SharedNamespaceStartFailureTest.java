@@ -26,7 +26,7 @@ import io.grpc.stub.StreamObserver;
 import io.oxia.client.api.AsyncOxiaClient;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.SharedResources;
-import io.oxia.client.shard.NamespaceNotFoundException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;

@@ -134,11 +134,10 @@ class GetResultIteratorTest {
         it.onStreamStarted(handle);
 
         it.onNext(result("a"));
-        it.onError(new RuntimeException("scan failed"));
+        var error = new RuntimeException("scan failed");
+        it.onError(error);
 
-        assertThatThrownBy(it::hasNext)
-                .isInstanceOf(RuntimeException.class)
-                .hasRootCauseMessage("scan failed");
+        assertThatThrownBy(it::hasNext).isSameAs(error);
 
         it.close();
         assertThat(handle.cancelled).isTrue();

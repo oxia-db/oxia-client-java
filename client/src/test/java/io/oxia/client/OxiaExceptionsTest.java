@@ -19,15 +19,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
-import dev.failsafe.FailsafeException;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
+import io.oxia.client.api.exceptions.ClientClosedException;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
+import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.client.util.ClosedException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
@@ -74,20 +78,40 @@ class OxiaExceptionsTest {
         // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
         assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
                 .isInstanceOf(ResourceUnavailableException.class);
-        assertThat(
-                        OxiaExceptions.translate(
-                                new FailsafeException(
-                                        OxiaStatusException.resourceUnavailable("retries exhausted"))))
-                .isInstanceOf(ResourceUnavailableException.class);
     }
 
     @Test
-    void keepsPublicAndOtherErrorsAsIs() {
+    void keepsPublicExceptionsAndJvmErrorsAsIs() {
         var expected = new CompletionException(new KeyAlreadyExistsException("key"));
         assertThat(OxiaExceptions.translate(expected)).isSameAs(expected);
 
-        var closed = new IllegalStateException("Client is closed");
-        assertThat(OxiaExceptions.translate(closed)).isSameAs(closed);
+        var error = new OutOfMemoryError();
+        assertThat(OxiaExceptions.translate(error)).isSameAs(error);
+    }
+
+    @Test
+    void translatesClientErrors() {
+        var closed = new ClosedException("Client has been closed");
+        assertThat(OxiaExceptions.translate(new CompletionException(closed)))
+                .isInstanceOf(ClientClosedException.class)
+                .hasMessage("Client has been closed")
+                .hasCause(closed);
+
+        var invalid = new IllegalArgumentException("key must not be null");
+        assertThat(OxiaExceptions.translate(invalid))
+                .isInstanceOf(InvalidArgumentException.class)
+                .hasMessage("key must not be null")
+                .hasCause(invalid);
+
+        var namespace = new io.oxia.client.shard.NamespaceNotFoundException("ns");
+        assertThat(OxiaExceptions.translate(namespace))
+                .isInstanceOf(NamespaceNotFoundException.class)
+                .hasCause(namespace);
+
+        var unexpected = new NullPointerException("bug");
+        assertThat(OxiaExceptions.translate(unexpected))
+                .isInstanceOf(OxiaClientException.class)
+                .hasCause(unexpected);
     }
 
     private static StatusRuntimeException oxiaStatusError(String reason) {

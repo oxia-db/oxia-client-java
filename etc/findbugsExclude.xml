@@ -38,4 +38,10 @@
     <Package name="io.oxia.client" />
     <Bug pattern="CT_CONSTRUCTOR_THROW" />
   </Match>
+  <Match>
+    <!-- The range scan error is kept to be thrown to the caller as is -->
+    <Class name="io.oxia.client.GetResultIterator" />
+    <Field name="error" />
+    <Bug pattern="EI_EXPOSE_REP2" />
+  </Match>
 </FindBugsFilter>

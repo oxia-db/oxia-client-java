@@ -27,6 +27,7 @@ import io.oxia.client.grpc.ConnectionManager;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager;
+import io.oxia.client.util.ClosedException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -116,8 +117,7 @@ public class SharedResourcesImpl implements SharedResources {
      */
     CompletableFuture<ShardManager> getOrCreateShardManager(@NonNull ClientConfig config) {
         if (closed) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("SharedResources has been closed"));
+            return CompletableFuture.failedFuture(new ClosedException("SharedResources has been closed"));
         }
         var key = new NamespaceKey(config.serviceAddress(), config.namespace());
         var ns = namespaces.computeIfAbsent(key, k -> createNamespace(config));

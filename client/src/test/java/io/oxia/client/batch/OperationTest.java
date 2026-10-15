@@ -32,6 +32,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
@@ -71,15 +72,13 @@ class OperationTest {
     // A response with status 99, a number the client's Status enum doesn't define: field 1, a varint
     private static final byte[] UNKNOWN_STATUS = {0x08, 99};
 
-    private static void assertFailedWithIllegalState(CompletableFuture<?> callback, String message) {
+    private static void assertFailedWithServerError(CompletableFuture<?> callback, String message) {
         assertThat(callback).isCompletedExceptionally();
         assertThatThrownBy(callback::get)
                 .satisfies(
                         e -> {
                             assertThat(e).isInstanceOf(ExecutionException.class);
-                            assertThat(e.getCause())
-                                    .isInstanceOf(IllegalStateException.class)
-                                    .hasMessage(message);
+                            assertThat(e.getCause()).isInstanceOf(OxiaServerException.class).hasMessage(message);
                         });
     }
 
@@ -160,7 +159,7 @@ class OperationTest {
             var response = new GetResponse();
             response.setStatus(SESSION_DOES_NOT_EXIST);
             op.complete(response);
-            assertFailedWithIllegalState(callback, "GRPC.Status: SESSION_DOES_NOT_EXIST");
+            assertFailedWithServerError(callback, "GRPC.Status: SESSION_DOES_NOT_EXIST");
         }
 
         @Test
@@ -168,7 +167,7 @@ class OperationTest {
             var response = new GetResponse();
             response.parseFrom(UNKNOWN_STATUS);
             op.complete(response);
-            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+            assertFailedWithServerError(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
     }
 
@@ -569,7 +568,7 @@ class OperationTest {
             var response = new PutResponse();
             response.parseFrom(UNKNOWN_STATUS);
             op.complete(response);
-            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+            assertFailedWithServerError(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
 
         @Test
@@ -703,7 +702,7 @@ class OperationTest {
             var response = new DeleteResponse();
             response.parseFrom(UNKNOWN_STATUS);
             op.complete(response);
-            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+            assertFailedWithServerError(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
     }
 
@@ -750,7 +749,7 @@ class OperationTest {
             var response = new DeleteRangeResponse();
             response.parseFrom(UNKNOWN_STATUS);
             op.complete(response);
-            assertFailedWithIllegalState(callback, "GRPC.Status: UNRECOGNIZED(99)");
+            assertFailedWithServerError(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
     }
 }

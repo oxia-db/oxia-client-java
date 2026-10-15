@@ -21,6 +21,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
+import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -59,7 +60,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             return asyncClient.put(key, value, options).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new OxiaClientException("Interrupted while waiting for the operation", e);
         } catch (ExecutionException e) {
             throw e.getCause();
         }
@@ -79,7 +80,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             return asyncClient.delete(key, options).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new OxiaClientException("Interrupted while waiting for the operation", e);
         } catch (ExecutionException e) {
             throw e.getCause();
         }
@@ -101,7 +102,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             asyncClient.deleteRange(startKeyInclusive, endKeyExclusive, options).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new OxiaClientException("Interrupted while waiting for the operation", e);
         } catch (ExecutionException e) {
             throw e.getCause();
         }
@@ -120,7 +121,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             return asyncClient.get(key, options).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new OxiaClientException("Interrupted while waiting for the operation", e);
         } catch (ExecutionException e) {
             throw e.getCause();
         }
@@ -143,7 +144,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             return asyncClient.list(startKeyInclusive, endKeyExclusive, options).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new OxiaClientException("Interrupted while waiting for the operation", e);
         } catch (ExecutionException e) {
             throw e.getCause();
         }

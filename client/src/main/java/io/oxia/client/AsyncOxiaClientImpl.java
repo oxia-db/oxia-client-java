@@ -49,6 +49,7 @@ import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
+import io.oxia.client.util.ClosedException;
 import io.oxia.client.util.PendingBytesLimiter;
 import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.KeyComparisonType;
@@ -72,6 +73,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
+import lombok.SneakyThrows;
 
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
@@ -375,8 +377,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long acquiredBytes = 0;
         try {
             checkIfClosed();
-            Objects.requireNonNull(key);
-            Objects.requireNonNull(value);
+            checkNotNull(key, "key");
+            checkNotNull(value, "value");
 
             int size = ByteBufUtil.utf8Bytes(key) + value.length;
             pendingBytesLimiter.acquire(size);
@@ -490,7 +492,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long acquiredBytes = 0;
         try {
             checkIfClosed();
-            Objects.requireNonNull(key);
+            checkNotNull(key, "key");
 
             OptionalLong versionId = OptionsUtils.getVersionId(options);
             var partitionKey = OptionsUtils.getPartitionKey(options);
@@ -538,8 +540,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         long acquiredBytes = 0;
         try {
             checkIfClosed();
-            Objects.requireNonNull(startKeyInclusive);
-            Objects.requireNonNull(endKeyExclusive);
+            checkNotNull(startKeyInclusive, "startKeyInclusive");
+            checkNotNull(endKeyExclusive, "endKeyExclusive");
 
             int size = ByteBufUtil.utf8Bytes(startKeyInclusive) + ByteBufUtil.utf8Bytes(endKeyExclusive);
             pendingBytesLimiter.acquire(size);
@@ -601,14 +603,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     @Override
     public @NonNull CompletableFuture<GetResult> get(String key, Set<GetOption> options) {
-        final GetOptions internalOptions = GetOptions.parseFrom(options);
         long startTime = System.nanoTime();
         gaugePendingGetRequests.increment();
         var callback = new CompletableFuture<GetResult>();
         long acquiredBytes = 0;
         try {
             checkIfClosed();
-            Objects.requireNonNull(key);
+            checkNotNull(key, "key");
+            final GetOptions internalOptions = GetOptions.parseFrom(options);
 
             long size = ByteBufUtil.utf8Bytes(key);
             pendingBytesLimiter.acquire(size);
@@ -710,8 +712,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         CompletableFuture<List<String>> callback;
         try {
             checkIfClosed();
-            Objects.requireNonNull(startKeyInclusive);
-            Objects.requireNonNull(endKeyExclusive);
+            checkNotNull(startKeyInclusive, "startKeyInclusive");
+            checkNotNull(endKeyExclusive, "endKeyExclusive");
 
             Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
             Optional<String> secondaryIndex = OptionsUtils.getSecondaryIndexName(options);
@@ -740,9 +742,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
+    @SneakyThrows
     public void notifications(@NonNull Consumer<Notification> notificationCallback) {
-        checkIfClosed();
-        notificationManager.registerCallback(notificationCallback);
+        try {
+            checkIfClosed();
+            notificationManager.registerCallback(notificationCallback);
+        } catch (RuntimeException e) {
+            throw OxiaExceptions.translate(e);
+        }
     }
 
     private CompletableFuture<List<String>> internalListMultiShards(
@@ -808,14 +815,21 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
+    @SneakyThrows
     public Closeable getSequenceUpdates(
-            @NonNull String key,
+            String key,
             @NonNull Consumer<String> listener,
             @NonNull Set<GetSequenceUpdatesOption> options) {
-        checkIfClosed();
-        var partitionKey = OptionsUtils.getPartitionKey(options);
-        if (partitionKey.isEmpty()) {
-            throw new IllegalArgumentException("partitionKey must be present");
+        final Optional<String> partitionKey;
+        try {
+            checkIfClosed();
+            checkNotNull(key, "key");
+            partitionKey = OptionsUtils.getPartitionKey(options);
+            if (partitionKey.isEmpty()) {
+                throw new IllegalArgumentException("partitionKey must be present");
+            }
+        } catch (RuntimeException e) {
+            throw OxiaExceptions.translate(e);
         }
 
         return new SequenceUpdates(
@@ -831,16 +845,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     @Override
     public void rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
-            @NonNull RangeScanConsumer consumer) {
+            String startKeyInclusive, String endKeyExclusive, @NonNull RangeScanConsumer consumer) {
         rangeScan(startKeyInclusive, endKeyExclusive, consumer, Collections.emptySet());
     }
 
     @Override
     public void rangeScan(
-            @NonNull String startKeyInclusive,
-            @NonNull String endKeyExclusive,
+            String startKeyInclusive,
+            String endKeyExclusive,
             @NonNull RangeScanConsumer consumer,
             @NonNull Set<RangeScanOption> options) {
         gaugePendingRangeScanRequests.increment();
@@ -874,8 +886,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
         try {
             checkIfClosed();
-            Objects.requireNonNull(startKeyInclusive);
-            Objects.requireNonNull(endKeyExclusive);
+            checkNotNull(startKeyInclusive, "startKeyInclusive");
+            checkNotNull(endKeyExclusive, "endKeyExclusive");
 
             final var flowControl = consumer instanceof FlowControlledRangeScanConsumer fc ? fc : null;
 
@@ -905,7 +917,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         flowControl);
             }
         } catch (Exception e) {
-            consumer.onError(e);
+            consumer.onError(OxiaExceptions.translate(e));
         }
     }
 
@@ -1003,7 +1015,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private void checkIfClosed() {
         if (closed) {
-            throw new IllegalStateException("Client has been closed");
+            throw new ClosedException("Client has been closed");
+        }
+    }
+
+    /** Rejects a null argument with an {@link IllegalArgumentException}, reported as invalid. */
+    private static void checkNotNull(Object value, String name) {
+        if (value == null) {
+            throw new IllegalArgumentException(name + " must not be null");
         }
     }
 }

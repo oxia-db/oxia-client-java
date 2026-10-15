@@ -16,7 +16,7 @@
 package io.oxia.client.it;
 
 import io.oxia.client.api.OxiaClientBuilder;
-import io.oxia.client.shard.NamespaceNotFoundException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.testcontainers.OxiaContainer;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ThreadLocalRandom;

@@ -17,13 +17,13 @@ package io.oxia.client.batch;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.grpc.stub.StreamObserver;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.proto.GetResponse;
 import io.oxia.proto.ReadRequest;
 import io.oxia.proto.ReadResponse;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CancellationException;
 import lombok.NonNull;
 
 final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadResponse> {
@@ -99,7 +99,9 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
         gets.forEach(
                 g -> {
                     if (!g.callback().isDone()) {
-                        g.fail(new CancellationException());
+                        g.fail(
+                                OxiaStatusException.resourceUnavailable(
+                                        "Read stream completed without a response"));
                     }
                 });
         factory.getReadRequestLatencyHistogram().recordSuccess(System.nanoTime() - startSendTimeNanos);

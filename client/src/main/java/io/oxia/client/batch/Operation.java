@@ -29,6 +29,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
@@ -81,10 +82,11 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
      * The failure for a status the operation doesn't handle. A status that the client's proto doesn't
      * define reads as {@code UNRECOGNIZED}, so the message names its number.
      */
-    private static IllegalStateException unexpectedStatus(int statusValue) {
+    private static OxiaServerException unexpectedStatus(int statusValue) {
         Status status = Status.valueOf(statusValue);
-        return new IllegalStateException(
-                "GRPC.Status: " + (status != null ? status.name() : "UNRECOGNIZED(" + statusValue + ")"));
+        return new OxiaServerException(
+                "GRPC.Status: " + (status != null ? status.name() : "UNRECOGNIZED(" + statusValue + ")"),
+                null);
     }
 
     sealed interface ReadOperation<R> extends Operation<R> permits GetOperation {

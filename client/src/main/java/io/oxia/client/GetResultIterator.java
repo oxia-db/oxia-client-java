@@ -92,7 +92,7 @@ public class GetResultIterator
         // Don't cancel the other streams here: onError can be invoked while holding another
         // stream observer's lock, and cancelling a stream takes its observer's lock. The
         // streams are cancelled by close().
-        this.error = new Exception("Range scan error", throwable);
+        this.error = throwable;
         notifyAll();
     }
 
@@ -110,7 +110,7 @@ public class GetResultIterator
         }
 
         if (error != null) {
-            throw new RuntimeException(error);
+            throw error;
         }
 
         return !buffer.isEmpty();
@@ -127,7 +127,7 @@ public class GetResultIterator
             }
 
             if (error != null) {
-                throw new RuntimeException(error);
+                throw error;
             }
 
             res = buffer.poll();

@@ -24,6 +24,7 @@ import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+import io.oxia.client.util.ClosedException;
 import io.oxia.proto.CreateSessionRequest;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,7 @@ public class SessionManager
         lock.lock();
         try {
             if (closed) {
-                return failedFuture(new IllegalStateException("Session manager is closed"));
+                return failedFuture(new ClosedException("Session manager is closed"));
             }
             // Look up the shard again, under the lock: the one looked up above may be a split shard
             // whose session has moved since

@@ -16,9 +16,10 @@
 package io.oxia.client.api.exceptions;
 
 /**
- * The server rejected an operation for an invalid argument, and did not apply it. For instance:
+ * An operation was rejected for an invalid argument, and was not applied. For instance:
  *
  * <ul>
+ *   <li>a {@code null} key, or invalid options, rejected by the client before sending it;
  *   <li>a sequential put that doesn't fit the keys already under its prefix: the last one is not a
  *       key of its sequence, or the deltas overflow the sequence;
  *   <li>a put with a secondary index name that contains {@code /};
@@ -35,5 +36,15 @@ public class InvalidArgumentException extends OxiaException {
      */
     public InvalidArgumentException(String message) {
         super(message);
+    }
+
+    /**
+     * Creates an instance of the exception.
+     *
+     * @param message the exception message
+     * @param cause the cause of the exception
+     */
+    public InvalidArgumentException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
