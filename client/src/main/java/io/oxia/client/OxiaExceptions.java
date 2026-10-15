@@ -50,10 +50,7 @@ final class OxiaExceptions {
      */
     static RuntimeException unchecked(RuntimeException error) {
         final Throwable translated = translate(error);
-        if (translated instanceof RuntimeException runtimeException) {
-            return runtimeException;
-        }
-        return new OxiaUncheckedException(translated);
+        return translated instanceof OxiaException e ? new OxiaUncheckedException(e) : error;
     }
 
     /** Returns the public exception for an internal error. Any other error is returned as is. */
