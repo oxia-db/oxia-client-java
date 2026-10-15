@@ -15,6 +15,8 @@
  */
 package io.oxia.client.api.exceptions;
 
+import java.util.Objects;
+
 /**
  * Wraps an {@link OxiaException} with an unchecked exception, as {@link
  * java.io.UncheckedIOException} does for an {@link java.io.IOException}. The synchronous client
@@ -28,7 +30,7 @@ public class OxiaUncheckedException extends RuntimeException {
      * @param cause the {@link OxiaException} to wrap
      */
     public OxiaUncheckedException(OxiaException cause) {
-        super(cause.getMessage(), cause);
+        super(Objects.requireNonNull(cause, "cause").getMessage(), cause);
     }
 
     /**

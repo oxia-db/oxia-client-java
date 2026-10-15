@@ -466,8 +466,8 @@ class OxiaClientIT {
                                             "0".getBytes(),
                                             Set.of(
                                                     PutOption.SequenceKeysDeltas(List.of(0L)), PutOption.PartitionKey("x"))))
-                    .isInstanceOf(OxiaUncheckedException.class)
-                    .hasCauseInstanceOf(InvalidArgumentException.class);
+                    // Rejected by the option itself, before the client
+                    .isInstanceOf(IllegalArgumentException.class);
 
             assertThatThrownBy(
                             () ->
@@ -477,8 +477,8 @@ class OxiaClientIT {
                                             Set.of(
                                                     PutOption.SequenceKeysDeltas(List.of(1L, -1L)),
                                                     PutOption.PartitionKey("x"))))
-                    .isInstanceOf(OxiaUncheckedException.class)
-                    .hasCauseInstanceOf(InvalidArgumentException.class);
+                    // Rejected by the option itself, before the client
+                    .isInstanceOf(IllegalArgumentException.class);
 
             assertThatThrownBy(
                             () ->
