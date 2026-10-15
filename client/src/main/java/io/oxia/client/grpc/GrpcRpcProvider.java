@@ -269,30 +269,23 @@ final class GrpcRpcProvider implements RpcProvider {
                         });
     }
 
+    // Sent once, like the Go client: the session no longer sends heartbeats, so if the close fails
+    // the server expires the session, and its ephemeral records, after the session timeout
     @Override
     public CompletableFuture<CloseSessionResponse> closeSession(
             @NonNull CloseSessionRequest request) {
-        final var hint = new AtomicReference<OxiaStatusException>();
-        return Failsafe.with(
-                        Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("close session", hint))
-                .with(asyncExecutor)
-                .getStageAsync(
-                        () -> {
-                            final var future = new CompletableFuture<CloseSessionResponse>();
-                            try {
-                                connectionManager
-                                        .getConnection(getLeader(request.getShard(), hint))
-                                        .stub()
-                                        .withDeadlineAfter(
-                                                clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
-                                        .closeSession(request, ManagedObservers.toCompletableFuture(future));
-                            } catch (Throwable error) {
-                                future.completeExceptionally(OxiaStatusException.from(error));
-                            }
-                            return future;
-                        })
-                .exceptionallyCompose(
-                        error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
+        final var future = new CompletableFuture<CloseSessionResponse>();
+        try {
+            connectionManager
+                    .getConnection(shardLeaderProvider.apply(request.getShard()))
+                    .stub()
+                    .withDeadlineAfter(clientConfig.requestTimeout().toMillis(), TimeUnit.MILLISECONDS)
+                    .closeSession(request, ManagedObservers.toCompletableFuture(future));
+        } catch (Throwable error) {
+            future.completeExceptionally(error);
+        }
+        return future.exceptionallyCompose(
+                error -> CompletableFuture.failedFuture(OxiaStatusException.from(error)));
     }
 
     @Override
