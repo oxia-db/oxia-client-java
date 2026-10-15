@@ -159,7 +159,7 @@ public final class ManagedWriteStream implements AutoCloseable {
             final OxiaStatusException oxiaStatusException = OxiaStatusException.from(t);
             maybeLeaderHint = oxiaStatusException;
             subStreamObserver = null;
-            deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
+            deferFail = failInflightsUnsafeToResend(oxiaStatusException);
             shouldRetry = !inflightWrites.isEmpty();
             retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
         } finally {
@@ -277,7 +277,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                         log.error().exceptionMessage(exception).log("Failed to recover write stream");
                         oxiaStatusException = OxiaStatusException.from(exception);
                         subStreamObserver = null;
-                        deferFail = failHeadInflightIfNonRetryable(oxiaStatusException);
+                        deferFail = failInflightsUnsafeToResend(oxiaStatusException);
                         shouldRetry = !inflightWrites.isEmpty();
                         retryDelayMillis = shouldRetry ? nextRetryDelayMillis(oxiaStatusException) : 0;
                     } finally {
@@ -292,20 +292,25 @@ public final class ManagedWriteStream implements AutoCloseable {
                 TimeUnit.MILLISECONDS);
     }
 
-    private Runnable failHeadInflightIfNonRetryable(OxiaStatusException oxiaStatusException) {
-        if (!oxiaStatusException.isRetryable()) {
-            final InflightWrite inflightWrite = inflightWrites.pollFirst();
-            if (inflightWrite != null) {
-                return () -> {
-                    try {
-                        inflightWrite.future.completeExceptionally(oxiaStatusException);
-                    } catch (Throwable ex) {
-                        log.warn().exceptionMessage(ex).log("Failed to complete non-retryable inflight write");
-                    }
-                };
-            }
+    private Runnable failInflightsUnsafeToResend(OxiaStatusException oxiaStatusException) {
+        final List<InflightWrite> inflightsToFail = new ArrayList<>();
+        if (oxiaStatusException.getStatusCode() == OxiaStatusCode.RESOURCE_UNAVAILABLE) {
+            // The server may have appended the writes, and the next leader may commit them: sending
+            // them again could apply them twice
+            inflightsToFail.addAll(inflightWrites);
+            inflightWrites.clear();
+        } else if (!oxiaStatusException.isRetryable() && !inflightWrites.isEmpty()) {
+            inflightsToFail.add(inflightWrites.pollFirst());
         }
-        return () -> {};
+        return () -> {
+            for (InflightWrite inflightWrite : inflightsToFail) {
+                try {
+                    inflightWrite.future.completeExceptionally(oxiaStatusException);
+                } catch (Throwable ex) {
+                    log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
+                }
+            }
+        };
     }
 
     private void initWithRecovery(OxiaStatusException leaderHint) {

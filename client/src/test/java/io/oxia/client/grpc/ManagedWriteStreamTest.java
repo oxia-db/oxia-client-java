@@ -389,19 +389,17 @@ class ManagedWriteStreamTest {
                                 assertThat(requests).hasSize(1);
                             });
 
-            responseObservers
-                    .peek()
-                    .onError(Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
+            responseObservers.peek().onError(notLeaderError());
 
-            future.get(5, TimeUnit.SECONDS);
+            // The replay may have sent the write before it failed: the write fails
+            assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(OxiaStatusException.class);
+            assertThat(replayFailures).hasValue(1);
 
-            await()
-                    .untilAsserted(
-                            () -> {
-                                assertThat(openAttempts).hasValue(3);
-                                assertThat(replayFailures).hasValue(1);
-                                assertThat(keys(requests)).containsExactly("key-1", "key-1", "key-1");
-                            });
+            // The next write opens a new stream
+            stream.send(writeRequest(2)).get(5, TimeUnit.SECONDS);
+            assertThat(openAttempts).hasValue(3);
+            assertThat(keys(requests)).containsExactly("key-1", "key-1", "key-2");
         } finally {
             executor.shutdownNow();
         }
@@ -438,8 +436,7 @@ class ManagedWriteStreamTest {
             assertThat(responseObservers).hasSize(1);
 
             var inactiveObserver = responseObservers.peek();
-            inactiveObserver.onError(
-                    Status.UNAVAILABLE.withDescription("stale leader").asRuntimeException());
+            inactiveObserver.onError(notLeaderError());
 
             await().untilAsserted(() -> assertThat(responseObservers).hasSize(2));
             inactiveObserver.onNext(new WriteResponse());
@@ -566,6 +563,55 @@ class ManagedWriteStreamTest {
         }
     }
 
+    @Test
+    void failsInflightWritesWhenStreamFailsWithUnknownOutcome() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        var requests = new ConcurrentLinkedQueue<WriteRequest>();
+        when(rpcProvider.writeStream(anyLong(), nullable(OxiaStatusException.class), any()))
+                .thenAnswer(
+                        invocation -> {
+                            responseObservers.add(invocation.getArgument(2));
+                            return new StreamObserver<InputStream>() {
+                                @Override
+                                public void onNext(InputStream value) {
+                                    requests.add(OxiaClientGrpc.getWriteStreamMethod().parseRequest(value));
+                                }
+
+                                @Override
+                                public void onError(Throwable t) {}
+
+                                @Override
+                                public void onCompleted() {}
+                            };
+                        });
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream = new ManagedWriteStream(1, rpcProvider, executor, Duration.ofSeconds(30))) {
+            var first = stream.send(writeRequest(1));
+            var second = stream.send(writeRequest(2));
+            await().untilAsserted(() -> assertThat(keys(requests)).containsExactly("key-1", "key-2"));
+
+            // The leader may have appended both writes before it failed: sending them again could
+            // apply them twice
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(resourceUnavailableError());
+
+            for (var future : java.util.List.of(first, second)) {
+                assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+                        .cause()
+                        .isInstanceOfSatisfying(
+                                OxiaStatusException.class,
+                                cause ->
+                                        assertThat(cause.getStatusCode())
+                                                .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE));
+            }
+            assertThat(responseObservers.poll(200, TimeUnit.MILLISECONDS)).isNull();
+            assertThat(keys(requests)).containsExactly("key-1", "key-2");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static OxiaClientGrpc.OxiaClientImplBase respondingWriteService(
             Queue<WriteRequest> requests) {
         return new OxiaClientGrpc.OxiaClientImplBase() {
@@ -649,6 +695,21 @@ class ManagedWriteStreamTest {
                                         ErrorInfo.newBuilder()
                                                 .setDomain("oxia.io")
                                                 .setReason("NODE_IS_NOT_LEADER")
+                                                .build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
+    }
+
+    private static Throwable resourceUnavailableError() {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.UNAVAILABLE.value())
+                        .setMessage("oxia: failed to append to wal: oxia: resource unavailable")
+                        .addDetails(
+                                Any.pack(
+                                        ErrorInfo.newBuilder()
+                                                .setDomain("oxia.io")
+                                                .setReason("RESOURCE_UNAVAILABLE")
                                                 .build()))
                         .build();
         return StatusProto.toStatusRuntimeException(grpcStatus);
