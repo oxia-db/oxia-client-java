@@ -15,6 +15,7 @@
  */
 package io.oxia.client;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.function.Predicate;
 import lombok.NonNull;
@@ -23,15 +24,17 @@ enum CompareWithSlash implements Comparator<String> {
     INSTANCE {
         @Override
         public int compare(@NonNull String a, @NonNull String b) {
-            final int lenA = a.length();
-            final int lenB = b.length();
+            byte[] bytesA = a.getBytes(StandardCharsets.UTF_8);
+            byte[] bytesB = b.getBytes(StandardCharsets.UTF_8);
+            final int lenA = bytesA.length;
+            final int lenB = bytesB.length;
             int ia = 0;
             int ib = 0;
             while (ia < lenA && ib < lenB) {
-                int idxA = a.indexOf('/', ia);
-                int idxB = b.indexOf('/', ib);
+                int idxA = indexOfSlash(bytesA, ia);
+                int idxB = indexOfSlash(bytesB, ib);
                 if (idxA < 0 && idxB < 0) {
-                    return Integer.signum(compareSpans(a, ia, lenA, b, ib, lenB));
+                    return Integer.signum(compareSpans(bytesA, ia, lenA, bytesB, ib, lenB));
                 } else if (idxA < 0) {
                     return -1;
                 } else if (idxB < 0) {
@@ -39,7 +42,7 @@ enum CompareWithSlash implements Comparator<String> {
                 }
 
                 // At this point, both slices have '/'
-                int spanRes = compareSpans(a, ia, idxA, b, ib, idxB);
+                int spanRes = compareSpans(bytesA, ia, idxA, bytesB, ib, idxB);
                 if (spanRes != 0) {
                     return Integer.signum(spanRes);
                 }
@@ -60,12 +63,21 @@ enum CompareWithSlash implements Comparator<String> {
         }
     };
 
-    /** Compares the [from, to) regions of the two strings, like {@link String#compareTo} does. */
-    private static int compareSpans(String a, int fromA, int toA, String b, int fromB, int toB) {
+    private static int indexOfSlash(byte[] bytes, int from) {
+        for (int i = from; i < bytes.length; i++) {
+            if (bytes[i] == '/') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Compares UTF-8 spans as unsigned bytes, matching the legacy Go comparator. */
+    private static int compareSpans(byte[] a, int fromA, int toA, byte[] b, int fromB, int toB) {
         final int lim = Math.min(toA - fromA, toB - fromB);
         for (int i = 0; i < lim; i++) {
-            char ca = a.charAt(fromA + i);
-            char cb = b.charAt(fromB + i);
+            int ca = Byte.toUnsignedInt(a[fromA + i]);
+            int cb = Byte.toUnsignedInt(b[fromB + i]);
             if (ca != cb) {
                 return ca - cb;
             }

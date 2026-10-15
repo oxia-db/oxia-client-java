@@ -49,6 +49,22 @@ class CompareWithSlashTest {
     }
 
     @Test
+    void unicodeSpansUseUnsignedUtf8Order() {
+        String privateUse = "\uE000";
+        String supplementary = "\uD800\uDC00";
+        assertThat(privateUse.compareTo(supplementary)).isPositive();
+        assertThat(CompareWithSlash.INSTANCE.compare(privateUse, supplementary)).isEqualTo(-1);
+        assertThat(CompareWithSlash.INSTANCE.compare("a/" + privateUse, "a/" + supplementary))
+                .isEqualTo(-1);
+        assertThat(CompareWithSlash.INSTANCE.compare(privateUse + "/a", supplementary + "/a"))
+                .isEqualTo(-1);
+        assertThat(CompareWithSlash.INSTANCE.compare(supplementary, privateUse)).isEqualTo(+1);
+        assertThat(CompareWithSlash.INSTANCE.compare("a", "\u00E9")).isEqualTo(-1);
+        // Legacy slash-depth precedence remains different from raw byte ordering.
+        assertThat(CompareWithSlash.INSTANCE.compare(privateUse, "a/")).isEqualTo(-1);
+    }
+
+    @Test
     void withinRange() {
         assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaaa")).isTrue();
         assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaab")).isTrue();

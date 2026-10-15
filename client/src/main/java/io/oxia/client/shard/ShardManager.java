@@ -28,6 +28,7 @@ import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
+import io.oxia.client.KeyOrder;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
@@ -39,6 +40,7 @@ import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +63,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private final CompletableFuture<Void> initialAssignmentsFuture;
 
     private volatile boolean closed;
+    private volatile Comparator<String> keyComparator = KeyOrder.comparator(null);
 
     private final Counter shardAssignmentsEvents;
 
@@ -88,6 +91,11 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     @Override
     public void close() {
         closed = true;
+    }
+
+    /** Returns the comparator advertised for this namespace by the server. */
+    public Comparator<String> getKeyComparator() {
+        return keyComparator;
     }
 
     public CompletableFuture<Void> start() {
@@ -177,6 +185,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
                 nsSharedAssignments.getAssignmentsList().stream().map(Shard::fromProto).collect(toSet());
         var updatedMap = recomputeShardHashBoundaries(assignments.allShards(), updates);
         var changes = computeShardLeaderChanges(assignments.allShards(), updatedMap);
+        keyComparator = KeyOrder.comparator(nsSharedAssignments.getKeySorting());
         // The server sends the shards of this namespace whenever any namespace changes, and again on
         // each stream restart: most updates change nothing here
         if (changes.added().isEmpty()

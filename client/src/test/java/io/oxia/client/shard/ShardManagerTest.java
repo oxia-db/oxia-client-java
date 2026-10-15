@@ -25,11 +25,14 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 
 import io.grpc.Status;
+import io.oxia.client.KeyOrder;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
+import io.oxia.proto.KeySorting;
+import io.oxia.proto.NamespaceShardsAssignment;
 import io.oxia.proto.ShardAssignment;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
@@ -174,6 +177,93 @@ public class ShardManagerTest {
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
 
             assertThat(manager.leader(0)).isEqualTo("leader0");
+        }
+
+        @Test
+        void oldServerAssignmentsKeepLegacyKeyOrder() {
+            assertThat(manager.getKeyComparator().compare("b/x", "a/y/z")).isPositive();
+
+            var sa = new ShardAssignments();
+            sa.putNamespaces(namespace);
+            manager.onNext(sa);
+            assertThat(manager.getKeyComparator()).isSameAs(KeyOrder.comparator(null));
+
+            sa.getNamespaces(namespace).setKeySorting(KeySorting.KEY_SORTING_UNKNOWN);
+            manager.onNext(sa);
+            assertThat(manager.getKeyComparator()).isSameAs(KeyOrder.comparator(null));
+        }
+
+        @Test
+        void advertisedSortingIsVisibleBeforeCallbacksAndInitializationCompletes() {
+            var sa = new ShardAssignments();
+            var ns = sa.putNamespaces(namespace);
+            ns.setKeySorting(KeySorting.KEY_SORTING_HIERARCHICAL);
+            var assignment = ns.addAssignment().setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+            manager.addCallback(
+                    changes -> {
+                        assertThat(manager.getKeyComparator().compare("b/x", "a/y/z")).isNegative();
+                        assertThat(manager.leader(0)).isEqualTo("leader0");
+                    });
+
+            doAnswer(
+                            invocation -> {
+                                manager.onNext(sa);
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+
+            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.getKeyComparator())
+                    .isSameAs(KeyOrder.comparator(KeySorting.KEY_SORTING_HIERARCHICAL));
+        }
+
+        @Test
+        void comparatorUpdatesEvenWhenShardAssignmentsDoNotChange() {
+            var callbackCount = new AtomicInteger();
+            manager.addCallback(changes -> callbackCount.incrementAndGet());
+            var sa = new ShardAssignments();
+            var ns = sa.putNamespaces(namespace);
+            ns.setKeySorting(KeySorting.KEY_SORTING_NATURAL);
+            var assignment = ns.addAssignment().setShard(0).setLeader("leader0");
+            assignment.setInt32HashRange().setMinHashInclusive(0).setMaxHashInclusive(Integer.MAX_VALUE);
+
+            manager.onNext(sa);
+            var naturalSnapshot = manager.getKeyComparator();
+            assertThat(naturalSnapshot.compare("da//z", "da1")).isNegative();
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+            assertThat(callbackCount).hasValue(1);
+
+            // Only namespace metadata changes; the shard id, leader and hash range stay the same.
+            ns.setKeySorting(KeySorting.KEY_SORTING_HIERARCHICAL);
+            manager.onNext(sa);
+            assertThat(manager.getKeyComparator().compare("da//z", "da1")).isPositive();
+            assertThat(naturalSnapshot.compare("da//z", "da1")).isNegative();
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+            assertThat(callbackCount).hasValue(1);
+
+            ns.clearKeySorting();
+            manager.onNext(sa);
+            assertThat(manager.getKeyComparator()).isSameAs(KeyOrder.comparator(null));
+            assertThat(manager.leader(0)).isEqualTo("leader0");
+            assertThat(callbackCount).hasValue(1);
+        }
+
+        @Test
+        void sortingFieldUsesServerWireNumbersAndUnknownValuesFallBack() {
+            var ns = new NamespaceShardsAssignment();
+            ns.parseFrom(new byte[] {0x18, 0x01});
+            assertThat(ns.getKeySorting()).isEqualTo(KeySorting.KEY_SORTING_NATURAL);
+            assertThat(ns.toByteArray()).containsExactly((byte) 0x18, (byte) 0x01);
+
+            ns.clear().parseFrom(new byte[] {0x18, 0x02});
+            assertThat(ns.getKeySorting()).isEqualTo(KeySorting.KEY_SORTING_HIERARCHICAL);
+
+            var sa = new ShardAssignments();
+            sa.putNamespaces(namespace).parseFrom(new byte[] {0x18, 0x7f});
+            manager.onNext(sa);
+            assertThat(manager.getKeyComparator()).isSameAs(KeyOrder.comparator(null));
         }
 
         @Test
