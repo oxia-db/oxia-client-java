@@ -92,7 +92,7 @@ public class GetResultIterator
         // Don't cancel the other streams here: onError can be invoked while holding another
         // stream observer's lock, and cancelling a stream takes its observer's lock. The
         // streams are cancelled by close().
-        this.error = new Exception("Range scan error", throwable);
+        this.error = throwable;
         notifyAll();
     }
 
@@ -100,6 +100,12 @@ public class GetResultIterator
     public synchronized void onCompleted() {
         this.completed = true;
         notifyAll();
+    }
+
+    // The client passes on the error of the scan as a public exception: throw an OxiaException,
+    // which the iterator can't declare, in an OxiaUncheckedException
+    private static RuntimeException unchecked(Throwable error) {
+        return error instanceof RuntimeException e ? e : new OxiaUncheckedException(error);
     }
 
     @Override
@@ -114,7 +120,7 @@ public class GetResultIterator
         }
 
         if (error != null) {
-            throw new RuntimeException(error);
+            throw unchecked(error);
         }
 
         return !buffer.isEmpty();
@@ -135,7 +141,7 @@ public class GetResultIterator
             }
 
             if (error != null) {
-                throw new RuntimeException(error);
+                throw unchecked(error);
             }
 
             res = buffer.poll();

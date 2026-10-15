@@ -679,6 +679,20 @@ class BatchTest {
         }
 
         @Test
+        public void streamCompletedWithoutResponse() {
+            readResponses.add(StreamObserver::onCompleted);
+
+            batch.add(get);
+            batch.send();
+
+            assertThatThrownBy(getCallable::get)
+                    .cause()
+                    .isInstanceOf(OxiaStatusException.class)
+                    .extracting("statusCode")
+                    .isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE);
+        }
+
+        @Test
         public void sendFail() {
             var batchError = Status.UNAVAILABLE.asRuntimeException();
             readResponses.add(o -> o.onError(batchError));
