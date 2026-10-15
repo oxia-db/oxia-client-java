@@ -116,57 +116,6 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void closeSessionRetriesWithLeaderHint() throws Exception {
-        var leaderServerRequests = new AtomicReference<CloseSessionRequest>();
-        var leaderService =
-                new OxiaClientGrpc.OxiaClientImplBase() {
-                    @Override
-                    public void closeSession(
-                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
-                        leaderServerRequests.set(request);
-                        responseObserver.onNext(new CloseSessionResponse());
-                        responseObserver.onCompleted();
-                    }
-                };
-        Server leaderServer =
-                ServerBuilder.forPort(0).directExecutor().addService(leaderService).build().start();
-        var leaderAddress = "localhost:" + leaderServer.getPort();
-        var firstServerRequests = new AtomicReference<CloseSessionRequest>();
-        var staleLeaderService =
-                new OxiaClientGrpc.OxiaClientImplBase() {
-                    @Override
-                    public void closeSession(
-                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
-                        firstServerRequests.set(request);
-                        responseObserver.onError(retryableErrorWithLeaderHint(leaderAddress));
-                    }
-                };
-        Server staleLeaderServer =
-                ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
-        var staleLeaderAddress = "localhost:" + staleLeaderServer.getPort();
-        var executor = Executors.newSingleThreadScheduledExecutor();
-        var config =
-                ((OxiaClientBuilderImpl)
-                                OxiaClientBuilder.create(staleLeaderAddress)
-                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
-                        .getClientConfig();
-
-        try (var provider = new GrpcRpcProvider(config, executor, shardId -> staleLeaderAddress)) {
-            var request = new CloseSessionRequest();
-            request.setShard(1);
-
-            provider.closeSession(request).get(5, TimeUnit.SECONDS);
-
-            assertThat(firstServerRequests.get()).isNotNull();
-            assertThat(leaderServerRequests.get()).isNotNull();
-        } finally {
-            executor.shutdownNow();
-            staleLeaderServer.shutdownNow();
-            leaderServer.shutdownNow();
-        }
-    }
-
-    @Test
     void createSessionRetriesWithLeaderHint() throws Exception {
         var leaderServerRequests = new AtomicReference<CreateSessionRequest>();
         var leaderService =
@@ -633,7 +582,7 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void closeSessionGivesUpAfterRequestTimeoutBudget() throws Exception {
+    void closeSessionIsSentOnce() throws Exception {
         var attempts = new AtomicInteger();
         Server server =
                 ServerBuilder.forPort(0)
@@ -644,9 +593,8 @@ class GrpcRpcProviderTest {
                                     public void closeSession(
                                             CloseSessionRequest request,
                                             StreamObserver<CloseSessionResponse> responseObserver) {
-                                        // A retryable failure on every attempt: without an
-                                        // outer bound the close would be retried forever and
-                                        // could land arbitrarily late.
+                                        // A retryable failure: the close is still not sent again,
+                                        // the server expires the session instead
                                         attempts.incrementAndGet();
                                         responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
                                     }
@@ -658,21 +606,19 @@ class GrpcRpcProviderTest {
         var config =
                 ((OxiaClientBuilderImpl)
                                 OxiaClientBuilder.create(address)
-                                        .requestTimeout(Duration.ofMillis(500))
                                         .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
                         .getClientConfig();
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
             var close = provider.closeSession(new CloseSessionRequest().setShard(1));
 
-            // The whole retry sequence is bounded by the request-timeout budget.
+            assertThatThrownBy(() -> close.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(OxiaStatusException.class);
+            // For several backoffs, during which a retry would have been sent
             await()
-                    .atMost(Duration.ofSeconds(5))
-                    .untilAsserted(
-                            () -> {
-                                assertThat(close).isCompletedExceptionally();
-                                assertThat(attempts.get()).isGreaterThan(1);
-                            });
+                    .during(Duration.ofMillis(200))
+                    .atMost(Duration.ofSeconds(1))
+                    .untilAsserted(() -> assertThat(attempts).hasValue(1));
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
@@ -698,14 +644,6 @@ class GrpcRpcProviderTest {
                             SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
                         leaderServerRequests.incrementAndGet();
                         responseObserver.onNext(new KeepAliveResponse());
-                        responseObserver.onCompleted();
-                    }
-
-                    @Override
-                    public void closeSession(
-                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
-                        leaderServerRequests.incrementAndGet();
-                        responseObserver.onNext(new CloseSessionResponse());
                         responseObserver.onCompleted();
                     }
                 };
@@ -735,12 +673,6 @@ class GrpcRpcProviderTest {
                             SessionHeartbeat request, StreamObserver<KeepAliveResponse> responseObserver) {
                         reject(responseObserver);
                     }
-
-                    @Override
-                    public void closeSession(
-                            CloseSessionRequest request, StreamObserver<CloseSessionResponse> responseObserver) {
-                        reject(responseObserver);
-                    }
                 };
         Server staleLeaderServer =
                 ServerBuilder.forPort(0).directExecutor().addService(staleLeaderService).build().start();
@@ -763,14 +695,9 @@ class GrpcRpcProviderTest {
                     .keepAlive(new SessionHeartbeat().setShard(1).setSessionId(1), Duration.ofSeconds(5))
                     .get(5, TimeUnit.SECONDS);
 
-            shardLeader.set(staleLeaderAddress);
-            provider
-                    .closeSession(new CloseSessionRequest().setShard(1).setSessionId(1))
-                    .get(5, TimeUnit.SECONDS);
-
             // Each request was rejected once, then retried on the leader from the updated shard map
-            assertThat(staleLeaderRequests).hasValue(3);
-            assertThat(leaderServerRequests).hasValue(3);
+            assertThat(staleLeaderRequests).hasValue(2);
+            assertThat(leaderServerRequests).hasValue(2);
         } finally {
             executor.shutdownNow();
             staleLeaderServer.shutdownNow();
