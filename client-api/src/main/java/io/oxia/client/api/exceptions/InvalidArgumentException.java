@@ -16,9 +16,10 @@
 package io.oxia.client.api.exceptions;
 
 /**
- * The server rejected an operation for an invalid argument, and did not apply it. For instance:
+ * An operation was rejected for an invalid argument, and was not applied. For instance:
  *
  * <ul>
+ *   <li>a put larger than the maximum request size of 256 MiB;
  *   <li>a sequential put that doesn't fit the keys already under its prefix: the last one is not a
  *       key of its sequence, or the deltas overflow the sequence;
  *   <li>a put with a secondary index name that contains {@code /};

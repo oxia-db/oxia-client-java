@@ -15,7 +15,10 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
+
 import io.github.merlimat.slog.Logger;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.WriteRequest;
 import io.oxia.proto.WriteResponse;
@@ -89,6 +92,18 @@ public final class ManagedWriteStream implements AutoCloseable {
     }
 
     public CompletableFuture<WriteResponse> send(WriteRequest request) {
+        // gRPC would fail the stream for a request over the maximum message size, and the inflight
+        // writes with it. Reject the request instead: the server would not accept it either
+        final int requestSize = request.getSerializedSize();
+        if (requestSize > MAXIMUM_FRAME_SIZE) {
+            return CompletableFuture.failedFuture(
+                    new InvalidArgumentException(
+                            "Write request of "
+                                    + requestSize
+                                    + " bytes exceeds the maximum size of "
+                                    + MAXIMUM_FRAME_SIZE
+                                    + " bytes"));
+        }
         // Serialize the request before taking the lock, which every response for the shard needs
         final InputStream serializedRequest = ManagedSubWriteStream.serialize(request);
         final CompletableFuture<WriteResponse> future = new CompletableFuture<>();

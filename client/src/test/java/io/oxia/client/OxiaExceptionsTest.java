@@ -17,10 +17,16 @@ package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.google.protobuf.Any;
+import com.google.rpc.ErrorInfo;
 import dev.failsafe.Timeout;
 import dev.failsafe.TimeoutExceededException;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import io.grpc.protobuf.StatusProto;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
+import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.time.Duration;
@@ -54,18 +60,55 @@ class OxiaExceptionsTest {
     }
 
     @Test
+    void translatesResourceUnavailable() {
+        var unavailable = OxiaStatusException.resourceUnavailable("Write stream is closed");
+        assertThat(OxiaExceptions.translate(new CompletionException(unavailable)))
+                .isInstanceOf(ResourceUnavailableException.class)
+                .hasMessage("Write stream is closed")
+                .hasCause(unavailable);
+
+        // The status of the server
+        assertThat(OxiaExceptions.translate(oxiaStatusError("RESOURCE_UNAVAILABLE")))
+                .isInstanceOf(ResourceUnavailableException.class)
+                .cause()
+                .isInstanceOfSatisfying(
+                        OxiaStatusException.class,
+                        status ->
+                                assertThat(status.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE));
+
+        // The leader of the shard moved
+        assertThat(OxiaExceptions.translate(oxiaStatusError("NODE_IS_NOT_LEADER")))
+                .isInstanceOf(ResourceUnavailableException.class);
+
+        // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
+        assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
+                .isInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
     void keepsOtherErrorsAsIs() {
         var expected = new CompletionException(new KeyAlreadyExistsException("key"));
         assertThat(OxiaExceptions.translate(expected)).isSameAs(expected);
 
         // Not translated yet
-        var unavailable = OxiaStatusException.resourceUnavailable("unavailable");
-        assertThat(OxiaExceptions.translate(unavailable)).isSameAs(unavailable);
+        var sessionNotFound = oxiaStatusError("SESSION_NOT_FOUND");
+        assertThat(OxiaExceptions.translate(sessionNotFound)).isSameAs(sessionNotFound);
 
         var clientError = new IllegalStateException("Client has been closed");
         assertThat(OxiaExceptions.translate(clientError)).isSameAs(clientError);
 
         var error = new OutOfMemoryError();
         assertThat(OxiaExceptions.translate(error)).isSameAs(error);
+    }
+
+    private static StatusRuntimeException oxiaStatusError(String reason) {
+        var grpcStatus =
+                com.google.rpc.Status.newBuilder()
+                        .setCode(Status.Code.FAILED_PRECONDITION.value())
+                        .setMessage("oxia: " + reason.toLowerCase())
+                        .addDetails(
+                                Any.pack(ErrorInfo.newBuilder().setDomain("oxia.io").setReason(reason).build()))
+                        .build();
+        return StatusProto.toStatusRuntimeException(grpcStatus);
     }
 }

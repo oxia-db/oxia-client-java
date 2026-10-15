@@ -19,6 +19,7 @@ import static io.oxia.client.api.options.PutOption.IfVersionIdEquals;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Optional.empty;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,12 +34,14 @@ import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
+import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
@@ -194,6 +197,24 @@ class AsyncOxiaClientImplTest {
         doThrow(throwable).when(writeBatchManager).add(opCaptor.capture());
         var result = client.put(key, value);
         assertThat(result).isCompletedExceptionally();
+    }
+
+    @Test
+    void putFailsWithPublicException() {
+        var opCaptor = ArgumentCaptor.forClass(PutOperation.class);
+        var key = "key";
+        when(shardManager.getShardForKey(key)).thenReturn(1L);
+        doNothing().when(writeBatchManager).add(opCaptor.capture());
+        var result = client.put(key, "hello".getBytes(UTF_8));
+
+        var streamError = OxiaStatusException.resourceUnavailable("Write stream is closed");
+        opCaptor.getValue().callback().completeExceptionally(streamError);
+
+        assertThatThrownBy(result::join)
+                .isInstanceOf(CompletionException.class)
+                .cause()
+                .isInstanceOf(ResourceUnavailableException.class)
+                .hasCause(streamError);
     }
 
     @Test
