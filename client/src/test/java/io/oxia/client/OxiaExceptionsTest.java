@@ -74,7 +74,6 @@ class OxiaExceptionsTest {
                 .isInstanceOf(ResourceUnavailableException.class);
     }
 
-    // The statuses the client retries internally
     @ParameterizedTest
     @ValueSource(
             strings = {
