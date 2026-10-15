@@ -35,8 +35,10 @@
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
  *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
- *       while the server was unavailable, or the client was closed. The outcome of a write that
- *       fails with it is unknown: it may have been applied.
+ *       while the server was temporarily unavailable. The outcome of a write that fails with it is
+ *       unknown: it may have been applied.
+ *   <li>{@link io.oxia.client.api.exceptions.AlreadyClosedException} — the client, or a resource
+ *       that it uses, has been closed.
  *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
  *       complete within the request timeout. The outcome of a write that fails with it is unknown.
  *   <li>{@link io.oxia.client.api.exceptions.NamespaceNotFoundException} — the namespace of the

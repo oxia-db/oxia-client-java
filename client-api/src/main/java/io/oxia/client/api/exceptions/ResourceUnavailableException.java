@@ -17,9 +17,10 @@ package io.oxia.client.api.exceptions;
 
 /**
  * The operation failed while the server was unavailable, e.g. while the leader of the shard moved.
+ * The condition is temporary, but the client does not send the operation again.
  *
  * <p>The outcome of a write that fails with it is unknown: the server may have applied it. Sending
- * it again may apply it twice, e.g. a delete would then find no key.
+ * it again may apply it twice, e.g. a delete would then find no key. A read can be sent again.
  */
 public class ResourceUnavailableException extends OxiaException {
     /**

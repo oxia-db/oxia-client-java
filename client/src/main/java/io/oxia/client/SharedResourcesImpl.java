@@ -118,7 +118,7 @@ public class SharedResourcesImpl implements SharedResources {
     CompletableFuture<ShardManager> getOrCreateShardManager(@NonNull ClientConfig config) {
         if (closed) {
             return CompletableFuture.failedFuture(
-                    OxiaStatusException.resourceUnavailable("SharedResources has been closed"));
+                    OxiaStatusException.alreadyClosed("SharedResources has been closed"));
         }
         var key = new NamespaceKey(config.serviceAddress(), config.namespace());
         var ns = namespaces.computeIfAbsent(key, k -> createNamespace(config));

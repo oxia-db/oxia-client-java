@@ -1014,7 +1014,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private void checkIfClosed() {
         if (closed) {
-            throw OxiaStatusException.resourceUnavailable("Client has been closed");
+            throw OxiaStatusException.alreadyClosed("Client has been closed");
         }
     }
 }

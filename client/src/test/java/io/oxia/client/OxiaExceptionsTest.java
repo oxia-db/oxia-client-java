@@ -22,6 +22,7 @@ import com.google.rpc.ErrorInfo;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
+import io.oxia.client.api.exceptions.AlreadyClosedException;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
@@ -68,9 +69,12 @@ class OxiaExceptionsTest {
 
     @Test
     void translatesClientSideStatuses() {
-        assertThat(OxiaExceptions.translate(OxiaStatusException.resourceUnavailable("closed")))
-                .isInstanceOf(ResourceUnavailableException.class)
+        assertThat(OxiaExceptions.translate(OxiaStatusException.alreadyClosed("closed")))
+                .isInstanceOf(AlreadyClosedException.class)
                 .hasMessage("closed");
+        assertThat(OxiaExceptions.translate(OxiaStatusException.resourceUnavailable("unavailable")))
+                .isInstanceOf(ResourceUnavailableException.class)
+                .hasMessage("unavailable");
         assertThat(OxiaExceptions.translate(new TimeoutException()))
                 .isInstanceOf(RequestTimeoutException.class);
         // A plain gRPC status without an Oxia reason, e.g. the server is unreachable

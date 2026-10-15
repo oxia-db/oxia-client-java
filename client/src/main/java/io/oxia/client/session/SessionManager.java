@@ -88,7 +88,7 @@ public class SessionManager
         lock.lock();
         try {
             if (closed) {
-                return failedFuture(OxiaStatusException.resourceUnavailable("Session manager is closed"));
+                return failedFuture(OxiaStatusException.alreadyClosed("Session manager is closed"));
             }
             // Look up the shard again, under the lock: the one looked up above may be a split shard
             // whose session has moved since

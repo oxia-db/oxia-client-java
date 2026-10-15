@@ -33,6 +33,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.AlreadyClosedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
@@ -222,7 +223,11 @@ class AsyncOxiaClientImplTest {
         var key = "key";
         var value = "hello".getBytes(UTF_8);
         client.close();
-        assertThat(client.put(key, value)).isCompletedExceptionally();
+        assertThat(client.put(key, value))
+                .failsWithin(Duration.ZERO)
+                .withThrowableThat()
+                .havingCause()
+                .isInstanceOf(AlreadyClosedException.class);
     }
 
     @Test

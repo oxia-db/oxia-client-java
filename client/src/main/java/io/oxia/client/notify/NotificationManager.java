@@ -102,7 +102,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
 
     public void registerCallback(@NonNull Consumer<Notification> callback) {
         if (closed) {
-            throw OxiaStatusException.resourceUnavailable("Notification manager has been closed");
+            throw OxiaStatusException.alreadyClosed("Notification manager has been closed");
         }
         compositeCallback.add(callback);
         if (!started) {
