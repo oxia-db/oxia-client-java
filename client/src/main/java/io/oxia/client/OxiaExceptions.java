@@ -42,9 +42,6 @@ final class OxiaExceptions {
     /** Returns the public exception for an internal error. Any other error is returned as is. */
     static Throwable translate(Throwable error) {
         final Throwable cause = CompletableFutures.unwrapException(error);
-        if (cause instanceof io.oxia.client.shard.NamespaceNotFoundException) {
-            return new NamespaceNotFoundException(cause.getMessage(), cause);
-        }
         if (cause instanceof OxiaStatusException
                 || cause instanceof StatusException
                 || cause instanceof StatusRuntimeException

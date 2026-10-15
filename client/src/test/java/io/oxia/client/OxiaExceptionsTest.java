@@ -104,10 +104,10 @@ class OxiaExceptionsTest {
                                 assertThat(status.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND));
 
         // The namespace is missing from the shard assignments
-        var namespace = new io.oxia.client.shard.NamespaceNotFoundException("ns");
+        var namespace = OxiaStatusException.namespaceNotFound("ns");
         assertThat(OxiaExceptions.translate(new CompletionException(namespace)))
                 .isInstanceOf(NamespaceNotFoundException.class)
-                .hasMessage(namespace.getMessage())
+                .hasMessage("Namespace not found: ns")
                 .hasCause(namespace);
     }
 

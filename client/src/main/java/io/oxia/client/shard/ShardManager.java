@@ -118,7 +118,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
             log.error("Namespace not found");
             if (initialAssignmentsFuture.completeExceptionally(
-                    new NamespaceNotFoundException(assignments.getNamespace()))) {
+                    OxiaStatusException.namespaceNotFound(assignments.getNamespace()))) {
                 close();
                 return;
             }
@@ -171,7 +171,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
             Retries are available so that the client does not panic until the namespace is recreated.
             */
-            throw new NamespaceNotFoundException(assignments.getNamespace(), true);
+            throw OxiaStatusException.namespaceNotFound(assignments.getNamespace());
         }
         var updates =
                 nsSharedAssignments.getAssignmentsList().stream().map(Shard::fromProto).collect(toSet());
