@@ -37,6 +37,8 @@
  *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
  *       while the server was temporarily unavailable. The outcome of a write that fails with it is
  *       unknown: it may have been applied.
+ *   <li>{@link io.oxia.client.api.exceptions.NamespaceNotFoundException} — the namespace of the
+ *       client does not exist on the server.
  *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
  *       complete within the request timeout. The outcome of a write that fails with it is unknown.
  * </ul>

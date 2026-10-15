@@ -18,6 +18,7 @@ package io.oxia.client;
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
+import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
@@ -41,6 +42,9 @@ final class OxiaExceptions {
     /** Returns the public exception for an internal error. Any other error is returned as is. */
     static Throwable translate(Throwable error) {
         final Throwable cause = CompletableFutures.unwrapException(error);
+        if (cause instanceof io.oxia.client.shard.NamespaceNotFoundException) {
+            return new NamespaceNotFoundException(cause.getMessage(), cause);
+        }
         if (cause instanceof OxiaStatusException
                 || cause instanceof StatusException
                 || cause instanceof StatusRuntimeException
@@ -54,6 +58,9 @@ final class OxiaExceptions {
                         NOT_INITIALIZED,
                         ABORTED -> {
                     return new ResourceUnavailableException(status.getMessage(), status);
+                }
+                case NAMESPACE_NOT_FOUND -> {
+                    return new NamespaceNotFoundException(status.getMessage(), status);
                 }
                 case TIMEOUT -> {
                     return new RequestTimeoutException(status.getMessage(), status);
