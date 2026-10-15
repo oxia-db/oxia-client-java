@@ -16,7 +16,7 @@
 package io.oxia.client.api.exceptions;
 
 /** The namespace of the client does not exist on the server. */
-public class NamespaceNotFoundException extends OxiaUncheckedException {
+public class NamespaceNotFoundException extends OxiaException {
     /**
      * Creates an instance of the exception.
      *

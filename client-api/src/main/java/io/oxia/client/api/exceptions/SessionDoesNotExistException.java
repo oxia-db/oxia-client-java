@@ -16,7 +16,7 @@
 package io.oxia.client.api.exceptions;
 
 /** The session does not exist on the server. */
-public class SessionDoesNotExistException extends OxiaUncheckedException {
+public class SessionDoesNotExistException extends OxiaException {
 
     /** Creates an instance of the exception. */
     public SessionDoesNotExistException() {

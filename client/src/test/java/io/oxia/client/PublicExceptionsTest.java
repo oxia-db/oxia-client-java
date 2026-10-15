@@ -24,11 +24,9 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
-import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
@@ -42,7 +40,7 @@ class PublicExceptionsTest {
     @CsvSource({
         "RESOURCE_UNAVAILABLE, io.oxia.client.api.exceptions.ResourceUnavailableException",
         "NAMESPACE_NOT_FOUND, io.oxia.client.api.exceptions.NamespaceNotFoundException",
-        "SESSION_NOT_FOUND, io.oxia.client.api.exceptions.SessionDoesNotExistException",
+        "SESSION_NOT_FOUND, io.oxia.client.api.exceptions.OxiaServerException",
         "INVALID_SESSION_TIMEOUT, io.oxia.client.api.exceptions.OxiaServerException",
         "NODE_IS_NOT_LEADER, io.oxia.client.api.exceptions.OxiaServerException",
         "SHARD_NOT_FOUND, io.oxia.client.api.exceptions.OxiaServerException",
@@ -90,14 +88,6 @@ class PublicExceptionsTest {
 
         var closed = new IllegalStateException("Client is closed");
         assertThat(PublicExceptions.translate(closed)).isSameAs(closed);
-    }
-
-    @Test
-    void sessionAndNamespaceErrorsKeepTheirPublicTypes() {
-        assertThat(PublicExceptions.translate(oxiaStatusError("SESSION_NOT_FOUND")))
-                .isExactlyInstanceOf(SessionDoesNotExistException.class);
-        assertThat(PublicExceptions.translate(oxiaStatusError("NAMESPACE_NOT_FOUND")))
-                .isExactlyInstanceOf(NamespaceNotFoundException.class);
     }
 
     private static StatusRuntimeException oxiaStatusError(String reason) {

@@ -21,10 +21,8 @@ import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaServerException;
-import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
-import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.util.CompletableFutures;
 import java.util.concurrent.CompletableFuture;
@@ -32,8 +30,7 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Translates the errors of the client internals, such as {@link OxiaStatusException} and the gRPC
- * status errors, to the public {@link OxiaUncheckedException} subclasses, at the boundary of the
- * client API.
+ * status errors, to the public {@link OxiaException} subclasses, at the boundary of the client API.
  */
 final class PublicExceptions {
     private PublicExceptions() {}
@@ -67,14 +64,7 @@ final class PublicExceptions {
             case RESOURCE_UNAVAILABLE -> new ResourceUnavailableException(message, status);
             case TIMEOUT -> new RequestTimeoutException(message, status);
             case NAMESPACE_NOT_FOUND -> new NamespaceNotFoundException(message, status);
-            case SESSION_NOT_FOUND -> withCause(new SessionDoesNotExistException(), status);
             default -> new OxiaServerException(status.getStatusCode() + ": " + message, status);
         };
-    }
-
-    private static OxiaUncheckedException withCause(
-            OxiaUncheckedException exception, Throwable cause) {
-        exception.initCause(cause);
-        return exception;
     }
 }

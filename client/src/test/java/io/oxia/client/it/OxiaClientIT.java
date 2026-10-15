@@ -47,7 +47,7 @@ import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaUncheckedException;
+import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -966,7 +966,7 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(OxiaUncheckedException.class);
+                    .isInstanceOf(OxiaException.class);
         }
     }
 }

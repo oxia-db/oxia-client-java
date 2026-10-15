@@ -14,29 +14,25 @@
  * limitations under the License.
  */
 /**
- * Exceptions raised by the Oxia client.
+ * Checked exceptions raised by the Oxia client.
  *
- * <p>The rejections of a request by the server extend the checked {@link
- * io.oxia.client.api.exceptions.OxiaException}:
+ * <p>All client-side errors extend the abstract {@link
+ * io.oxia.client.api.exceptions.OxiaException}. The synchronous client throws them directly; the
+ * asynchronous client surfaces them by completing the returned {@link
+ * java.util.concurrent.CompletableFuture} exceptionally.
  *
  * <ul>
  *   <li>{@link io.oxia.client.api.exceptions.UnexpectedVersionIdException} — a conditional put or
  *       delete failed because the server's versionId does not match the expected one.
  *   <li>{@link io.oxia.client.api.exceptions.KeyAlreadyExistsException} — a put with {@code
  *       IfRecordDoesNotExist} found an existing record.
+ *   <li>{@link io.oxia.client.api.exceptions.SessionDoesNotExistException} — an operation tied to
+ *       an ephemeral session was attempted after the session expired.
  *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the server rejected a put
  *       or delete range for an invalid argument, such as a sequential put that doesn't fit its
  *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
- * </ul>
- *
- * <p>The failures that any operation can hit extend the unchecked {@link
- * io.oxia.client.api.exceptions.OxiaUncheckedException}:
- *
- * <ul>
- *   <li>{@link io.oxia.client.api.exceptions.SessionDoesNotExistException} — an operation tied to
- *       an ephemeral session was attempted after the session expired.
  *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
  *       while the server was unavailable. The outcome of a write that fails with it is unknown: it
  *       may have been applied.
@@ -47,8 +43,5 @@
  *   <li>{@link io.oxia.client.api.exceptions.OxiaServerException} — any other error reported by the
  *       server or the client transport.
  * </ul>
- *
- * <p>The synchronous client throws them directly; the asynchronous client surfaces them by
- * completing the returned {@link java.util.concurrent.CompletableFuture} exceptionally.
  */
 package io.oxia.client.api.exceptions;

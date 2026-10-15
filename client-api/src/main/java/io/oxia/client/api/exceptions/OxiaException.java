@@ -15,11 +15,7 @@
  */
 package io.oxia.client.api.exceptions;
 
-/**
- * A super-class of the checked exceptions of the Oxia client: the rejections of a request by the
- * server, such as {@link KeyAlreadyExistsException} for a conditional put. The failures that any
- * operation can hit extend the unchecked {@link OxiaUncheckedException}.
- */
+/** A super-class of exceptions describing errors that occurred on an Oxia server. */
 public abstract class OxiaException extends Exception {
     /**
      * Creates an instance of the exception.
