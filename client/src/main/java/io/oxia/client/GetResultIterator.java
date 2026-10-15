@@ -40,7 +40,7 @@ public class GetResultIterator
     private final List<StreamHandle> streams = new ArrayList<>();
     private final List<StreamHandle> idleStreams = new ArrayList<>();
 
-    private RuntimeException error = null;
+    private OxiaUncheckedException error = null;
     private boolean completed = false;
     private boolean closed = false;
 
