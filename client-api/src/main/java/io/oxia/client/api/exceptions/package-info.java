@@ -17,9 +17,10 @@
  * Checked exceptions raised by the Oxia client.
  *
  * <p>All client-side errors extend the abstract {@link
- * io.oxia.client.api.exceptions.OxiaException}. The synchronous client throws them directly; the
- * asynchronous client surfaces them by completing the returned {@link
- * java.util.concurrent.CompletableFuture} exceptionally.
+ * io.oxia.client.api.exceptions.OxiaException}. The asynchronous client surfaces them by completing
+ * the returned {@link java.util.concurrent.CompletableFuture} exceptionally. The synchronous client
+ * throws the ones that a method declares directly, and the others in an unchecked {@link
+ * io.oxia.client.api.exceptions.OxiaUncheckedException}.
  *
  * <ul>
  *   <li>{@link io.oxia.client.api.exceptions.UnexpectedVersionIdException} — a conditional put or

@@ -33,10 +33,11 @@ import java.util.function.Consumer;
  * Blocking client for the Oxia service.
  *
  * <p>Each method blocks the calling thread until the operation completes, fails, or the configured
- * request timeout elapses. Errors surface either as a checked {@link
- * io.oxia.client.api.exceptions.OxiaException} subtype (e.g. {@link
- * io.oxia.client.api.exceptions.UnexpectedVersionIdException}) or as a {@link RuntimeException} for
- * transport / unrecoverable failures.
+ * request timeout elapses. A method throws the {@link io.oxia.client.api.exceptions.OxiaException}
+ * subtypes that it declares directly (e.g. {@link
+ * io.oxia.client.api.exceptions.UnexpectedVersionIdException}), and the others in an unchecked
+ * {@link io.oxia.client.api.exceptions.OxiaUncheckedException}. Transport / unrecoverable failures
+ * surface as a {@link RuntimeException}.
  *
  * <p>Instances are created via {@link OxiaClientBuilder#syncClient()} and are safe to share across
  * threads. Always close the client when done — preferably via try-with-resources:

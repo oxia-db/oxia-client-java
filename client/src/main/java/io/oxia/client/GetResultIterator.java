@@ -17,13 +17,13 @@ package io.oxia.client;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.RangeScanConsumer;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import lombok.SneakyThrows;
 
 public class GetResultIterator
         implements Iterator<GetResult>,
@@ -103,10 +103,14 @@ public class GetResultIterator
     }
 
     @Override
-    @SneakyThrows
     public synchronized boolean hasNext() {
-        while (error == null && !completed && buffer.isEmpty() && !closed) {
-            wait();
+        try {
+            while (error == null && !completed && buffer.isEmpty() && !closed) {
+                wait();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OxiaUncheckedException(e);
         }
 
         if (error != null) {
@@ -117,13 +121,17 @@ public class GetResultIterator
     }
 
     @Override
-    @SneakyThrows
     public GetResult next() {
         GetResult res;
         List<StreamHandle> toRequest = null;
         synchronized (this) {
-            while (error == null && !completed && buffer.isEmpty() && !closed) {
-                wait();
+            try {
+                while (error == null && !completed && buffer.isEmpty() && !closed) {
+                    wait();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new OxiaUncheckedException(e);
             }
 
             if (error != null) {
