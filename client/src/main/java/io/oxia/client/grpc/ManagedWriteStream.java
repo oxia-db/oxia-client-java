@@ -156,22 +156,8 @@ public final class ManagedWriteStream implements AutoCloseable {
         } finally {
             lock.unlock();
         }
-        if (source != null) {
-            try {
-                source.complete();
-            } catch (Throwable ex) {
-                log.debug().exceptionMessage(ex).log("Failed to complete write stream");
-            }
-        }
-        final OxiaStatusException error =
-                OxiaStatusException.resourceUnavailable("Write stream is closed");
-        for (CompletableFuture<WriteResponse> inflight : inflightsToFail) {
-            try {
-                inflight.completeExceptionally(error);
-            } catch (Throwable ex) {
-                log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
-            }
-        }
+        closeSubStream(
+                source, inflightsToFail, OxiaStatusException.resourceUnavailable("Write stream is closed"));
     }
 
     // Replaces the sub-stream, unless it was already replaced: the next write opens a new one. Fails
@@ -194,6 +180,14 @@ public final class ManagedWriteStream implements AutoCloseable {
         } finally {
             lock.unlock();
         }
+        closeSubStream(source, inflightsToFail, error);
+    }
+
+    // Called without the lock: completing the futures runs their callbacks
+    private void closeSubStream(
+            ManagedSubWriteStream source,
+            List<CompletableFuture<WriteResponse>> inflights,
+            OxiaStatusException error) {
         if (source != null) {
             try {
                 source.complete();
@@ -201,7 +195,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                 log.debug().exceptionMessage(ex).log("Failed to complete write stream");
             }
         }
-        for (CompletableFuture<WriteResponse> inflight : inflightsToFail) {
+        for (CompletableFuture<WriteResponse> inflight : inflights) {
             try {
                 inflight.completeExceptionally(error);
             } catch (Throwable ex) {
