@@ -73,7 +73,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
-import lombok.SneakyThrows;
 
 class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
@@ -742,13 +741,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
-    @SneakyThrows
     public void notifications(@NonNull Consumer<Notification> notificationCallback) {
         try {
             checkIfClosed();
             notificationManager.registerCallback(notificationCallback);
         } catch (RuntimeException e) {
-            throw OxiaExceptions.translate(e);
+            throw OxiaExceptions.unchecked(e);
         }
     }
 
@@ -815,7 +813,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
-    @SneakyThrows
     public Closeable getSequenceUpdates(
             String key,
             @NonNull Consumer<String> listener,
@@ -829,7 +826,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 throw new IllegalArgumentException("partitionKey must be present");
             }
         } catch (RuntimeException e) {
-            throw OxiaExceptions.translate(e);
+            throw OxiaExceptions.unchecked(e);
         }
 
         return new SequenceUpdates(

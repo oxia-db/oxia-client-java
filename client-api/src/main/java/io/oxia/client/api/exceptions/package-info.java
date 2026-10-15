@@ -17,9 +17,10 @@
  * Checked exceptions raised by the Oxia client.
  *
  * <p>All client-side errors extend the abstract {@link
- * io.oxia.client.api.exceptions.OxiaException}. The synchronous client throws them directly; the
- * asynchronous client surfaces them by completing the returned {@link
- * java.util.concurrent.CompletableFuture} exceptionally.
+ * io.oxia.client.api.exceptions.OxiaException}. The asynchronous client surfaces them by completing
+ * the returned {@link java.util.concurrent.CompletableFuture} exceptionally. The synchronous client
+ * throws the ones that a method declares directly, and the others in an unchecked {@link
+ * io.oxia.client.api.exceptions.OxiaUncheckedException}.
  *
  * <ul>
  *   <li>{@link io.oxia.client.api.exceptions.UnexpectedVersionIdException} — a conditional put or
@@ -28,20 +29,22 @@
  *       IfRecordDoesNotExist} found an existing record.
  *   <li>{@link io.oxia.client.api.exceptions.SessionDoesNotExistException} — an operation tied to
  *       an ephemeral session was attempted after the session expired.
- *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the server rejected a put
- *       or delete range for an invalid argument, such as a sequential put that doesn't fit its
- *       sequence.
+ *   <li>{@link io.oxia.client.api.exceptions.InvalidArgumentException} — the operation was rejected
+ *       for an invalid argument: a {@code null} key or invalid options, or a put or delete range
+ *       that the server rejected, such as a sequential put that doesn't fit its sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
  *   <li>{@link io.oxia.client.api.exceptions.ResourceUnavailableException} — the operation failed
- *       while the server was unavailable. The outcome of a write that fails with it is unknown: it
- *       may have been applied.
+ *       while the server was unavailable, or the client was closed. The outcome of a write that
+ *       fails with it is unknown: it may have been applied.
  *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
  *       complete within the request timeout. The outcome of a write that fails with it is unknown.
  *   <li>{@link io.oxia.client.api.exceptions.NamespaceNotFoundException} — the namespace of the
  *       client does not exist.
  *   <li>{@link io.oxia.client.api.exceptions.OxiaServerException} — any other error reported by the
  *       server or the client transport.
+ *   <li>{@link io.oxia.client.api.exceptions.OxiaClientException} — an unexpected error of the
+ *       client itself, or an interrupted synchronous call.
  * </ul>
  */
 package io.oxia.client.api.exceptions;

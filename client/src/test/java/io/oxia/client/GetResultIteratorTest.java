@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
+import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -134,10 +136,10 @@ class GetResultIteratorTest {
         it.onStreamStarted(handle);
 
         it.onNext(result("a"));
-        var error = new RuntimeException("scan failed");
+        var error = new ResourceUnavailableException("scan failed", null);
         it.onError(error);
 
-        assertThatThrownBy(it::hasNext).isSameAs(error);
+        assertThatThrownBy(it::hasNext).isInstanceOf(OxiaUncheckedException.class).hasCause(error);
 
         it.close();
         assertThat(handle.cancelled).isTrue();

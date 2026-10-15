@@ -48,6 +48,7 @@ import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.OxiaException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -455,7 +456,8 @@ class OxiaClientIT {
                             () ->
                                     syncClient.put(
                                             "sk_a", "0".getBytes(), Set.of(PutOption.SequenceKeysDeltas(List.of(1L)))))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             assertThatThrownBy(
                             () ->
@@ -464,7 +466,8 @@ class OxiaClientIT {
                                             "0".getBytes(),
                                             Set.of(
                                                     PutOption.SequenceKeysDeltas(List.of(0L)), PutOption.PartitionKey("x"))))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             assertThatThrownBy(
                             () ->
@@ -474,7 +477,8 @@ class OxiaClientIT {
                                             Set.of(
                                                     PutOption.SequenceKeysDeltas(List.of(1L, -1L)),
                                                     PutOption.PartitionKey("x"))))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             assertThatThrownBy(
                             () ->
@@ -485,7 +489,8 @@ class OxiaClientIT {
                                                     PutOption.SequenceKeysDeltas(List.of(1L)),
                                                     PutOption.PartitionKey("x"),
                                                     PutOption.IfVersionIdEquals(1L))))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             PutResult putResult =
                     syncClient.put(
@@ -546,7 +551,8 @@ class OxiaClientIT {
                                             "1".getBytes(),
                                             Set.of(
                                                     PutOption.PartitionKey("x"), PutOption.SequenceKeysDeltas(List.of(1L)))))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             assertThat(syncClient.list("/p/seg:x", "/p/seg:y", Set.of(ListOption.PartitionKey("x"))))
                     .containsExactly("/p/seg:x-%E5%A4%87-00000000000000000001");
@@ -897,7 +903,8 @@ class OxiaClientIT {
             String key = "su-" + UUID.randomUUID();
 
             assertThatThrownBy(() -> syncClient.getSequenceUpdates(key, update -> {}, Set.of()))
-                    .isInstanceOf(InvalidArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             ArrayBlockingQueue<String> updates1 = new ArrayBlockingQueue<>(100);
             AutoCloseable closer1 =
@@ -966,7 +973,8 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(OxiaException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(OxiaException.class);
         }
     }
 }

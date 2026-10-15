@@ -110,7 +110,7 @@ public class GetResultIterator
         }
 
         if (error != null) {
-            throw error;
+            throw OxiaExceptions.unchecked(error);
         }
 
         return !buffer.isEmpty();
@@ -127,7 +127,7 @@ public class GetResultIterator
             }
 
             if (error != null) {
-                throw error;
+                throw OxiaExceptions.unchecked(error);
             }
 
             res = buffer.poll();

@@ -23,6 +23,7 @@ import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.OxiaServerException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
@@ -41,6 +42,25 @@ final class OxiaExceptions {
     /** Returns a future failed with the public exception for an error, for exceptionallyCompose. */
     static <T> CompletableFuture<T> failedFuture(Throwable error) {
         return CompletableFuture.failedFuture(translate(error));
+    }
+
+    /**
+     * Returns the public exception for an error, to throw from a method that declares no {@link
+     * OxiaException}: an {@link OxiaException} is wrapped in an {@link OxiaUncheckedException}.
+     */
+    static RuntimeException unchecked(Throwable error) {
+        final Throwable translated = CompletableFutures.unwrapException(translate(error));
+        if (translated instanceof OxiaException oxiaException) {
+            return new OxiaUncheckedException(oxiaException);
+        }
+        if (translated instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        if (translated instanceof Error jvmError) {
+            throw jvmError;
+        }
+        return new OxiaUncheckedException(
+                new OxiaClientException("Unexpected error: " + translated, translated));
     }
 
     /**
