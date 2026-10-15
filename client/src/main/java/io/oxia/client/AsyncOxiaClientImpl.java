@@ -817,14 +817,15 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             @NonNull String key,
             @NonNull Consumer<String> listener,
             @NonNull Set<GetSequenceUpdatesOption> options) {
+        final Optional<String> partitionKey;
         try {
             checkIfClosed();
+            partitionKey = OptionsUtils.getPartitionKey(options);
+            if (partitionKey.isEmpty()) {
+                throw OxiaStatusException.invalidArgument("partitionKey must be present");
+            }
         } catch (RuntimeException e) {
             throw OxiaExceptions.unchecked(e);
-        }
-        var partitionKey = OptionsUtils.getPartitionKey(options);
-        if (partitionKey.isEmpty()) {
-            throw new IllegalArgumentException("partitionKey must be present");
         }
 
         return new SequenceUpdates(

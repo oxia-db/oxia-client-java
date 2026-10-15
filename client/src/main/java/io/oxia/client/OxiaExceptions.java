@@ -21,6 +21,7 @@ import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.oxia.client.api.exceptions.AlreadyClosedException;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
@@ -72,6 +73,9 @@ final class OxiaExceptions {
                 }
                 case ALREADY_CLOSED -> {
                     return new AlreadyClosedException(status.getMessage(), status);
+                }
+                case INVALID_ARGUMENT -> {
+                    return new InvalidArgumentException(status.getMessage(), status);
                 }
                 case NAMESPACE_NOT_FOUND -> {
                     return new NamespaceNotFoundException(status.getMessage(), status);

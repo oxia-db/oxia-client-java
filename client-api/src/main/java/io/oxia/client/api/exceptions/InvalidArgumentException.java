@@ -19,6 +19,8 @@ package io.oxia.client.api.exceptions;
  * An operation was rejected for an invalid argument, and was not applied. For instance:
  *
  * <ul>
+ *   <li>an option passed more than once, or options that can't be combined, e.g. a sequential put
+ *       with an expected version id;
  *   <li>a put larger than the maximum request size of 256 MiB;
  *   <li>a sequential put that doesn't fit the keys already under its prefix: the last one is not a
  *       key of its sequence, or the deltas overflow the sequence;
@@ -36,5 +38,15 @@ public class InvalidArgumentException extends OxiaException {
      */
     public InvalidArgumentException(String message) {
         super(message);
+    }
+
+    /**
+     * Creates an instance of the exception.
+     *
+     * @param message the exception message
+     * @param cause the cause of the exception
+     */
+    public InvalidArgumentException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

@@ -22,6 +22,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.oxia.client.OptionsUtils;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.defs.OptionVersionId;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import java.util.Collections;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
@@ -63,6 +65,8 @@ class DeleteOptionTest {
                         () ->
                                 OptionsUtils.getVersionId(
                                         Set.of(DeleteOption.IfVersionIdEquals(1L), DeleteOption.IfVersionIdEquals(2L))))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(OxiaStatusException.class)
+                .extracting("statusCode")
+                .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
     }
 }

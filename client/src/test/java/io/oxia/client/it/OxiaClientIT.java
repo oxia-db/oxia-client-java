@@ -455,7 +455,8 @@ class OxiaClientIT {
                             () ->
                                     syncClient.put(
                                             "sk_a", "0".getBytes(), Set.of(PutOption.SequenceKeysDeltas(List.of(1L)))))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             assertThatThrownBy(
                             () ->
@@ -485,7 +486,8 @@ class OxiaClientIT {
                                                     PutOption.SequenceKeysDeltas(List.of(1L)),
                                                     PutOption.PartitionKey("x"),
                                                     PutOption.IfVersionIdEquals(1L))))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             PutResult putResult =
                     syncClient.put(
@@ -898,7 +900,8 @@ class OxiaClientIT {
             String key = "su-" + UUID.randomUUID();
 
             assertThatThrownBy(() -> syncClient.getSequenceUpdates(key, update -> {}, Set.of()))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
 
             ArrayBlockingQueue<String> updates1 = new ArrayBlockingQueue<>(100);
             AutoCloseable closer1 =
