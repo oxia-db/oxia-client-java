@@ -21,8 +21,6 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
-import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -37,8 +35,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import lombok.AccessLevel;
@@ -65,7 +61,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw failure(e, UnexpectedVersionIdException.class, KeyAlreadyExistsException.class);
+            throw e.getCause();
         }
     }
 
@@ -85,7 +81,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw failure(e, UnexpectedVersionIdException.class);
+            throw e.getCause();
         }
     }
 
@@ -107,7 +103,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw failure(e);
+            throw e.getCause();
         }
     }
 
@@ -126,7 +122,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw failure(e);
+            throw e.getCause();
         }
     }
 
@@ -149,7 +145,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
-            throw failure(e);
+            throw e.getCause();
         }
     }
 
@@ -209,26 +205,5 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     @Override
     public void close() throws Exception {
         asyncClient.close();
-    }
-
-    /**
-     * Returns the error to throw for a failed operation. The exceptions the method declares are
-     * thrown as is, and the other checked exceptions, such as an {@link OxiaException} the method
-     * does not declare, are wrapped in a {@link CompletionException}, as {@link
-     * CompletableFuture#join()} does.
-     */
-    @SafeVarargs
-    private static Throwable failure(
-            ExecutionException e, Class<? extends OxiaException>... declaredExceptions) {
-        final Throwable cause = e.getCause();
-        for (Class<? extends OxiaException> declared : declaredExceptions) {
-            if (declared.isInstance(cause)) {
-                return cause;
-            }
-        }
-        if (cause instanceof RuntimeException || cause instanceof Error) {
-            return cause;
-        }
-        return new CompletionException(cause);
     }
 }

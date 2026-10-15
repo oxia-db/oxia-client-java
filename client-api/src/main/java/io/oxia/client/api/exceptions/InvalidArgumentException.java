@@ -26,7 +26,7 @@ package io.oxia.client.api.exceptions;
  *       __oxia/}).
  * </ul>
  */
-public class InvalidArgumentException extends OxiaException {
+public class InvalidArgumentException extends OxiaUncheckedException {
 
     /**
      * Creates an instance of the exception.

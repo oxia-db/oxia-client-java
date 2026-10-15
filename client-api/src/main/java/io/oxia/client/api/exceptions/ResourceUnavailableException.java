@@ -21,7 +21,7 @@ package io.oxia.client.api.exceptions;
  * <p>The outcome of a write that fails with it is unknown: the server may have applied it. Sending
  * it again may apply it twice, e.g. a delete would then find no key.
  */
-public class ResourceUnavailableException extends OxiaException {
+public class ResourceUnavailableException extends OxiaUncheckedException {
     /**
      * Creates an instance of the exception.
      *

@@ -47,7 +47,7 @@ import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -65,7 +65,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -967,8 +966,7 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(CompletionException.class)
-                    .hasCauseInstanceOf(OxiaException.class);
+                    .isInstanceOf(OxiaUncheckedException.class);
         }
     }
 }

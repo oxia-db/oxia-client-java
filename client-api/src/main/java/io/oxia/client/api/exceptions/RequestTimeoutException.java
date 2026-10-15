@@ -20,7 +20,7 @@ package io.oxia.client.api.exceptions;
  *
  * <p>The outcome of a write that fails with it is unknown: the server may have applied it.
  */
-public class RequestTimeoutException extends OxiaException {
+public class RequestTimeoutException extends OxiaUncheckedException {
     /**
      * Creates an instance of the exception.
      *

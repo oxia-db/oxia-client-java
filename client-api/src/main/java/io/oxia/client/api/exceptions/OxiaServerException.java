@@ -19,7 +19,7 @@ package io.oxia.client.api.exceptions;
  * An error reported by the server or the client transport, other than the ones with a dedicated
  * exception.
  */
-public class OxiaServerException extends OxiaException {
+public class OxiaServerException extends OxiaUncheckedException {
     /**
      * Creates an instance of the exception.
      *
