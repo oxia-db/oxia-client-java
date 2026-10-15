@@ -15,11 +15,12 @@
  */
 package io.oxia.client;
 
-import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
-
 import dev.failsafe.TimeoutExceededException;
+import io.grpc.StatusException;
+import io.grpc.StatusRuntimeException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
+import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.util.CompletableFutures;
 import java.util.concurrent.CompletableFuture;
@@ -41,11 +42,23 @@ final class OxiaExceptions {
     static Throwable translate(Throwable error) {
         final Throwable cause = CompletableFutures.unwrapException(error);
         if (cause instanceof OxiaStatusException
+                || cause instanceof StatusException
+                || cause instanceof StatusRuntimeException
                 || cause instanceof TimeoutException
                 || cause instanceof TimeoutExceededException) {
             final OxiaStatusException status = OxiaStatusException.from(cause);
-            if (status.getStatusCode() == TIMEOUT) {
-                return new RequestTimeoutException(status.getMessage(), status);
+            switch (status.getStatusCode()) {
+                case RESOURCE_UNAVAILABLE,
+                        NODE_IS_NOT_LEADER,
+                        NODE_IS_NOT_MEMBER,
+                        NOT_INITIALIZED,
+                        ABORTED -> {
+                    return new ResourceUnavailableException(status.getMessage(), status);
+                }
+                case TIMEOUT -> {
+                    return new RequestTimeoutException(status.getMessage(), status);
+                }
+                default -> {}
             }
         }
         // Keep the original error, e.g. a stackless completion exception, which the dependent stages

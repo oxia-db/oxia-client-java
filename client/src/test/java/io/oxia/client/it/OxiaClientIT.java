@@ -56,7 +56,6 @@ import io.oxia.client.api.options.GetSequenceUpdatesOption;
 import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
-import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.testcontainers.OxiaContainer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -968,7 +967,11 @@ class OxiaClientIT {
             String finalKey = key;
             byte[] finalPayload = payload;
             assertThatThrownBy(() -> syncClient.put(finalKey, finalPayload))
-                    .isInstanceOf(OxiaStatusException.class);
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
+
+            // The rejected put doesn't fail the write stream
+            syncClient.put(finalKey, "value".getBytes(UTF_8));
         }
     }
 }
