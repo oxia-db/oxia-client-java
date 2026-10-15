@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-class PublicExceptionsTest {
+class OxiaExceptionsTest {
 
     @ParameterizedTest
     @CsvSource({
@@ -48,7 +48,7 @@ class PublicExceptionsTest {
     void translatesOxiaStatus(String reason, Class<?> expected) {
         var error = oxiaStatusError(reason);
 
-        var translated = PublicExceptions.translate(new CompletionException(error));
+        var translated = OxiaExceptions.translate(new CompletionException(error));
 
         assertThat(translated).isInstanceOf(expected);
         assertThat(translated.getCause())
@@ -59,23 +59,23 @@ class PublicExceptionsTest {
 
     @Test
     void otherStatusesKeepTheirNameInTheMessage() {
-        assertThat(PublicExceptions.translate(oxiaStatusError("NODE_IS_NOT_LEADER")))
+        assertThat(OxiaExceptions.translate(oxiaStatusError("NODE_IS_NOT_LEADER")))
                 .isInstanceOf(OxiaServerException.class)
                 .hasMessageStartingWith("NODE_IS_NOT_LEADER: ");
     }
 
     @Test
     void translatesClientSideStatuses() {
-        assertThat(PublicExceptions.translate(OxiaStatusException.resourceUnavailable("closed")))
+        assertThat(OxiaExceptions.translate(OxiaStatusException.resourceUnavailable("closed")))
                 .isInstanceOf(ResourceUnavailableException.class)
                 .hasMessage("closed");
-        assertThat(PublicExceptions.translate(new TimeoutException()))
+        assertThat(OxiaExceptions.translate(new TimeoutException()))
                 .isInstanceOf(RequestTimeoutException.class);
         // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
-        assertThat(PublicExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
+        assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
                 .isInstanceOf(ResourceUnavailableException.class);
         assertThat(
-                        PublicExceptions.translate(
+                        OxiaExceptions.translate(
                                 new FailsafeException(
                                         OxiaStatusException.resourceUnavailable("retries exhausted"))))
                 .isInstanceOf(ResourceUnavailableException.class);
@@ -84,10 +84,10 @@ class PublicExceptionsTest {
     @Test
     void keepsPublicAndOtherErrorsAsIs() {
         var expected = new CompletionException(new KeyAlreadyExistsException("key"));
-        assertThat(PublicExceptions.translate(expected)).isSameAs(expected);
+        assertThat(OxiaExceptions.translate(expected)).isSameAs(expected);
 
         var closed = new IllegalStateException("Client is closed");
-        assertThat(PublicExceptions.translate(closed)).isSameAs(closed);
+        assertThat(OxiaExceptions.translate(closed)).isSameAs(closed);
     }
 
     private static StatusRuntimeException oxiaStatusError(String reason) {

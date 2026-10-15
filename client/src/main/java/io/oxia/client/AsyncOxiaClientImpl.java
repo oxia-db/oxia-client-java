@@ -404,7 +404,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 histogramPutLatency.recordFailure(System.nanoTime() - startTime);
                             }
                         })
-                .exceptionallyCompose(PublicExceptions::failedFuture);
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     private CompletableFuture<PutResult> internalPut(
@@ -520,7 +520,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 histogramDeleteLatency.recordFailure(System.nanoTime() - startTime);
                             }
                         })
-                .exceptionallyCompose(PublicExceptions::failedFuture);
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -591,7 +591,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 histogramDeleteRangeLatency.recordFailure(System.nanoTime() - startTime);
                             }
                         })
-                .exceptionallyCompose(PublicExceptions::failedFuture);
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -636,7 +636,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 histogramGetLatency.recordFailure(System.nanoTime() - startTime);
                             }
                         })
-                .exceptionallyCompose(PublicExceptions::failedFuture);
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     private void internalGet(String key, GetOptions options, CompletableFuture<GetResult> result) {
@@ -736,7 +736,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                 histogramListLatency.recordFailure(System.nanoTime() - startTime);
                             }
                         })
-                .exceptionallyCompose(PublicExceptions::failedFuture);
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -860,7 +860,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                     public void onError(Throwable throwable) {
                         gaugePendingRangeScanRequests.decrement();
                         histogramRangeScanLatency.recordFailure(System.nanoTime() - startTime);
-                        consumer.onError(PublicExceptions.translate(throwable));
+                        consumer.onError(OxiaExceptions.translate(throwable));
                     }
 
                     @Override

@@ -32,8 +32,8 @@ import java.util.concurrent.TimeoutException;
  * Translates the errors of the client internals, such as {@link OxiaStatusException} and the gRPC
  * status errors, to the public {@link OxiaException} subclasses, at the boundary of the client API.
  */
-final class PublicExceptions {
-    private PublicExceptions() {}
+final class OxiaExceptions {
+    private OxiaExceptions() {}
 
     /** Returns a future failed with the public exception for an error, for exceptionallyCompose. */
     static <T> CompletableFuture<T> failedFuture(Throwable error) {
