@@ -21,6 +21,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import io.github.merlimat.slog.Logger;
 import io.grpc.CallCredentials;
 import io.grpc.ChannelCredentials;
+import io.grpc.ClientInterceptors;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
@@ -96,7 +97,8 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
         this.healthStub =
                 credentials != null ? baseHealthStub.withCallCredentials(credentials) : baseHealthStub;
         var asyncStub =
-                OxiaClientGrpc.newStub(channel)
+                OxiaClientGrpc.newStub(
+                                ClientInterceptors.intercept(channel, new LegacyServiceFallback(address)))
                         .withMaxInboundMessageSize(MAXIMUM_FRAME_SIZE)
                         .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
         this.asyncStub = credentials != null ? asyncStub.withCallCredentials(credentials) : asyncStub;
