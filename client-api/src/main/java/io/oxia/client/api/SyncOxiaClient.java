@@ -15,7 +15,10 @@
  */
 package io.oxia.client.api;
 
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
+import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
@@ -82,6 +85,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the call.
      * @throws KeyAlreadyExistsException The key already exists on the server and the put was
      *     conditional on it not existing (via {@link PutOption#IfRecordDoesNotExist}).
+     * @throws OxiaUncheckedException The put failed for another reason. Its cause is, for instance, a
+     *     {@link SessionDoesNotExistException} when the session of an ephemeral put ({@link
+     *     PutOption#AsEphemeralRecord}) has expired, or an {@link InvalidArgumentException} when the
+     *     server rejected the put, e.g. a sequential put that doesn't fit its sequence.
      */
     PutResult put(String key, byte[] value, Set<PutOption> options)
             throws UnexpectedVersionIdException, KeyAlreadyExistsException;
@@ -117,6 +124,9 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
+     * @throws OxiaUncheckedException The delete range failed. Its cause is, for instance, an {@link
+     *     InvalidArgumentException} when the server rejected the range, e.g. a range that covers both
+     *     regular keys and the server's internal keys.
      */
     void deleteRange(String startKeyInclusive, String endKeyExclusive);
 
@@ -130,6 +140,9 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param endKeyExclusive The key that declares the end of the range, and is <b>excluded</b> from
      *     the range.
      * @param options Set {@link DeleteRangeOption options} for the delete range.
+     * @throws OxiaUncheckedException The delete range failed. Its cause is, for instance, an {@link
+     *     InvalidArgumentException} when the server rejected the range, e.g. a range that covers both
+     *     regular keys and the server's internal keys.
      */
     void deleteRange(
             String startKeyInclusive, String endKeyExclusive, Set<DeleteRangeOption> options);
