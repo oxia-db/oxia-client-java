@@ -33,6 +33,8 @@ import java.time.Duration;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class OxiaExceptionsTest {
 
@@ -67,22 +69,28 @@ class OxiaExceptionsTest {
                 .hasMessage("Write stream is closed")
                 .hasCause(unavailable);
 
-        // The status of the server
-        assertThat(OxiaExceptions.translate(oxiaStatusError("RESOURCE_UNAVAILABLE")))
+        // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
+        assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
+                .isInstanceOf(ResourceUnavailableException.class);
+    }
+
+    // The statuses the client retries internally
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "RESOURCE_UNAVAILABLE",
+                "NODE_IS_NOT_LEADER",
+                "NODE_IS_NOT_MEMBER",
+                "NOT_INITIALIZED",
+                "ABORTED"
+            })
+    void translatesTemporaryServerStatuses(String reason) {
+        assertThat(OxiaExceptions.translate(oxiaStatusError(reason)))
                 .isInstanceOf(ResourceUnavailableException.class)
                 .cause()
                 .isInstanceOfSatisfying(
                         OxiaStatusException.class,
-                        status ->
-                                assertThat(status.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE));
-
-        // The leader of the shard moved
-        assertThat(OxiaExceptions.translate(oxiaStatusError("NODE_IS_NOT_LEADER")))
-                .isInstanceOf(ResourceUnavailableException.class);
-
-        // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
-        assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
-                .isInstanceOf(ResourceUnavailableException.class);
+                        status -> assertThat(status.getStatusCode().name()).isEqualTo(reason));
     }
 
     @Test

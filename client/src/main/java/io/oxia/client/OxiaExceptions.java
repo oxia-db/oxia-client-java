@@ -15,6 +15,8 @@
  */
 package io.oxia.client;
 
+import static io.oxia.client.grpc.OxiaStatusCode.TIMEOUT;
+
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
@@ -47,15 +49,13 @@ final class OxiaExceptions {
                 || cause instanceof TimeoutException
                 || cause instanceof TimeoutExceededException) {
             final OxiaStatusException status = OxiaStatusException.from(cause);
-            switch (status.getStatusCode()) {
-                // NODE_IS_NOT_LEADER: the leader of the shard moved
-                case RESOURCE_UNAVAILABLE, NODE_IS_NOT_LEADER -> {
-                    return new ResourceUnavailableException(status.getMessage(), status);
-                }
-                case TIMEOUT -> {
-                    return new RequestTimeoutException(status.getMessage(), status);
-                }
-                default -> {}
+            if (status.getStatusCode() == TIMEOUT) {
+                return new RequestTimeoutException(status.getMessage(), status);
+            }
+            // A temporary condition of the server, e.g. the leader of the shard moved, that the client
+            // retries internally
+            if (status.isRetryable()) {
+                return new ResourceUnavailableException(status.getMessage(), status);
             }
         }
         // Keep the original error, e.g. a stackless completion exception, which the dependent stages
