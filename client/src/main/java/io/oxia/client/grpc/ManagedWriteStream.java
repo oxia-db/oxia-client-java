@@ -78,7 +78,10 @@ public final class ManagedWriteStream implements AutoCloseable {
         rolloverSubStream(
                 source,
                 new OxiaStatusException(
-                        OxiaStatusCode.RESOURCE_UNAVAILABLE, Map.of(), "Write stream failed", t));
+                        OxiaStatusCode.RESOURCE_UNAVAILABLE,
+                        Map.of(),
+                        "Write stream failed: " + t.getMessage(),
+                        t));
     }
 
     void handleCompleted(ManagedSubWriteStream source) {
@@ -111,7 +114,10 @@ public final class ManagedWriteStream implements AutoCloseable {
             rolloverSubStream(
                     source,
                     new OxiaStatusException(
-                            OxiaStatusCode.RESOURCE_UNAVAILABLE, Map.of(), "Write stream failed", ex));
+                            OxiaStatusCode.RESOURCE_UNAVAILABLE,
+                            Map.of(),
+                            "Write stream failed: " + ex.getMessage(),
+                            ex));
         }
         return future;
     }
