@@ -15,6 +15,9 @@
  */
 package io.oxia.client.util;
 
+import io.oxia.client.api.exceptions.OxiaException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
@@ -28,5 +31,30 @@ public final class CompletableFutures {
             cause = cause.getCause();
         }
         return cause;
+    }
+
+    /**
+     * Waits for a future, and throws its {@link OxiaException} as is. Another checked exception, e.g.
+     * an {@link InterruptedException}, is thrown in an {@link OxiaUncheckedException}.
+     */
+    public static <T> T await(CompletableFuture<T> future) throws OxiaException {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OxiaUncheckedException(e);
+        } catch (ExecutionException e) {
+            final Throwable cause = e.getCause();
+            if (cause instanceof OxiaException oxiaException) {
+                throw oxiaException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new OxiaUncheckedException(cause);
+        }
     }
 }

@@ -32,14 +32,13 @@ import io.oxia.client.api.options.GetSequenceUpdatesOption;
 import io.oxia.client.api.options.ListOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.RangeScanOption;
+import io.oxia.client.util.CompletableFutures;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import lombok.AccessLevel;
 import lombok.NonNull;
@@ -64,7 +63,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             @NonNull String key, byte @NonNull [] value, @NonNull Set<PutOption> options)
             throws UnexpectedVersionIdException, KeyAlreadyExistsException {
         try {
-            return awaitDeclared(asyncClient.put(key, value, options));
+            return CompletableFutures.await(asyncClient.put(key, value, options));
         } catch (UnexpectedVersionIdException | KeyAlreadyExistsException e) {
             throw e;
         } catch (OxiaException e) {
@@ -86,7 +85,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     public boolean delete(@NonNull String key, @NonNull Set<DeleteOption> options)
             throws UnexpectedVersionIdException {
         try {
-            return awaitDeclared(asyncClient.delete(key, options));
+            return CompletableFutures.await(asyncClient.delete(key, options));
         } catch (UnexpectedVersionIdException e) {
             throw e;
         } catch (OxiaException e) {
@@ -104,7 +103,12 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             @NonNull Set<DeleteRangeOption> options) {
-        await(asyncClient.deleteRange(startKeyInclusive, endKeyExclusive, options));
+        try {
+            CompletableFutures.await(
+                    asyncClient.deleteRange(startKeyInclusive, endKeyExclusive, options));
+        } catch (OxiaException e) {
+            throw new OxiaUncheckedException(e);
+        }
     }
 
     @Override
@@ -114,7 +118,11 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
 
     @Override
     public GetResult get(@NonNull String key, @NonNull Set<GetOption> options) {
-        return await(asyncClient.get(key, options));
+        try {
+            return CompletableFutures.await(asyncClient.get(key, options));
+        } catch (OxiaException e) {
+            throw new OxiaUncheckedException(e);
+        }
     }
 
     @Override
@@ -128,7 +136,12 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
             @NonNull Set<ListOption> options) {
-        return await(asyncClient.list(startKeyInclusive, endKeyExclusive, options));
+        try {
+            return CompletableFutures.await(
+                    asyncClient.list(startKeyInclusive, endKeyExclusive, options));
+        } catch (OxiaException e) {
+            throw new OxiaUncheckedException(e);
+        }
     }
 
     @Override
@@ -187,42 +200,5 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     @Override
     public void close() throws Exception {
         asyncClient.close();
-    }
-
-    /**
-     * Waits for an operation that declares no {@link OxiaException}: its {@link OxiaException} is
-     * thrown in an {@link OxiaUncheckedException}.
-     */
-    private static <T> T await(CompletableFuture<T> future) {
-        try {
-            return awaitDeclared(future);
-        } catch (OxiaException e) {
-            throw new OxiaUncheckedException(e);
-        }
-    }
-
-    /**
-     * Waits for an operation, and throws its {@link OxiaException} as is. Another checked exception,
-     * e.g. an {@link InterruptedException}, is thrown in an {@link OxiaUncheckedException}.
-     */
-    private static <T> T awaitDeclared(CompletableFuture<T> future) throws OxiaException {
-        try {
-            return future.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new OxiaUncheckedException(e);
-        } catch (ExecutionException e) {
-            final Throwable cause = e.getCause();
-            if (cause instanceof OxiaException oxiaException) {
-                throw oxiaException;
-            }
-            if (cause instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw new OxiaUncheckedException(cause);
-        }
     }
 }
