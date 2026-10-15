@@ -403,7 +403,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             } else {
                                 histogramPutLatency.recordFailure(System.nanoTime() - startTime);
                             }
-                        });
+                        })
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     private CompletableFuture<PutResult> internalPut(
@@ -518,7 +519,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             } else {
                                 histogramDeleteLatency.recordFailure(System.nanoTime() - startTime);
                             }
-                        });
+                        })
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -588,7 +590,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             } else {
                                 histogramDeleteRangeLatency.recordFailure(System.nanoTime() - startTime);
                             }
-                        });
+                        })
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -632,7 +635,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             } else {
                                 histogramGetLatency.recordFailure(System.nanoTime() - startTime);
                             }
-                        });
+                        })
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     private void internalGet(String key, GetOptions options, CompletableFuture<GetResult> result) {
@@ -731,7 +735,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                             } else {
                                 histogramListLatency.recordFailure(System.nanoTime() - startTime);
                             }
-                        });
+                        })
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     @Override
@@ -855,7 +860,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                     public void onError(Throwable throwable) {
                         gaugePendingRangeScanRequests.decrement();
                         histogramRangeScanLatency.recordFailure(System.nanoTime() - startTime);
-                        consumer.onError(throwable);
+                        consumer.onError(OxiaExceptions.translate(throwable));
                     }
 
                     @Override
@@ -900,7 +905,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         flowControl);
             }
         } catch (Exception e) {
-            consumer.onError(e);
+            consumer.onError(OxiaExceptions.translate(e));
         }
     }
 

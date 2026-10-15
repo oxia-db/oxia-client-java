@@ -394,9 +394,11 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                                 + "SharedResources.builder() instead.");
             }
             return AsyncOxiaClientImpl.newInstance(
-                    getClientConfig(), (SharedResourcesImpl) sharedResources);
+                            getClientConfig(), (SharedResourcesImpl) sharedResources)
+                    .exceptionallyCompose(OxiaExceptions::failedFuture);
         }
-        return AsyncOxiaClientImpl.newInstance(getClientConfig());
+        return AsyncOxiaClientImpl.newInstance(getClientConfig())
+                .exceptionallyCompose(OxiaExceptions::failedFuture);
     }
 
     public ClientConfig getClientConfig() {

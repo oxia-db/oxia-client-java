@@ -34,6 +34,8 @@
  *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
+ *   <li>{@link io.oxia.client.api.exceptions.RequestTimeoutException} — the operation did not
+ *       complete within the request timeout. The outcome of a write that fails with it is unknown.
  * </ul>
  */
 package io.oxia.client.api.exceptions;

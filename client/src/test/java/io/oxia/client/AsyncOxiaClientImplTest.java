@@ -32,6 +32,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
+import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
@@ -55,7 +56,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -148,7 +148,7 @@ class AsyncOxiaClientImplTest {
             fail("unexpected");
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
-            assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+            assertThat(ex.getCause()).isInstanceOf(RequestTimeoutException.class);
         }
     }
 
@@ -286,7 +286,7 @@ class AsyncOxiaClientImplTest {
             fail("unexpected");
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
-            assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+            assertThat(ex.getCause()).isInstanceOf(RequestTimeoutException.class);
         }
     }
 
@@ -373,7 +373,7 @@ class AsyncOxiaClientImplTest {
             fail("unexpected");
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
-            assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+            assertThat(ex.getCause()).isInstanceOf(RequestTimeoutException.class);
         }
     }
 
@@ -440,7 +440,7 @@ class AsyncOxiaClientImplTest {
             fail("unexpected");
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
-            assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+            assertThat(ex.getCause()).isInstanceOf(RequestTimeoutException.class);
         }
     }
 
@@ -477,7 +477,7 @@ class AsyncOxiaClientImplTest {
             fail("unexpected");
         } catch (Throwable ex) {
             assertThat(ex).isInstanceOf(CompletionException.class);
-            assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
+            assertThat(ex.getCause()).isInstanceOf(RequestTimeoutException.class);
         }
     }
 
