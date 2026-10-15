@@ -103,8 +103,8 @@ public class GetResultIterator
         notifyAll();
     }
 
-    /** Waits for a result, the end or an error of the scan. Must be called holding the monitor. */
-    private void awaitResult() {
+    @Override
+    public synchronized boolean hasNext() {
         try {
             while (error == null && !completed && buffer.isEmpty() && !closed) {
                 wait();
@@ -114,11 +114,6 @@ public class GetResultIterator
             throw new OxiaUncheckedException(
                     new OxiaClientException("Interrupted while waiting for the range scan", e));
         }
-    }
-
-    @Override
-    public synchronized boolean hasNext() {
-        awaitResult();
 
         if (error != null) {
             throw new RuntimeException(error);
@@ -132,7 +127,15 @@ public class GetResultIterator
         GetResult res;
         List<StreamHandle> toRequest = null;
         synchronized (this) {
-            awaitResult();
+            try {
+                while (error == null && !completed && buffer.isEmpty() && !closed) {
+                    wait();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new OxiaUncheckedException(
+                        new OxiaClientException("Interrupted while waiting for the range scan", e));
+            }
 
             if (error != null) {
                 throw new RuntimeException(error);
