@@ -22,7 +22,6 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.SyncOxiaClient;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -202,13 +201,16 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
         }
     }
 
-    /** Waits for an operation, and throws its {@link OxiaException} as is. */
+    /**
+     * Waits for an operation, and throws its {@link OxiaException} as is. Another checked exception,
+     * e.g. an {@link InterruptedException}, is thrown in an {@link OxiaUncheckedException}.
+     */
     private static <T> T awaitDeclared(CompletableFuture<T> future) throws OxiaException {
         try {
             return future.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new OxiaClientException("Interrupted while waiting for the operation", e);
+            throw new OxiaUncheckedException(e);
         } catch (ExecutionException e) {
             final Throwable cause = e.getCause();
             if (cause instanceof OxiaException oxiaException) {
@@ -220,7 +222,7 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
             if (cause instanceof Error error) {
                 throw error;
             }
-            throw new OxiaClientException("Unexpected error: " + cause, cause);
+            throw new OxiaUncheckedException(cause);
         }
     }
 }

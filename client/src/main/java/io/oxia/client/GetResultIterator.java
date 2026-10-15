@@ -17,7 +17,6 @@ package io.oxia.client;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.RangeScanConsumer;
-import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -111,8 +110,7 @@ public class GetResultIterator
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new OxiaUncheckedException(
-                    new OxiaClientException("Interrupted while waiting for the range scan", e));
+            throw new OxiaUncheckedException(e);
         }
 
         if (error != null) {
@@ -133,8 +131,7 @@ public class GetResultIterator
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new OxiaUncheckedException(
-                        new OxiaClientException("Interrupted while waiting for the range scan", e));
+                throw new OxiaUncheckedException(e);
             }
 
             if (error != null) {

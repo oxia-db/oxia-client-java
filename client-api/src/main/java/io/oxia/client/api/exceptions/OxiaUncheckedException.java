@@ -18,28 +18,18 @@ package io.oxia.client.api.exceptions;
 import java.util.Objects;
 
 /**
- * Wraps an {@link OxiaException} with an unchecked exception, as {@link
- * java.io.UncheckedIOException} does for an {@link java.io.IOException}. The synchronous client
- * throws it for the {@link OxiaException}s that a method does not declare, e.g. a {@link
- * SessionDoesNotExistException} from {@code put()}.
+ * Wraps a checked exception with an unchecked one, as {@link java.io.UncheckedIOException} does for
+ * an {@link java.io.IOException}. The synchronous client throws it for the checked exceptions that
+ * a method does not declare: an {@link OxiaException}, e.g. a {@link SessionDoesNotExistException}
+ * from {@code put()}, or another one, e.g. an {@link InterruptedException}.
  */
 public class OxiaUncheckedException extends RuntimeException {
     /**
      * Creates an instance of the exception.
      *
-     * @param cause the {@link OxiaException} to wrap
+     * @param cause the checked exception to wrap
      */
-    public OxiaUncheckedException(OxiaException cause) {
-        super(Objects.requireNonNull(cause, "cause").getMessage(), cause);
-    }
-
-    /**
-     * Returns the wrapped {@link OxiaException}.
-     *
-     * @return the wrapped {@link OxiaException}
-     */
-    @Override
-    public synchronized OxiaException getCause() {
-        return (OxiaException) super.getCause();
+    public OxiaUncheckedException(Throwable cause) {
+        super(Objects.requireNonNull(cause, "cause"));
     }
 }

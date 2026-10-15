@@ -15,10 +15,7 @@
  */
 package io.oxia.client.api.exceptions;
 
-/**
- * A super-class of the exceptions of the Oxia client: the errors reported by an Oxia server, and
- * the ones of the client itself.
- */
+/** A super-class of exceptions describing errors that occurred on an Oxia server. */
 public abstract class OxiaException extends Exception {
     /**
      * Creates an instance of the exception.

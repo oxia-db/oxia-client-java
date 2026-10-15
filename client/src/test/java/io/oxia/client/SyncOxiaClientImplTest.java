@@ -25,7 +25,6 @@ import static org.mockito.Mockito.when;
 import io.oxia.client.api.AsyncOxiaClient;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
-import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
@@ -83,8 +82,6 @@ class SyncOxiaClientImplTest {
 
         assertThatThrownBy(() -> client.get("k"))
                 .isInstanceOf(OxiaUncheckedException.class)
-                .cause()
-                .isInstanceOf(OxiaClientException.class)
                 .hasCause(timeout);
     }
 
@@ -95,7 +92,7 @@ class SyncOxiaClientImplTest {
         Thread.currentThread().interrupt();
         assertThatThrownBy(() -> client.get("k"))
                 .isInstanceOf(OxiaUncheckedException.class)
-                .hasCauseInstanceOf(OxiaClientException.class);
+                .hasCauseInstanceOf(InterruptedException.class);
         // The interrupt flag is kept
         assertThat(Thread.interrupted()).isTrue();
     }

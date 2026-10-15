@@ -34,8 +34,6 @@
  *       sequence.
  *   <li>{@link io.oxia.client.api.exceptions.UnsupportedAuthenticationException} — the configured
  *       authentication plugin could not be loaded.
- *   <li>{@link io.oxia.client.api.exceptions.OxiaClientException} — an unexpected error of the
- *       client itself, or an interrupted synchronous call.
  * </ul>
  */
 package io.oxia.client.api.exceptions;

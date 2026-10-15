@@ -20,7 +20,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Version;
-import io.oxia.client.api.exceptions.OxiaClientException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import java.util.ArrayList;
 import java.util.List;
@@ -204,8 +203,7 @@ class GetResultIteratorTest {
         Thread.currentThread().interrupt();
         assertThatThrownBy(it::hasNext)
                 .isInstanceOf(OxiaUncheckedException.class)
-                .hasCauseInstanceOf(OxiaClientException.class)
-                .hasRootCauseInstanceOf(InterruptedException.class);
+                .hasCauseInstanceOf(InterruptedException.class);
         // The interrupt flag is kept
         assertThat(Thread.interrupted()).isTrue();
     }
