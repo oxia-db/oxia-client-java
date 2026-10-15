@@ -15,6 +15,8 @@
  */
 package io.oxia.client;
 
+import static io.oxia.client.util.Preconditions.checkNotNull;
+
 import io.netty.buffer.ByteBufUtil;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.opentelemetry.api.common.AttributeKey;
@@ -1013,13 +1015,6 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     private void checkIfClosed() {
         if (closed) {
             throw OxiaStatusException.resourceUnavailable("Client has been closed");
-        }
-    }
-
-    /** Rejects a null argument with an {@link IllegalArgumentException}, reported as invalid. */
-    private static void checkNotNull(Object value, String name) {
-        if (value == null) {
-            throw new IllegalArgumentException(name + " must not be null");
         }
     }
 }
