@@ -19,13 +19,13 @@ import io.github.merlimat.slog.Logger;
 import io.opentelemetry.api.common.Attributes;
 import io.oxia.client.CompositeConsumer;
 import io.oxia.client.api.Notification;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.Counter;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
-import io.oxia.client.util.ClosedException;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -102,7 +102,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
 
     public void registerCallback(@NonNull Consumer<Notification> callback) {
         if (closed) {
-            throw new ClosedException("Notification manager has been closed");
+            throw OxiaStatusException.resourceUnavailable("Notification manager has been closed");
         }
         compositeCallback.add(callback);
         if (!started) {

@@ -18,7 +18,6 @@ package io.oxia.client;
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
-import io.oxia.client.api.exceptions.ClientClosedException;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaClientException;
@@ -27,7 +26,6 @@ import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
-import io.oxia.client.util.ClosedException;
 import io.oxia.client.util.CompletableFutures;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
@@ -58,9 +56,6 @@ final class OxiaExceptions {
         }
         if (cause instanceof io.oxia.client.shard.NamespaceNotFoundException) {
             return new NamespaceNotFoundException(cause.getMessage(), cause);
-        }
-        if (cause instanceof ClosedException) {
-            return new ClientClosedException(cause.getMessage(), cause);
         }
         if (cause instanceof IllegalArgumentException) {
             return new InvalidArgumentException(cause.getMessage(), cause);

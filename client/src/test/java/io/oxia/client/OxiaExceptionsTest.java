@@ -22,7 +22,6 @@ import com.google.rpc.ErrorInfo;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
-import io.oxia.client.api.exceptions.ClientClosedException;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
@@ -31,7 +30,6 @@ import io.oxia.client.api.exceptions.OxiaServerException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.grpc.OxiaStatusException;
-import io.oxia.client.util.ClosedException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
@@ -91,12 +89,6 @@ class OxiaExceptionsTest {
 
     @Test
     void translatesClientErrors() {
-        var closed = new ClosedException("Client has been closed");
-        assertThat(OxiaExceptions.translate(new CompletionException(closed)))
-                .isInstanceOf(ClientClosedException.class)
-                .hasMessage("Client has been closed")
-                .hasCause(closed);
-
         var invalid = new IllegalArgumentException("key must not be null");
         assertThat(OxiaExceptions.translate(invalid))
                 .isInstanceOf(InvalidArgumentException.class)

@@ -16,10 +16,10 @@
 package io.oxia.client.batch;
 
 import io.oxia.client.ClientConfig;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.session.SessionManager;
-import io.oxia.client.util.ClosedException;
 import lombok.NonNull;
 
 /**
@@ -46,7 +46,7 @@ public class BatchManager implements AutoCloseable {
 
     public void add(@NonNull Operation<?> operation) {
         if (closed) {
-            throw new ClosedException("Batch manager is closed");
+            throw OxiaStatusException.resourceUnavailable("Batch manager is closed");
         }
         pool.route(operation);
     }
@@ -69,7 +69,7 @@ public class BatchManager implements AutoCloseable {
         }
         // Batches held back by the dispatch windows were never handed to the batchers: fail their
         // operations here so they complete promptly.
-        factory.failWindows(new ClosedException("Batch manager is closed"));
+        factory.failWindows(OxiaStatusException.resourceUnavailable("Batch manager is closed"));
     }
 
     public static @NonNull BatchManager newReadBatchManager(

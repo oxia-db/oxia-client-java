@@ -40,6 +40,7 @@ import io.oxia.client.api.Notification;
 import io.oxia.client.api.Notification.KeyCreated;
 import io.oxia.client.api.Notification.KeyDeleted;
 import io.oxia.client.api.Notification.KeyModified;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.shard.HashRange;
@@ -273,7 +274,7 @@ class NotificationManagerTest {
             verify(receiver2).close();
 
             assertThatThrownBy(() -> manager.registerCallback(callback))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(OxiaStatusException.class);
 
             var changes1 =
                     new ShardAssignmentChanges(

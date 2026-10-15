@@ -37,6 +37,7 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.Counter;
@@ -49,7 +50,6 @@ import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
-import io.oxia.client.util.ClosedException;
 import io.oxia.client.util.PendingBytesLimiter;
 import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.KeyComparisonType;
@@ -1015,7 +1015,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
     private void checkIfClosed() {
         if (closed) {
-            throw new ClosedException("Client has been closed");
+            throw OxiaStatusException.resourceUnavailable("Client has been closed");
         }
     }
 
