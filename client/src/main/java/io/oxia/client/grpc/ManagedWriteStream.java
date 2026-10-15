@@ -98,7 +98,7 @@ public final class ManagedWriteStream implements AutoCloseable {
                             OxiaStatusException.resourceUnavailable("Write stream is closed"));
                 }
                 inflightWrites.addLast(future);
-                handleTimeout(future);
+                watchTimeout(future);
                 if (subStreamObserver == null) {
                     subStreamObserver = new ManagedSubWriteStream(this, rpcProvider, shardId);
                 }
@@ -118,7 +118,7 @@ public final class ManagedWriteStream implements AutoCloseable {
 
     // Rolls the sub-stream over when the write gets no response within the request timeout: the
     // stream may be stuck without failing, e.g. behind a proxy whose connection to the server is dead
-    private void handleTimeout(CompletableFuture<WriteResponse> write) {
+    private void watchTimeout(CompletableFuture<WriteResponse> write) {
         requestTimeouts
                 .add(write.thenRun(() -> {}))
                 .whenComplete(
