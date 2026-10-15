@@ -54,6 +54,7 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -1670,6 +1671,107 @@ class GrpcRpcProviderTest {
             executor.shutdownNow();
             server.shutdownNow();
         }
+    }
+
+    @Test
+    void readsGiveUpAfterRequestTimeout() throws Exception {
+        var attempts = new AtomicInteger();
+        Server server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                // A retryable failure on every attempt, e.g. the shard is unavailable
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void read(
+                                            ReadRequest request, StreamObserver<ReadResponse> responseObserver) {
+                                        attempts.incrementAndGet();
+                                        responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+                                    }
+
+                                    @Override
+                                    public void list(
+                                            ListRequest request, StreamObserver<ListResponse> responseObserver) {
+                                        attempts.incrementAndGet();
+                                        responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+                                    }
+
+                                    @Override
+                                    public void rangeScan(
+                                            RangeScanRequest request,
+                                            StreamObserver<RangeScanResponse> responseObserver) {
+                                        attempts.incrementAndGet();
+                                        responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+                                    }
+                                })
+                        .build()
+                        .start();
+        var address = "localhost:" + server.getPort();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address)
+                                        .requestTimeout(Duration.ofMillis(300))
+                                        .connectionBackoff(Duration.ofMillis(10), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            var readError = new CompletableFuture<Throwable>();
+            provider.read(new ReadRequest().setShard(1), failingStreamObserver(readError));
+            var listError = new CompletableFuture<Throwable>();
+            provider.list(new ListRequest().setShard(1), failingCancelableObserver(listError));
+            var rangeScanError = new CompletableFuture<Throwable>();
+            provider.rangeScan(
+                    new RangeScanRequest().setShard(1), failingCancelableObserver(rangeScanError));
+
+            // The retries are bounded by the request timeout
+            for (var error : List.of(readError, listError, rangeScanError)) {
+                assertThat(error.get(5, TimeUnit.SECONDS))
+                        .isInstanceOfSatisfying(
+                                OxiaStatusException.class,
+                                e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT));
+            }
+            // and then stop
+            var attemptsAfterTimeout = attempts.get();
+            await()
+                    .during(Duration.ofMillis(300))
+                    .atMost(Duration.ofSeconds(1))
+                    .untilAsserted(() -> assertThat(attempts).hasValue(attemptsAfterTimeout));
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    private static <T> StreamObserver<T> failingStreamObserver(CompletableFuture<Throwable> error) {
+        return new StreamObserver<>() {
+            @Override
+            public void onNext(T value) {}
+
+            @Override
+            public void onError(Throwable t) {
+                error.complete(t);
+            }
+
+            @Override
+            public void onCompleted() {}
+        };
+    }
+
+    private static <T> CancelableStreamObserver<T> failingCancelableObserver(
+            CompletableFuture<Throwable> error) {
+        return new CancelableStreamObserver<>() {
+            @Override
+            protected void handleNext(@NonNull T value) {}
+
+            @Override
+            protected void handleError(@NonNull Throwable t) {
+                error.complete(t);
+            }
+
+            @Override
+            protected void handleComplete() {}
+        };
     }
 
     private static <T> StreamObserver<T> capturingStreamObserver(AtomicReference<T> response) {

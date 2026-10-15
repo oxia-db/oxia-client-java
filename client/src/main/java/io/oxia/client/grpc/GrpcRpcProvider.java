@@ -294,7 +294,7 @@ final class GrpcRpcProvider implements RpcProvider {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
-            Failsafe.with(getRetryPolicy("read", hint))
+            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("read", hint))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
@@ -369,7 +369,7 @@ final class GrpcRpcProvider implements RpcProvider {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
-            Failsafe.with(getRetryPolicy("list", hint))
+            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("list", hint))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
@@ -413,7 +413,7 @@ final class GrpcRpcProvider implements RpcProvider {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
         try {
-            Failsafe.with(getRetryPolicy("range scan", hint))
+            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("range scan", hint))
                     .with(asyncExecutor)
                     .getStageAsync(
                             () -> {
