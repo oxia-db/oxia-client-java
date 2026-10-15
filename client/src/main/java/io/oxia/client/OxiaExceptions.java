@@ -15,6 +15,8 @@
  */
 package io.oxia.client;
 
+import static io.oxia.client.grpc.OxiaStatusCode.UNKNOWN;
+
 import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
@@ -22,6 +24,7 @@ import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
+import io.oxia.client.api.exceptions.UnknownException;
 import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.util.CompletableFutures;
 import java.util.concurrent.CompletableFuture;
@@ -62,7 +65,13 @@ final class OxiaExceptions {
                 case TIMEOUT -> {
                     return new RequestTimeoutException(status.getMessage(), status);
                 }
-                default -> {}
+                default -> {
+                    // An unrecognized status keeps the message of the original error, e.g. the name
+                    // of a gRPC status
+                    final String message =
+                            status.getStatusCode() == UNKNOWN ? cause.getMessage() : status.getMessage();
+                    return new UnknownException(status.getStatusCode() + ": " + message, status);
+                }
             }
         }
         // Keep the original error, e.g. a stackless completion exception, which the dependent stages

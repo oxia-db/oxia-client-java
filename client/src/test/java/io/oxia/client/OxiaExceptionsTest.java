@@ -28,6 +28,7 @@ import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
+import io.oxia.client.api.exceptions.UnknownException;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.time.Duration;
@@ -111,14 +112,41 @@ class OxiaExceptionsTest {
                 .hasCause(namespace);
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "SESSION_NOT_FOUND",
+                "INVALID_SESSION_TIMEOUT",
+                "INVALID_TERM",
+                "INVALID_STATUS",
+                "NOTIFICATIONS_NOT_ENABLED",
+                "RESOURCE_CONFLICT",
+                "SHARD_NOT_FOUND"
+            })
+    void translatesOtherStatusesToUnknown(String reason) {
+        assertThat(OxiaExceptions.translate(oxiaStatusError(reason)))
+                .isInstanceOf(UnknownException.class)
+                .hasMessageStartingWith(reason + ": ")
+                .cause()
+                .isInstanceOfSatisfying(
+                        OxiaStatusException.class,
+                        status -> assertThat(status.getStatusCode().name()).isEqualTo(reason));
+    }
+
+    @Test
+    void translatesUnrecognizedStatusesToUnknown() {
+        // A gRPC status without an Oxia reason, e.g. the call was cancelled
+        assertThat(
+                        OxiaExceptions.translate(
+                                Status.CANCELLED.withDescription("call cancelled").asRuntimeException()))
+                .isInstanceOf(UnknownException.class)
+                .hasMessage("UNKNOWN: CANCELLED: call cancelled");
+    }
+
     @Test
     void keepsOtherErrorsAsIs() {
         var expected = new CompletionException(new KeyAlreadyExistsException("key"));
         assertThat(OxiaExceptions.translate(expected)).isSameAs(expected);
-
-        // Not translated yet
-        var sessionNotFound = oxiaStatusError("SESSION_NOT_FOUND");
-        assertThat(OxiaExceptions.translate(sessionNotFound)).isSameAs(sessionNotFound);
 
         var clientError = new IllegalStateException("Client has been closed");
         assertThat(OxiaExceptions.translate(clientError)).isSameAs(clientError);
