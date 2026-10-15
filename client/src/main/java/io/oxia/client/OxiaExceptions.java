@@ -21,6 +21,7 @@ import dev.failsafe.TimeoutExceededException;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.oxia.client.api.exceptions.AlreadyClosedException;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.client.api.exceptions.OxiaException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
@@ -46,11 +47,13 @@ final class OxiaExceptions {
 
     /**
      * Returns the public exception for an error, to throw from a method that declares no checked
-     * exception: an {@link OxiaException} is wrapped in an {@link OxiaUncheckedException}.
+     * exception: any error other than an {@link OxiaUncheckedException} is wrapped in one.
      */
-    static RuntimeException unchecked(RuntimeException error) {
+    static OxiaUncheckedException unchecked(Throwable error) {
         final Throwable translated = translate(error);
-        return translated instanceof OxiaException e ? new OxiaUncheckedException(e) : error;
+        return translated instanceof OxiaUncheckedException e
+                ? e
+                : new OxiaUncheckedException(translated);
     }
 
     /** Returns the public exception for an internal error. Any other error is returned as is. */
@@ -72,6 +75,9 @@ final class OxiaExceptions {
                 }
                 case ALREADY_CLOSED -> {
                     return new AlreadyClosedException(status.getMessage(), status);
+                }
+                case INVALID_ARGUMENT -> {
+                    return new InvalidArgumentException(status.getMessage(), status);
                 }
                 case NAMESPACE_NOT_FOUND -> {
                     return new NamespaceNotFoundException(status.getMessage(), status);

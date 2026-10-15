@@ -25,6 +25,7 @@ import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 import io.oxia.client.api.options.defs.OptionSequenceKeysDeltas;
 import io.oxia.client.api.options.defs.OptionVersionId;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.proto.KeyComparisonType;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,7 +47,7 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionVersionId e) {
                 if (versionId.isPresent()) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "VersionId cannot be passed multiple times: " + options);
                 }
 
@@ -80,7 +81,8 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionPartitionKey pk) {
                 if (partitionKey.isPresent()) {
-                    throw new IllegalArgumentException("PartitionKey can only specified once:  " + options);
+                    throw OxiaStatusException.invalidArgument(
+                            "PartitionKey can only specified once:  " + options);
                 }
 
                 partitionKey = Optional.of(pk.partitionKey());
@@ -99,7 +101,7 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionSequenceKeysDeltas skd) {
                 if (sequenceKeysDeltas.isPresent()) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "SequencesKeysDeltas can only specified once:  " + options);
                 }
 
@@ -121,7 +123,7 @@ public class OptionsUtils {
             if (o instanceof OptionComparisonType e) {
 
                 if (alreadyHasComparisonType) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "Incompatible " + GetOption.class.getSimpleName() + "s: " + options);
                 }
 
@@ -168,7 +170,7 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionOverrideVersionId e) {
                 if (overrideVersionId.isPresent()) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "OverrideVersionId cannot be passed multiple times: " + options);
                 }
 
@@ -188,7 +190,7 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionOverrideModificationsCount e) {
                 if (overrideModificationsCount.isPresent()) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "OverrideModificationsCount cannot be passed multiple times: " + options);
                 }
 
@@ -208,7 +210,7 @@ public class OptionsUtils {
         for (var o : options) {
             if (o instanceof OptionSecondaryIndexName sin) {
                 if (secondaryIndexName.isPresent()) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "Secondary index can only specified once:  " + options);
                 }
 

@@ -33,5 +33,7 @@ public enum OxiaStatusCode {
     TIMEOUT,
     // The client, or a resource that it uses, has been closed. Never sent by the server
     ALREADY_CLOSED,
+    // The caller passed an invalid argument. Never sent by the server
+    INVALID_ARGUMENT,
     UNKNOWN
 }

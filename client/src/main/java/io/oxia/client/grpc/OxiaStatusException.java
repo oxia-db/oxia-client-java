@@ -16,6 +16,7 @@
 package io.oxia.client.grpc;
 
 import static io.oxia.client.grpc.OxiaStatusCode.ALREADY_CLOSED;
+import static io.oxia.client.grpc.OxiaStatusCode.INVALID_ARGUMENT;
 import static io.oxia.client.grpc.OxiaStatusCode.NAMESPACE_NOT_FOUND;
 import static io.oxia.client.grpc.OxiaStatusCode.RESOURCE_UNAVAILABLE;
 import static io.oxia.client.grpc.OxiaStatusCode.SHARD_NOT_FOUND;
@@ -102,6 +103,10 @@ public class OxiaStatusException extends RuntimeException {
 
     public static @NonNull OxiaStatusException alreadyClosed(@NonNull String message) {
         return new OxiaStatusException(ALREADY_CLOSED, Map.of(), message, null);
+    }
+
+    public static @NonNull OxiaStatusException invalidArgument(@NonNull String message) {
+        return new OxiaStatusException(INVALID_ARGUMENT, Map.of(), message, null);
     }
 
     public static @NonNull OxiaStatusException timeout(@NonNull Throwable error) {

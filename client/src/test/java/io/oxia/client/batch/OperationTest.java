@@ -39,6 +39,8 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
 import io.oxia.client.batch.Operation.WriteOperation.PutOperation;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
 import io.oxia.proto.DeleteRangeRequest;
@@ -245,7 +247,9 @@ class OperationTest {
                                             Collections.emptyList(),
                                             OptionalLong.empty(),
                                             OptionalLong.empty()))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaStatusException.class)
+                    .extracting("statusCode")
+                    .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
         }
 
         @Test
@@ -628,10 +632,14 @@ class OperationTest {
                             () ->
                                     new DeleteOperation(
                                             batchManager, 1L, callback, "key", OptionalLong.of(KEY_NOT_EXISTS)))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaStatusException.class)
+                    .extracting("statusCode")
+                    .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
             assertThatThrownBy(
                             () -> new DeleteOperation(batchManager, 1L, callback, "key", OptionalLong.of(-2L)))
-                    .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(OxiaStatusException.class)
+                    .extracting("statusCode")
+                    .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
         }
 
         @Test

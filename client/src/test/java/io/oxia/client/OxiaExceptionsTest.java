@@ -155,7 +155,7 @@ class OxiaExceptionsTest {
     }
 
     @Test
-    void uncheckedWrapsThePublicException() {
+    void uncheckedWrapsAnyError() {
         var closed = OxiaStatusException.alreadyClosed("Client has been closed");
         assertThat(OxiaExceptions.unchecked(closed))
                 .isInstanceOf(OxiaUncheckedException.class)
@@ -163,8 +163,13 @@ class OxiaExceptionsTest {
                 .isInstanceOf(AlreadyClosedException.class)
                 .hasCause(closed);
 
-        var error = new IllegalArgumentException("partitionKey must be present");
-        assertThat(OxiaExceptions.unchecked(error)).isSameAs(error);
+        var error = new IllegalStateException("failed");
+        assertThat(OxiaExceptions.unchecked(error))
+                .isInstanceOf(OxiaUncheckedException.class)
+                .hasCause(error);
+
+        var unchecked = new OxiaUncheckedException(new AlreadyClosedException("closed", null));
+        assertThat(OxiaExceptions.unchecked(unchecked)).isSameAs(unchecked);
     }
 
     @Test

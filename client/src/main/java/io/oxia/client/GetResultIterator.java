@@ -40,7 +40,7 @@ public class GetResultIterator
     private final List<StreamHandle> streams = new ArrayList<>();
     private final List<StreamHandle> idleStreams = new ArrayList<>();
 
-    private Throwable error = null;
+    private OxiaUncheckedException error = null;
     private boolean completed = false;
     private boolean closed = false;
 
@@ -92,7 +92,7 @@ public class GetResultIterator
         // Don't cancel the other streams here: onError can be invoked while holding another
         // stream observer's lock, and cancelling a stream takes its observer's lock. The
         // streams are cancelled by close().
-        this.error = new Exception("Range scan error", throwable);
+        this.error = OxiaExceptions.unchecked(throwable);
         notifyAll();
     }
 
@@ -114,7 +114,7 @@ public class GetResultIterator
         }
 
         if (error != null) {
-            throw new RuntimeException(error);
+            throw error;
         }
 
         return !buffer.isEmpty();
@@ -135,7 +135,7 @@ public class GetResultIterator
             }
 
             if (error != null) {
-                throw new RuntimeException(error);
+                throw error;
             }
 
             res = buffer.poll();

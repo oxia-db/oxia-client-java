@@ -24,6 +24,8 @@ import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
 import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionVersionId;
+import io.oxia.client.grpc.OxiaStatusCode;
+import io.oxia.client.grpc.OxiaStatusException;
 import java.util.Collections;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
@@ -75,7 +77,9 @@ class PutOptionTest {
                         () ->
                                 OptionsUtils.getVersionId(
                                         Set.of(PutOption.IfRecordDoesNotExist, PutOption.IfVersionIdEquals(1L))))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(OxiaStatusException.class)
+                .extracting("statusCode")
+                .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
 
         assertThatThrownBy(
                         () ->
@@ -87,7 +91,9 @@ class PutOptionTest {
                         () ->
                                 OptionsUtils.getVersionId(
                                         Set.of(PutOption.IfVersionIdEquals(1L), PutOption.IfVersionIdEquals(2L))))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(OxiaStatusException.class)
+                .extracting("statusCode")
+                .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
     }
 
     @Test

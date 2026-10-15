@@ -33,6 +33,7 @@ import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.exceptions.UnknownException;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.Session;
 import io.oxia.proto.DeleteRangeRequest;
@@ -145,19 +146,19 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
             public PutOperation {
                 if (expectedVersionId.isPresent() && expectedVersionId.getAsLong() < KEY_NOT_EXISTS) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "expectedVersionId must be >= -1 (KEY_NOT_EXISTS), was: "
                                     + expectedVersionId.getAsLong());
                 }
 
                 if (sequenceKeysDeltas.isPresent()) {
                     if (expectedVersionId.isPresent()) {
-                        throw new IllegalArgumentException(
+                        throw OxiaStatusException.invalidArgument(
                                 "Usage of sequential keys does not allow to specify an ExpectedVersionId");
                     }
 
                     if (partitionKey.isEmpty()) {
-                        throw new IllegalArgumentException(
+                        throw OxiaStatusException.invalidArgument(
                                 "usage of sequential keys requires PartitionKey() to be set");
                     }
                 }
@@ -265,7 +266,7 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
 
             public DeleteOperation {
                 if (expectedVersionId.isPresent() && expectedVersionId.getAsLong() < 0) {
-                    throw new IllegalArgumentException(
+                    throw OxiaStatusException.invalidArgument(
                             "expectedVersionId must be >= 0, was: " + expectedVersionId.getAsLong());
                 }
             }
