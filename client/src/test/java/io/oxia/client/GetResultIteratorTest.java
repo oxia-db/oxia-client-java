@@ -136,9 +136,10 @@ class GetResultIteratorTest {
         it.onStreamStarted(handle);
 
         it.onNext(result("a"));
-        it.onError(new RuntimeException("scan failed"));
+        var error = new RuntimeException("scan failed");
+        it.onError(error);
 
-        assertThatThrownBy(it::hasNext).isInstanceOf(RuntimeException.class).hasMessage("scan failed");
+        assertThatThrownBy(it::hasNext).isInstanceOf(OxiaUncheckedException.class).hasCause(error);
 
         it.close();
         assertThat(handle.cancelled).isTrue();
