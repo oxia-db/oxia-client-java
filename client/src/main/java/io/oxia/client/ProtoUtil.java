@@ -51,7 +51,13 @@ public class ProtoUtil {
             key = response.getKey();
         }
         byte[] value = response.hasValue() ? response.getValue() : EMPTY_VALUE;
-        return new GetResult(key, value, getVersionFromProto(response.getVersion()));
+        return new GetResult(
+                key,
+                value,
+                getVersionFromProto(response.getVersion()),
+                response.hasSecondaryIndexKey()
+                        ? Optional.of(response.getSecondaryIndexKey())
+                        : Optional.empty());
     }
 
     public static @NonNull Version getVersionFromProto(@NonNull io.oxia.proto.Version version) {

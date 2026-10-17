@@ -60,6 +60,7 @@ import io.oxia.testcontainers.OxiaContainer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -773,6 +774,59 @@ class OxiaClientIT {
                                     GetOption.PartitionKey(key), GetOption.ExcludeValue, GetOption.ComparisonLower));
             Assertions.assertEquals(0, result.value().length);
             Assertions.assertEquals(keys.get(0), result.key());
+        }
+    }
+
+    @Test
+    void testSecondaryIndexGetAcrossShardsFollowsSecondaryKeys() throws Exception {
+        try (SyncOxiaClient syncClient =
+                OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
+            String prefix = "si-get-order-" + UUID.randomUUID();
+
+            // The secondary keys sort in the reverse order of the primary keys, which spread over the
+            // shards
+            for (int i = 1; i < 10; i++) {
+                String primaryKey = String.format("%s-%d", prefix, i);
+                String value = String.format("%03d", 10 - i);
+                syncClient.put(
+                        primaryKey, value.getBytes(), Set.of(PutOption.SecondaryIndex("rev-idx", value)));
+            }
+
+            for (int i = 1; i < 10; i++) {
+                String secondaryKey = String.format("%03d", i);
+                String primaryKey = String.format("%s-%d", prefix, 10 - i);
+                assertThat(
+                                syncClient.get(
+                                        secondaryKey, Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonFloor)))
+                        .extracting(GetResult::key)
+                        .isEqualTo(primaryKey);
+                assertThat(
+                                syncClient.get(
+                                        secondaryKey,
+                                        Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonCeiling)))
+                        .extracting(GetResult::key)
+                        .isEqualTo(primaryKey);
+            }
+            assertThat(
+                            syncClient.get(
+                                    "0055", Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonFloor)))
+                    .extracting(GetResult::key, GetResult::secondaryIndexKey)
+                    .containsExactly(prefix + "-5", Optional.of("005"));
+            assertThat(
+                            syncClient.get(
+                                    "0055", Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonCeiling)))
+                    .extracting(GetResult::key)
+                    .isEqualTo(prefix + "-4");
+            assertThat(
+                            syncClient.get(
+                                    "005", Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonLower)))
+                    .extracting(GetResult::key)
+                    .isEqualTo(prefix + "-6");
+            assertThat(
+                            syncClient.get(
+                                    "005", Set.of(GetOption.UseIndex("rev-idx"), GetOption.ComparisonHigher)))
+                    .extracting(GetResult::key)
+                    .isEqualTo(prefix + "-4");
         }
     }
 

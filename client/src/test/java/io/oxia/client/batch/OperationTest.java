@@ -134,6 +134,19 @@ class OperationTest {
         }
 
         @Test
+        void completeOkWithSecondaryIndexKey() {
+            var response = new GetResponse();
+            response.setKey("my-key").setSecondaryIndexKey("my-secondary-key").setStatus(OK);
+            response.setVersion().setVersionId(1L);
+            op.complete(response);
+            assertThat(callback)
+                    .isCompletedWithValueMatching(
+                            r ->
+                                    r.key().equals("my-key")
+                                            && r.secondaryIndexKey().equals(Optional.of("my-secondary-key")));
+        }
+
+        @Test
         void completeOkEphemeral() {
             var payload = "hello".getBytes(UTF_8);
             var response = new GetResponse();

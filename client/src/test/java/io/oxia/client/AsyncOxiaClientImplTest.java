@@ -38,6 +38,7 @@ import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
+import io.oxia.client.api.options.GetOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
@@ -56,6 +57,7 @@ import io.oxia.proto.ListResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
@@ -490,6 +492,31 @@ class AsyncOxiaClientImplTest {
     @Test
     void getNullKey() throws Exception {
         assertThat(client.get(null)).isCompletedExceptionally();
+    }
+
+    @Test
+    void getThroughIndexAcrossShardsComparesSecondaryKeys() {
+        // Shard 0 holds primary key "a" with secondary key "bob", and shard 1 holds "z" with "ann"
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L, 1L));
+        var version = new Version(1, 2, 3, 4, empty(), empty());
+        Function<GetOption, GetResult> getCat =
+                comparison -> {
+                    var opCaptor = ArgumentCaptor.forClass(GetOperation.class);
+                    doNothing().when(readBatchManager).add(opCaptor.capture());
+                    var result = client.get("cat", Set.of(GetOption.UseIndex("by-name"), comparison));
+                    for (var op : opCaptor.getAllValues()) {
+                        op.callback()
+                                .complete(
+                                        op.shardId() == 0L
+                                                ? new GetResult("a", new byte[0], version, Optional.of("bob"))
+                                                : new GetResult("z", new byte[0], version, Optional.of("ann")));
+                    }
+                    return result.join();
+                };
+
+        // The floor of "cat" in the index is "bob", and the lowest secondary key is "ann"
+        assertThat(getCat.apply(GetOption.ComparisonFloor).key()).isEqualTo("a");
+        assertThat(getCat.apply(GetOption.ComparisonCeiling).key()).isEqualTo("z");
     }
 
     @Test
