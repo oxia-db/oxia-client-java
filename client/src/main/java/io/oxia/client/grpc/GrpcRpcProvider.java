@@ -16,6 +16,7 @@
 package io.oxia.client.grpc;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.MoreExecutors;
 import dev.failsafe.Failsafe;
 import dev.failsafe.RetryPolicy;
 import dev.failsafe.Timeout;
@@ -23,6 +24,7 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.Context;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import io.grpc.stub.ClientCalls;
 import io.grpc.stub.MetadataUtils;
 import io.grpc.stub.StreamObserver;
@@ -67,6 +69,8 @@ final class GrpcRpcProvider implements RpcProvider {
             Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SHARD_ID_KEY =
             Metadata.Key.of("shard-id", Metadata.ASCII_STRING_MARSHALLER);
+    private static final Status SUBSCRIPTION_MAX_AGE_REACHED =
+            Status.DEADLINE_EXCEEDED.withDescription("subscription reached its maximum age");
 
     // The write stream takes requests that ManagedSubWriteStream.serialize() serialized, and sends
     // them as they are, so that serializing them doesn't hold the ManagedWriteStream lock. Each one
@@ -144,12 +148,10 @@ final class GrpcRpcProvider implements RpcProvider {
                                 final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
+                                final var attemptContext = newSubscriptionContext();
                                 attempt.set(attemptContext);
                                 try {
-                                    var stub =
-                                            withSubscriptionMaxAge(
-                                                    connectionManager.getConnection(clientConfig.serviceAddress()).stub());
+                                    var stub = connectionManager.getConnection(clientConfig.serviceAddress()).stub();
                                     attemptContext.run(() -> stub.getShardAssignments(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
@@ -191,15 +193,14 @@ final class GrpcRpcProvider implements RpcProvider {
                                 }
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
+                                final var attemptContext = newSubscriptionContext();
                                 attempt.set(attemptContext);
                                 try {
                                     attemptContext.run(
                                             () ->
-                                                    withSubscriptionMaxAge(
-                                                                    connectionManager
-                                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                                            .stub())
+                                                    connectionManager
+                                                            .getConnection(getLeader(request.getShard(), hint))
+                                                            .stub()
                                                             .getNotifications(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
@@ -464,11 +465,13 @@ final class GrpcRpcProvider implements RpcProvider {
                                 final var barrierObserver =
                                         ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
                                 try {
-                                    withSubscriptionMaxAge(
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub())
-                                            .getSequenceUpdates(request, barrierObserver);
+                                    newSubscriptionContext()
+                                            .run(
+                                                    () ->
+                                                            connectionManager
+                                                                    .getConnection(getLeader(request.getShard(), hint))
+                                                                    .stub()
+                                                                    .getSequenceUpdates(request, barrierObserver));
                                 } catch (Throwable error) {
                                     barrierFuture.completeExceptionally(OxiaStatusException.from(error));
                                 }
@@ -484,10 +487,11 @@ final class GrpcRpcProvider implements RpcProvider {
         }
     }
 
-    private OxiaClientGrpc.OxiaClientStub withSubscriptionMaxAge(OxiaClientGrpc.OxiaClientStub stub) {
+    private Context.CancellableContext newSubscriptionContext() {
+        var context = Context.current().withCancellation();
         var maxAge = clientConfig.subscriptionMaxAge();
         if (maxAge == null) {
-            return stub;
+            return context;
         }
 
         long maxAgeMillis = maxAge.toMillis();
@@ -495,7 +499,15 @@ final class GrpcRpcProvider implements RpcProvider {
         // Match Kubernetes Reflector watches: renew each subscription at a random point in
         // [maxAge/2, maxAge) to prevent hanging operations without synchronizing clients.
         long ageMillis = ThreadLocalRandom.current().nextLong(minAgeMillis, maxAgeMillis);
-        return stub.withDeadlineAfter(ageMillis, TimeUnit.MILLISECONDS);
+        // Cancel the call here rather than set a deadline: the server enforces a deadline too and
+        // can reset the stream with CANCEL first, which the subscription can't tell from a failure.
+        var expiry =
+                asyncExecutor.schedule(
+                        () -> context.cancel(SUBSCRIPTION_MAX_AGE_REACHED.asRuntimeException()),
+                        ageMillis,
+                        TimeUnit.MILLISECONDS);
+        context.addListener(cancelled -> expiry.cancel(false), MoreExecutors.directExecutor());
+        return context;
     }
 
     @Override

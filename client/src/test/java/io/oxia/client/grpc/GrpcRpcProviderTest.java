@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static com.google.common.base.Throwables.getRootCause;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -54,12 +55,13 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import org.junit.jupiter.api.Test;
@@ -1077,48 +1079,42 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void longLivedSubscriptionsUseRandomizedDeadline() throws Exception {
-        var assignmentsDeadlineMillis = new AtomicLong(-1);
-        var notificationsDeadlineMillis = new AtomicLong(-1);
-        var sequenceUpdatesDeadlineMillis = new AtomicLong(-1);
+    void longLivedSubscriptionsAreCancelledAtRandomizedAge() throws Exception {
+        // The client ends a subscription at its maximum age itself. With a deadline, the server can
+        // reset the stream first, and the subscription only sees CANCELLED (oxia-db/chaos#38).
+        var serverDeadlines = new ConcurrentLinkedQueue<Optional<io.grpc.Deadline>>();
+        var serverCancelled = new CountDownLatch(3);
         Server server =
                 ServerBuilder.forPort(0)
                         .directExecutor()
                         .addService(
                                 new OxiaClientGrpc.OxiaClientImplBase() {
+                                    private <T> void keepOpen(StreamObserver<T> responseObserver, T first) {
+                                        serverDeadlines.add(Optional.ofNullable(Context.current().getDeadline()));
+                                        ((ServerCallStreamObserver<T>) responseObserver)
+                                                .setOnCancelHandler(serverCancelled::countDown);
+                                        responseObserver.onNext(first);
+                                    }
+
                                     @Override
                                     public void getShardAssignments(
                                             ShardAssignmentsRequest request,
                                             StreamObserver<ShardAssignments> responseObserver) {
-                                        var deadline = Context.current().getDeadline();
-                                        if (deadline != null) {
-                                            assignmentsDeadlineMillis.set(deadline.timeRemaining(TimeUnit.MILLISECONDS));
-                                        }
-                                        responseObserver.onNext(new ShardAssignments());
+                                        keepOpen(responseObserver, new ShardAssignments());
                                     }
 
                                     @Override
                                     public void getNotifications(
                                             NotificationsRequest request,
                                             StreamObserver<NotificationBatch> responseObserver) {
-                                        var deadline = Context.current().getDeadline();
-                                        if (deadline != null) {
-                                            notificationsDeadlineMillis.set(
-                                                    deadline.timeRemaining(TimeUnit.MILLISECONDS));
-                                        }
-                                        responseObserver.onNext(new NotificationBatch());
+                                        keepOpen(responseObserver, new NotificationBatch());
                                     }
 
                                     @Override
                                     public void getSequenceUpdates(
                                             GetSequenceUpdatesRequest request,
                                             StreamObserver<GetSequenceUpdatesResponse> responseObserver) {
-                                        var deadline = Context.current().getDeadline();
-                                        if (deadline != null) {
-                                            sequenceUpdatesDeadlineMillis.set(
-                                                    deadline.timeRemaining(TimeUnit.MILLISECONDS));
-                                        }
-                                        responseObserver.onNext(new GetSequenceUpdatesResponse());
+                                        keepOpen(responseObserver, new GetSequenceUpdatesResponse());
                                     }
                                 })
                         .build()
@@ -1132,9 +1128,11 @@ class GrpcRpcProviderTest {
                                         .subscriptionMaxAge(Duration.ofMillis(200)))
                         .getClientConfig();
         var received = new CountDownLatch(3);
+        var errors = new ConcurrentLinkedQueue<Throwable>();
         var terminated = new CountDownLatch(3);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
+            long startNanos = System.nanoTime();
             provider.getShardAssignments(
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
@@ -1145,6 +1143,7 @@ class GrpcRpcProviderTest {
 
                         @Override
                         public void onError(Throwable t) {
+                            errors.add(t);
                             terminated.countDown();
                         }
 
@@ -1163,6 +1162,7 @@ class GrpcRpcProviderTest {
 
                         @Override
                         protected void handleError(Throwable t) {
+                            errors.add(t);
                             terminated.countDown();
                         }
 
@@ -1181,6 +1181,7 @@ class GrpcRpcProviderTest {
 
                         @Override
                         protected void handleError(Throwable t) {
+                            errors.add(t);
                             terminated.countDown();
                         }
 
@@ -1192,9 +1193,16 @@ class GrpcRpcProviderTest {
 
             assertThat(received.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(terminated.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(assignmentsDeadlineMillis.get()).isBetween(1L, 200L);
-            assertThat(notificationsDeadlineMillis.get()).isBetween(1L, 200L);
-            assertThat(sequenceUpdatesDeadlineMillis.get()).isBetween(1L, 200L);
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos))
+                    .isGreaterThanOrEqualTo(100L);
+            assertThat(serverCancelled.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(serverDeadlines).hasSize(3).allSatisfy(deadline -> assertThat(deadline).isEmpty());
+            assertThat(errors)
+                    .hasSize(3)
+                    .allSatisfy(
+                            error ->
+                                    assertThat(Status.fromThrowable(getRootCause(error)).getCode())
+                                            .isEqualTo(Status.Code.DEADLINE_EXCEEDED));
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
