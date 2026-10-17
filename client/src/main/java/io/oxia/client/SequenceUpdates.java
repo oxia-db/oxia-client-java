@@ -146,7 +146,7 @@ public class SequenceUpdates implements Closeable {
             retryDelayMillis = backoff.nextDelayMillis();
             log.warn()
                     .attr("retryInSeconds", retryDelayMillis / 1000.0)
-                    .exception(t)
+                    .exceptionMessage(t)
                     .log("Failure while processing sequence updates");
         }
         try {
