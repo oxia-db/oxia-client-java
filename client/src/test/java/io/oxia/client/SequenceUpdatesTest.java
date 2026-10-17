@@ -92,8 +92,12 @@ class SequenceUpdatesTest {
             assertThat(retryDelays.get(3)).isZero();
 
             scheduledTasks.remove(0).run();
+            observerRef.get().onError(Status.CANCELLED.asRuntimeException());
+            assertThat(retryDelays.get(4)).isZero();
+
+            scheduledTasks.remove(0).run();
             observerRef.get().onError(Status.UNAVAILABLE.asRuntimeException());
-            assertThat(retryDelays.get(4)).isBetween(100L, 119L);
+            assertThat(retryDelays.get(5)).isBetween(100L, 119L);
         }
     }
 

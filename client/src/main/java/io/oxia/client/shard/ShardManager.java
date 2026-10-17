@@ -124,7 +124,9 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             }
         }
         final long retryDelayMillis;
-        if (Status.fromThrowable(getRootCause(error)).getCode() == Status.Code.DEADLINE_EXCEEDED
+        final var code = Status.fromThrowable(getRootCause(error)).getCode();
+        // The server resets the stream with CANCEL when its deadline timer fires first
+        if ((code == Status.Code.DEADLINE_EXCEEDED || code == Status.Code.CANCELLED)
                 && initialAssignmentsFuture.isDone()) {
             backoff.reset();
             log.debug("Shard assignments subscription reached its configured maximum age");
