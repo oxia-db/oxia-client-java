@@ -84,11 +84,13 @@ public interface GetOption {
     }
 
     /**
-     * UseIndex let the users specify a different index to follow for the list operation
+     * UseIndex lets the users look up the record by a secondary index: the key of the get is a
+     * secondary key. The result still has the record's primary key as its key, and the secondary key
+     * it was found by as its {@link io.oxia.client.api.GetResult#secondaryIndexKey()}.
      *
      * <p>Note: if the secondary index is not unique, which primary record is returned is undefined.
      *
-     * @param secondaryIndexName the name of the secondary index to use for the list operation
+     * @param secondaryIndexName the name of the secondary index to use for the get operation
      * @return the GetOption.
      */
     static GetOption UseIndex(String secondaryIndexName) {

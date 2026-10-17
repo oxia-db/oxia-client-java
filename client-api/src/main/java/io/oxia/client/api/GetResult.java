@@ -17,6 +17,7 @@ package io.oxia.client.api;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The result of a successful get / range-scan operation.
@@ -25,19 +26,28 @@ import java.util.Objects;
  * requested key. When {@link io.oxia.client.api.options.GetOption#ExcludeValue} is used, the {@code
  * value} field will be an empty byte array but {@code key} and {@code version} are still populated.
  *
- * @param key the key of the record returned by the server (may differ from the key supplied to
- *     {@code get} when a non-equal {@link io.oxia.client.api.options.GetOption comparison} is used)
+ * @param key the primary key of the record returned by the server, also when the read went through
+ *     a secondary index (may differ from the key supplied to {@code get} when a non-equal {@link
+ *     io.oxia.client.api.options.GetOption comparison} or an index is used)
  * @param value the record's value, or an empty byte array if the value was not requested
  * @param version metadata describing the record at the time it was read
+ * @param secondaryIndexKey the secondary key that the record was found by, when the read went
+ *     through a secondary index; empty otherwise
  */
-public record GetResult(String key, byte[] value, Version version) {
+public record GetResult(
+        String key, byte[] value, Version version, Optional<String> secondaryIndexKey) {
+
+    public GetResult(String key, byte[] value, Version version) {
+        this(key, value, version, Optional.empty());
+    }
 
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof GetResult other) {
             return Objects.equals(key, other.key)
                     && Arrays.equals(value, other.value)
-                    && Objects.equals(version, other.version);
+                    && Objects.equals(version, other.version)
+                    && Objects.equals(secondaryIndexKey, other.secondaryIndexKey);
         }
         return false;
     }

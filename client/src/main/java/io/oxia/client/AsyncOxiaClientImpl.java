@@ -676,7 +676,22 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                         futures.stream()
                                                 .map(CompletableFuture::join)
                                                 .filter(Objects::nonNull)
-                                                .sorted((o1, o2) -> CompareWithSlash.INSTANCE.compare(o1.key(), o2.key()))
+                                                // Through an index, order the records by their
+                                                // secondary key, then by their primary key, as the
+                                                // shards do
+                                                .sorted(
+                                                        (o1, o2) -> {
+                                                            if (o1.secondaryIndexKey().isPresent()
+                                                                    && o2.secondaryIndexKey().isPresent()) {
+                                                                int c =
+                                                                        CompareWithSlash.INSTANCE.compare(
+                                                                                o1.secondaryIndexKey().get(), o2.secondaryIndexKey().get());
+                                                                if (c != 0) {
+                                                                    return c;
+                                                                }
+                                                            }
+                                                            return CompareWithSlash.INSTANCE.compare(o1.key(), o2.key());
+                                                        })
                                                 .toList();
                                 if (results.isEmpty()) {
                                     result.complete(null);
