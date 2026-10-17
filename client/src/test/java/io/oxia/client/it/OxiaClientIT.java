@@ -831,6 +831,65 @@ class OxiaClientIT {
     }
 
     @Test
+    void testRangeScanAcrossShardsIsOrdered() throws Exception {
+        try (SyncOxiaClient syncClient =
+                        OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient();
+                AsyncOxiaClient asyncClient =
+                        OxiaClientBuilder.create(oxia.getServiceAddress()).asyncClient().join()) {
+            String prefix = "rs-order-" + UUID.randomUUID() + "-";
+
+            // The secondary keys sort in the reverse order of the primary keys, which spread over the
+            // shards
+            List<String> primaryKeys = new ArrayList<>();
+            for (int i = 10; i < 50; i++) {
+                String primaryKey = prefix + i;
+                primaryKeys.add(primaryKey);
+                syncClient.put(
+                        primaryKey,
+                        new byte[0],
+                        Set.of(PutOption.SecondaryIndex("rs-rev-idx", prefix + (99 - i))));
+            }
+            List<String> byIndex = new ArrayList<>(primaryKeys);
+            Collections.reverse(byIndex);
+
+            assertThat(syncClient.rangeScan(prefix, prefix + "~"))
+                    .extracting(GetResult::key)
+                    .containsExactlyElementsOf(primaryKeys);
+            assertThat(
+                            syncClient.rangeScan(
+                                    prefix, prefix + "~", Set.of(RangeScanOption.UseIndex("rs-rev-idx"))))
+                    .extracting(GetResult::key)
+                    .containsExactlyElementsOf(byIndex);
+
+            List<String> keys = new ArrayList<>();
+            CompletableFuture<Void> done = new CompletableFuture<>();
+            asyncClient.rangeScan(
+                    prefix,
+                    prefix + "~",
+                    new RangeScanConsumer() {
+                        @Override
+                        public boolean onNext(GetResult result) {
+                            keys.add(result.key());
+                            return true;
+                        }
+
+                        @Override
+                        public void onError(Throwable throwable) {
+                            done.completeExceptionally(throwable);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                            done.complete(null);
+                        }
+                    },
+                    Set.of(RangeScanOption.UseIndex("rs-rev-idx")));
+            done.join();
+            assertThat(keys).containsExactlyElementsOf(byIndex);
+        }
+    }
+
+    @Test
     void testSecondaryIndexGet() throws Exception {
         try (SyncOxiaClient syncClient =
                 OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {

@@ -15,6 +15,7 @@
  */
 package io.oxia.client;
 
+import io.oxia.client.api.GetResult;
 import java.util.Comparator;
 import java.util.function.Predicate;
 import lombok.NonNull;
@@ -59,6 +60,21 @@ enum CompareWithSlash implements Comparator<String> {
             }
         }
     };
+
+    /**
+     * Orders the records of several shards as each shard does: through an index, by secondary key,
+     * then by primary key.
+     */
+    static final Comparator<GetResult> GET_RESULTS =
+            (a, b) -> {
+                if (a.secondaryIndexKey().isPresent() && b.secondaryIndexKey().isPresent()) {
+                    int c = INSTANCE.compare(a.secondaryIndexKey().get(), b.secondaryIndexKey().get());
+                    if (c != 0) {
+                        return c;
+                    }
+                }
+                return INSTANCE.compare(a.key(), b.key());
+            };
 
     /** Compares the [from, to) regions of the two strings, like {@link String#compareTo} does. */
     private static int compareSpans(String a, int fromA, int toA, String b, int fromB, int toB) {

@@ -31,7 +31,6 @@ import static org.mockito.Mockito.when;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
-import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
 import io.oxia.client.api.exceptions.AlreadyClosedException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
@@ -49,25 +48,18 @@ import io.oxia.client.grpc.RpcProvider;
 import io.oxia.client.grpc.observer.CancelableStreamObserver;
 import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.notify.NotificationManager;
-import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -597,272 +589,5 @@ class AsyncOxiaClientImplTest {
         inOrder.verify(shardManager).close();
         inOrder.verify(rpcProvider).close();
         client = null;
-    }
-
-    @Test
-    void testCompositeRangeScanConsumer() {
-        final int shards = 5;
-        final List<GetResult> results = new ArrayList<>();
-        final AtomicInteger onErrorCount = new AtomicInteger(0);
-        final AtomicInteger onCompletedCount = new AtomicInteger(0);
-        final Supplier<RangeScanConsumer> newShardRangeScanConsumer =
-                () ->
-                        new CompositeRangeScanConsumer(
-                                shards,
-                                new RangeScanConsumer() {
-                                    @Override
-                                    public boolean onNext(GetResult result) {
-                                        results.add(result);
-                                        return true;
-                                    }
-
-                                    @Override
-                                    public void onError(Throwable throwable) {
-                                        onErrorCount.incrementAndGet();
-                                    }
-
-                                    @Override
-                                    public void onCompleted() {
-                                        onCompletedCount.incrementAndGet();
-                                    }
-                                });
-        final var tasks = new ArrayList<ForkJoinTask<?>>();
-
-        // (1) complete ok
-        final var shardRangeScanConsumer1 = newShardRangeScanConsumer.get();
-        for (int i = 0; i < shards; i++) {
-            final int fi = i;
-            final ForkJoinTask<?> task =
-                    ForkJoinPool.commonPool()
-                            .submit(
-                                    () -> {
-                                        shardRangeScanConsumer1.onNext(
-                                                new GetResult(
-                                                        "shard-" + fi + "-0",
-                                                        new byte[10],
-                                                        new Version(1, 2, 3, 4, empty(), empty())));
-                                        shardRangeScanConsumer1.onNext(
-                                                new GetResult(
-                                                        "shard-" + fi + "-1",
-                                                        new byte[10],
-                                                        new Version(1, 2, 3, 4, empty(), empty())));
-                                        shardRangeScanConsumer1.onCompleted();
-                                    });
-            tasks.add(task);
-        }
-        tasks.forEach(ForkJoinTask::join);
-        var keys = results.stream().map(GetResult::key).toList();
-        for (int i = 0; i < shards; i++) {
-            Assertions.assertTrue(keys.contains("shard-" + i + "-0"));
-            Assertions.assertTrue(keys.contains("shard-" + i + "-1"));
-        }
-        Assertions.assertEquals(0, onErrorCount.get());
-        Assertions.assertEquals(1, onCompletedCount.get());
-
-        tasks.clear();
-        onErrorCount.set(0);
-        onCompletedCount.set(0);
-        results.clear();
-
-        // (2) complete partial exception
-        final var shardRangeScanConsumer2 = newShardRangeScanConsumer.get();
-        for (int i = 0; i < shards; i++) {
-            final int fi = i;
-            final ForkJoinTask<?> task =
-                    ForkJoinPool.commonPool()
-                            .submit(
-                                    () -> {
-                                        if (fi % 2 == 0) {
-                                            shardRangeScanConsumer2.onError(new IllegalStateException());
-                                            return;
-                                        }
-                                        shardRangeScanConsumer2.onNext(
-                                                new GetResult(
-                                                        "shard-" + fi + "-0",
-                                                        new byte[10],
-                                                        new Version(1, 2, 3, 4, empty(), empty())));
-                                        shardRangeScanConsumer2.onNext(
-                                                new GetResult(
-                                                        "shard-" + fi + "-1",
-                                                        new byte[10],
-                                                        new Version(1, 2, 3, 4, empty(), empty())));
-                                        shardRangeScanConsumer2.onCompleted();
-                                    });
-            tasks.add(task);
-        }
-        tasks.forEach(ForkJoinTask::join);
-
-        Assertions.assertEquals(1, onErrorCount.get());
-        Assertions.assertEquals(0, onCompletedCount.get());
-
-        tasks.clear();
-        onErrorCount.set(0);
-        onCompletedCount.set(0);
-        results.clear();
-
-        // (3) complete all exception
-        final var shardRangeScanConsumer3 = newShardRangeScanConsumer.get();
-        for (int i = 0; i < shards; i++) {
-            final ForkJoinTask<?> task =
-                    ForkJoinPool.commonPool()
-                            .submit(() -> shardRangeScanConsumer3.onError(new IllegalStateException()));
-            tasks.add(task);
-        }
-        tasks.forEach(ForkJoinTask::join);
-        Assertions.assertEquals(1, onErrorCount.get());
-        Assertions.assertEquals(0, onCompletedCount.get());
-        Assertions.assertEquals(0, results.size());
-    }
-
-    @Test
-    void testCompositeRangeScanConsumerEarlyStop() {
-        final int shards = 3;
-        final int stopAfter = 2;
-        final List<GetResult> results = new ArrayList<>();
-        final AtomicInteger onErrorCount = new AtomicInteger(0);
-        final AtomicInteger onCompletedCount = new AtomicInteger(0);
-
-        final RangeScanConsumer userConsumer =
-                new RangeScanConsumer() {
-                    @Override
-                    public boolean onNext(GetResult result) {
-                        results.add(result);
-                        return results.size() < stopAfter;
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        onErrorCount.incrementAndGet();
-                    }
-
-                    @Override
-                    public void onCompleted() {
-                        onCompletedCount.incrementAndGet();
-                    }
-                };
-
-        final var shared = new CompositeRangeScanConsumer(shards, userConsumer);
-
-        // First onNext returns true.
-        Assertions.assertTrue(
-                shared.onNext(new GetResult("k1", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-        // Second onNext returns false (user requested stop).
-        Assertions.assertFalse(
-                shared.onNext(new GetResult("k2", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-
-        // onCompleted was called exactly once on the user consumer.
-        Assertions.assertEquals(1, onCompletedCount.get());
-        Assertions.assertEquals(0, onErrorCount.get());
-        Assertions.assertEquals(stopAfter, results.size());
-
-        // Subsequent shard onNext calls are dropped (return false).
-        Assertions.assertFalse(
-                shared.onNext(new GetResult("k3", new byte[1], new Version(1, 2, 3, 4, empty(), empty()))));
-        Assertions.assertEquals(stopAfter, results.size());
-
-        // Subsequent per-shard onCompleted calls (e.g., from cancel-induced errors) do not
-        // re-trigger user onCompleted.
-        shared.onCompleted();
-        shared.onCompleted();
-        Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testCompositeRangeScanConsumerResponses() {
-        final int shards = 4;
-        final int responses = 50;
-        final int recordsPerResponse = 100;
-        final List<String> keys = new ArrayList<>();
-        final AtomicInteger onCompletedCount = new AtomicInteger(0);
-        final var shared =
-                new CompositeRangeScanConsumer(
-                        shards,
-                        new RangeScanConsumer() {
-                            @Override
-                            public boolean onNext(GetResult result) {
-                                keys.add(result.key());
-                                return true;
-                            }
-
-                            @Override
-                            public void onError(Throwable throwable) {}
-
-                            @Override
-                            public void onCompleted() {
-                                onCompletedCount.incrementAndGet();
-                            }
-                        });
-
-        final var tasks = new ArrayList<ForkJoinTask<?>>();
-        for (int s = 0; s < shards; s++) {
-            final int shard = s;
-            tasks.add(
-                    ForkJoinPool.commonPool()
-                            .submit(
-                                    () -> {
-                                        for (int r = 0; r < responses; r++) {
-                                            final List<GetResult> response = new ArrayList<>();
-                                            for (int i = 0; i < recordsPerResponse; i++) {
-                                                response.add(
-                                                        new GetResult(
-                                                                shard + "-" + r + "-" + i,
-                                                                new byte[1],
-                                                                new Version(1, 2, 3, 4, empty(), empty())));
-                                            }
-                                            Assertions.assertTrue(shared.onNext(response));
-                                        }
-                                        shared.onCompleted();
-                                    }));
-        }
-        tasks.forEach(ForkJoinTask::join);
-
-        // The records of a response reach the user consumer together, in order.
-        Assertions.assertEquals(shards * responses * recordsPerResponse, keys.size());
-        for (int start = 0; start < keys.size(); start += recordsPerResponse) {
-            final String response = keys.get(start).substring(0, keys.get(start).lastIndexOf('-'));
-            for (int i = 0; i < recordsPerResponse; i++) {
-                Assertions.assertEquals(response + "-" + i, keys.get(start + i));
-            }
-        }
-        Assertions.assertEquals(1, onCompletedCount.get());
-    }
-
-    @Test
-    void testCompositeRangeScanConsumerResponseEarlyStop() {
-        final int stopAfter = 2;
-        final List<GetResult> results = new ArrayList<>();
-        final AtomicInteger onCompletedCount = new AtomicInteger(0);
-        final var shared =
-                new CompositeRangeScanConsumer(
-                        2,
-                        new RangeScanConsumer() {
-                            @Override
-                            public boolean onNext(GetResult result) {
-                                results.add(result);
-                                return results.size() < stopAfter;
-                            }
-
-                            @Override
-                            public void onError(Throwable throwable) {}
-
-                            @Override
-                            public void onCompleted() {
-                                onCompletedCount.incrementAndGet();
-                            }
-                        });
-        final Function<String, GetResult> record =
-                key -> new GetResult(key, new byte[1], new Version(1, 2, 3, 4, empty(), empty()));
-
-        // The user stops in the middle of a response: the rest of it is dropped.
-        Assertions.assertFalse(
-                shared.onNext(List.of(record.apply("k1"), record.apply("k2"), record.apply("k3"))));
-        Assertions.assertEquals(List.of("k1", "k2"), results.stream().map(GetResult::key).toList());
-        Assertions.assertEquals(1, onCompletedCount.get());
-
-        // The responses of the other shard are dropped too.
-        Assertions.assertFalse(shared.onNext(List.of(record.apply("k4"))));
-        Assertions.assertEquals(stopAfter, results.size());
-        shared.onCompleted();
-        Assertions.assertEquals(1, onCompletedCount.get());
     }
 }

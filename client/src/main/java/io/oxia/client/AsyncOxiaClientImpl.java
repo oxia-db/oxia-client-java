@@ -46,7 +46,6 @@ import io.oxia.client.metrics.LatencyHistogram;
 import io.oxia.client.metrics.Unit;
 import io.oxia.client.metrics.UpDownCounter;
 import io.oxia.client.notify.NotificationManager;
-import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.options.GetOptions;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
@@ -676,22 +675,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                         futures.stream()
                                                 .map(CompletableFuture::join)
                                                 .filter(Objects::nonNull)
-                                                // Through an index, order the records by their
-                                                // secondary key, then by their primary key, as the
-                                                // shards do
-                                                .sorted(
-                                                        (o1, o2) -> {
-                                                            if (o1.secondaryIndexKey().isPresent()
-                                                                    && o2.secondaryIndexKey().isPresent()) {
-                                                                int c =
-                                                                        CompareWithSlash.INSTANCE.compare(
-                                                                                o1.secondaryIndexKey().get(), o2.secondaryIndexKey().get());
-                                                                if (c != 0) {
-                                                                    return c;
-                                                                }
-                                                            }
-                                                            return CompareWithSlash.INSTANCE.compare(o1.key(), o2.key());
-                                                        })
+                                                .sorted(CompareWithSlash.GET_RESULTS)
                                                 .toList();
                                 if (results.isEmpty()) {
                                     result.complete(null);
@@ -906,97 +890,31 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
             final Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
             final Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
-            if (partitionKey.isPresent()) {
-                long shardId = shardManager.getShardForKey(partitionKey.get());
-                internalShardRangeScan(
-                        shardId,
-                        startKeyInclusive,
-                        endKeyExclusive,
-                        secondaryIndexName,
-                        new CompositeRangeScanConsumer(1, timedConsumer),
-                        flowControl);
-                return;
-            }
-            final Set<Long> shardIds = shardManager.allShardIds();
-            final CompositeRangeScanConsumer multiShardConsumer =
-                    new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
+            final Set<Long> shardIds =
+                    partitionKey.isPresent()
+                            ? Set.of(shardManager.getShardForKey(partitionKey.get()))
+                            : shardManager.allShardIds();
+            // Merge the scans of the shards in key order
+            final CompositeRangeScanConsumer composite =
+                    new CompositeRangeScanConsumer(timedConsumer, flowControl);
+            final List<RangeScanRequest> requests = new ArrayList<>();
+            final List<CancelableStreamObserver<RangeScanResponse>> observers = new ArrayList<>();
             for (Long shardId : shardIds) {
-                internalShardRangeScan(
-                        shardId,
-                        startKeyInclusive,
-                        endKeyExclusive,
-                        secondaryIndexName,
-                        multiShardConsumer,
-                        flowControl);
+                var request = new RangeScanRequest();
+                request
+                        .setShard(shardId)
+                        .setStartInclusive(startKeyInclusive)
+                        .setEndExclusive(endKeyExclusive);
+                secondaryIndexName.ifPresent(request::setSecondaryIndexName);
+                requests.add(request);
+                observers.add(composite.newShard());
+            }
+            for (int i = 0; i < requests.size(); i++) {
+                rpcProvider.rangeScan(requests.get(i), observers.get(i));
             }
         } catch (Exception e) {
             consumer.onError(OxiaExceptions.translate(e));
         }
-    }
-
-    private void internalShardRangeScan(
-            long shardId,
-            String startKeyInclusive,
-            String endKeyExclusive,
-            Optional<String> secondaryIndexName,
-            CompositeRangeScanConsumer consumer,
-            FlowControlledRangeScanConsumer flowControl) {
-        var request = new RangeScanRequest();
-        request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
-        secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-        var observer = new RangeScanShardObserver(consumer, flowControl);
-        rpcProvider.rangeScan(request, observer);
-        if (flowControl != null) {
-            flowControl.onStreamStarted(observer);
-        }
-    }
-
-    private static final class RangeScanShardObserver
-            extends CancelableStreamObserver<RangeScanResponse>
-            implements FlowControlledRangeScanConsumer.StreamHandle {
-        private final CompositeRangeScanConsumer consumer;
-        private final FlowControlledRangeScanConsumer flowControl;
-
-        RangeScanShardObserver(
-                CompositeRangeScanConsumer consumer, FlowControlledRangeScanConsumer flowControl) {
-            super(flowControl != null);
-            this.consumer = consumer;
-            this.flowControl = flowControl;
-        }
-
-        @Override
-        protected void handleNext(RangeScanResponse response) {
-            // Convert the records before handing them over: the consumer delivers them under
-            // a lock shared with the other shard streams of the scan.
-            final List<GetResult> results = new ArrayList<>(response.getRecordsCount());
-            for (int i = 0; i < response.getRecordsCount(); i++) {
-                results.add(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
-            }
-            if (!consumer.onNext(results)) {
-                cancelAndComplete();
-                return;
-            }
-            if (flowControl != null) {
-                flowControl.onStreamIdle(this);
-            }
-        }
-
-        @Override
-        protected void handleError(Throwable t) {
-            consumer.onError(t);
-        }
-
-        @Override
-        protected void handleComplete() {
-            consumer.onCompleted();
-        }
-
-        @Override
-        public void requestNext() {
-            requestNextMessage();
-        }
-
-        // StreamHandle.cancel() is satisfied by CancelableStreamObserver.cancel()
     }
 
     @Override
