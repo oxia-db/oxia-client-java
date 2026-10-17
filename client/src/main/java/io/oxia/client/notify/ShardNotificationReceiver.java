@@ -142,7 +142,9 @@ public class ShardNotificationReceiver implements Closeable {
             return;
         }
 
-        if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+        var code = Status.fromThrowable(getRootCause(t)).getCode();
+        // The server resets the stream with CANCEL when its deadline timer fires first
+        if (code == Status.Code.DEADLINE_EXCEEDED || code == Status.Code.CANCELLED) {
             backoff.reset();
             log.debug("Notifications subscription reached its configured maximum age");
             scheduleRestart(0);
