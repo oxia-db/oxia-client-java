@@ -138,7 +138,9 @@ public class SequenceUpdates implements Closeable {
         }
 
         final long retryDelayMillis;
-        if (Status.fromThrowable(getRootCause(t)).getCode() == Status.Code.DEADLINE_EXCEEDED) {
+        final var code = Status.fromThrowable(getRootCause(t)).getCode();
+        // The server resets the stream with CANCEL when its deadline timer fires first
+        if (code == Status.Code.DEADLINE_EXCEEDED || code == Status.Code.CANCELLED) {
             backoff.reset();
             log.debug("Sequence updates subscription reached its configured maximum age");
             retryDelayMillis = 0;
@@ -146,7 +148,7 @@ public class SequenceUpdates implements Closeable {
             retryDelayMillis = backoff.nextDelayMillis();
             log.warn()
                     .attr("retryInSeconds", retryDelayMillis / 1000.0)
-                    .exception(t)
+                    .exceptionMessage(t)
                     .log("Failure while processing sequence updates");
         }
         try {
