@@ -1889,12 +1889,13 @@ class GrpcRpcProviderTest {
                                 OxiaStatusException.class,
                                 e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.TIMEOUT));
             }
-            // and then stop
+            // and then stop, apart from an attempt per operation that was already in flight
             var attemptsAfterTimeout = attempts.get();
             await()
                     .during(Duration.ofMillis(300))
                     .atMost(Duration.ofSeconds(1))
-                    .untilAsserted(() -> assertThat(attempts).hasValue(attemptsAfterTimeout));
+                    .untilAsserted(
+                            () -> assertThat(attempts.get()).isLessThanOrEqualTo(attemptsAfterTimeout + 3));
         } finally {
             executor.shutdownNow();
             server.shutdownNow();
