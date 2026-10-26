@@ -1,6 +1,7 @@
 # Oxia Java client SDK
 
 [![Build](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml/badge.svg)](https://github.com/oxia-db/oxia-client-java/actions/workflows/ci-build-test.yaml)
+[![codecov](https://codecov.io/gh/oxia-db/oxia-client-java/graph/badge.svg)](https://codecov.io/gh/oxia-db/oxia-client-java)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Foxia-db%2Foxia-client-java?ref=badge_shield)
 
 ## Overview
