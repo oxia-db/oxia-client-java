@@ -25,6 +25,8 @@ public class AuthenticationFactory {
     private static final String LEGACY_TOKEN_AUTHENTICATION_CLASS_NAME =
             "io.streamnative.oxia.client.auth.TokenAuthentication";
 
+    private AuthenticationFactory() {}
+
     public static Authentication create(String authPluginClassName, String authParamsString)
             throws UnsupportedAuthenticationException {
         try {

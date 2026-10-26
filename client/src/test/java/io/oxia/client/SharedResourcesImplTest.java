@@ -18,7 +18,10 @@ package io.oxia.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.SharedResources;
+import io.oxia.client.auth.TokenAuthentication;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class SharedResourcesImplTest {
@@ -32,6 +35,47 @@ class SharedResourcesImplTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> builder.maxConnectionPerNode(0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var builder = SharedResourcesImpl.builder();
+        var d = Duration.ofSeconds(1);
+        assertThatThrownBy(() -> builder.connectionKeepAliveTime(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.connectionKeepAliveTimeout(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(null, d))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(d, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.openTelemetry(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SharedResourcesImpl(1, null))
+                .isInstanceOf(NullPointerException.class);
+        try (var shared = (SharedResourcesImpl) builder.numWorkerThreads(1).build()) {
+            assertThatThrownBy(() -> shared.getOrCreateShardManager(null))
+                    .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Test
+    void buildsWithTransportSettings() {
+        try (var shared =
+                (SharedResourcesImpl)
+                        SharedResourcesImpl.builder()
+                                .numWorkerThreads(1)
+                                .batchingThreads(2)
+                                .enableTls(true)
+                                .authentication(new TokenAuthentication("token"))
+                                .connectionKeepAliveTime(Duration.ofSeconds(5))
+                                .connectionKeepAliveTimeout(Duration.ofSeconds(1))
+                                .connectionBackoff(Duration.ofMillis(10), Duration.ofSeconds(1))
+                                .maxConnectionPerNode(2)
+                                .openTelemetry(OpenTelemetry.noop())
+                                .build()) {
+            assertThat(shared.getConnectionCount()).isZero();
+            assertThat(shared.executor().isShutdown()).isFalse();
+        }
     }
 
     @Test

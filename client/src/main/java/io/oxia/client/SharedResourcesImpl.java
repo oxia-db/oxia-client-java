@@ -137,7 +137,7 @@ public class SharedResourcesImpl implements SharedResources {
                 .thenApply(v -> ns.shardManager());
     }
 
-    private SharedNamespace createNamespace(@NonNull ClientConfig config) {
+    private SharedNamespace createNamespace(ClientConfig config) {
         // The shard-assignment stream is shared, so attribute its metrics to the pool's OpenTelemetry
         // rather than to whichever client happened to create the namespace first.
         var instrumentProvider = new InstrumentProvider(openTelemetry, config.namespace());

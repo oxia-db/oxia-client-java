@@ -26,6 +26,25 @@ import org.junit.jupiter.api.Test;
 class GetResultTest {
 
     @Test
+    void equalsComparesEveryComponent() {
+        var version = new Version(1L, 2L, 3L, 4L, Optional.empty(), Optional.empty());
+        var result = new GetResult("k", new byte[] {1}, version, Optional.of("s"));
+
+        assertThat(result)
+                .isEqualTo(new GetResult("k", new byte[] {1}, version, Optional.of("s")))
+                .isNotEqualTo(new GetResult("x", new byte[] {1}, version, Optional.of("s")))
+                .isNotEqualTo(new GetResult("k", new byte[] {2}, version, Optional.of("s")))
+                .isNotEqualTo(
+                        new GetResult(
+                                "k",
+                                new byte[] {1},
+                                new Version(9L, 2L, 3L, 4L, Optional.empty(), Optional.empty()),
+                                Optional.of("s")))
+                .isNotEqualTo(new GetResult("k", new byte[] {1}, version))
+                .isNotEqualTo("k");
+    }
+
+    @Test
     void fromProto() {
         var payload = "hello".getBytes(UTF_8);
         var response = new GetResponse();

@@ -20,12 +20,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.opentelemetry.api.OpenTelemetry;
 import io.oxia.client.api.Authentication;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.SharedResources;
+import io.oxia.client.api.exceptions.UnsupportedAuthenticationException;
 import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -180,6 +184,127 @@ class OxiaClientBuilderTest {
         OxiaClientBuilderImpl impl = (OxiaClientBuilderImpl) builder;
         assertThat(impl.authentication).isSameAs(preSet);
         assertThat(impl.authentication.generateCredentials()).containsEntry("X-Pre-Set", "yes");
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var impl = (OxiaClientBuilderImpl) builder;
+        assertThatThrownBy(() -> new OxiaClientBuilderImpl(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> OxiaClientBuilder.create(null))
+                .isInstanceOf(RuntimeException.class)
+                .hasRootCauseInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.requestTimeout(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> impl.batchLinger(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.namespace(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.sessionTimeout(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.clientIdentifier((String) null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.clientIdentifier((Supplier<String>) null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.openTelemetry(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.subscriptionMaxAge(null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void validatesArguments() {
+        assertThatThrownBy(() -> builder.maxPendingBytes(-1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.maxWriteBatchesInFlight(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.maxReadBatchesInFlight(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.batchingThreads(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.namespace("")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.maxConnectionPerNode(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.subscriptionMaxAge(Duration.ofSeconds(Long.MAX_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasCauseInstanceOf(ArithmeticException.class);
+    }
+
+    @Test
+    void clientConfig() throws Exception {
+        var minDelay = Duration.ofMillis(5);
+        var maxDelay = Duration.ofSeconds(5);
+        var config =
+                ((OxiaClientBuilderImpl)
+                                builder
+                                        .maxPendingBytes(0)
+                                        .maxWriteBatchesInFlight(2)
+                                        .maxReadBatchesInFlight(3)
+                                        .batchingThreads(4)
+                                        .maxConnectionPerNode(5)
+                                        .connectionBackoff(minDelay, maxDelay)
+                                        .clientIdentifier(() -> "supplied")
+                                        .authentication(TokenAuthentication.class.getName(), "token:1234"))
+                        .getClientConfig();
+        assertThat(config.maxPendingBytes()).isZero();
+        assertThat(config.maxWriteBatchesInFlight()).isEqualTo(2);
+        assertThat(config.maxReadBatchesInFlight()).isEqualTo(3);
+        assertThat(config.batchingThreads()).isEqualTo(4);
+        assertThat(config.maxConnectionPerNode()).isEqualTo(5);
+        assertThat(config.connectionBackoffMinDelay()).isEqualTo(minDelay);
+        assertThat(config.connectionBackoffMaxDelay()).isEqualTo(maxDelay);
+        assertThat(config.clientIdentifier()).isEqualTo("supplied");
+        assertThat(config.authentication().generateCredentials())
+                .containsEntry("Authorization", "Bearer 1234");
+
+        var openTelemetry = OpenTelemetry.noop();
+        config =
+                ((OxiaClientBuilderImpl) builder.clientIdentifier("fixed").openTelemetry(openTelemetry))
+                        .getClientConfig();
+        assertThat(config.clientIdentifier()).isEqualTo("fixed");
+        assertThat(config.openTelemetry()).isSameAs(openTelemetry);
+    }
+
+    @Test
+    void loadConfigRejectsUnknownOrConstantProperties() {
+        var unknown = new Properties();
+        unknown.setProperty("unknown", "1");
+        assertThatThrownBy(() -> builder.loadConfig(unknown))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknown");
+
+        var constant = new Properties();
+        constant.setProperty("DefaultNamespace", "ns");
+        assertThatThrownBy(() -> builder.loadConfig(constant))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("DefaultNamespace");
+    }
+
+    @Test
+    void loadConfigRejectsUnknownAuthPlugin() {
+        var properties = new Properties();
+        properties.setProperty("authPluginClassName", "io.oxia.client.auth.Missing");
+        assertThatThrownBy(() -> builder.loadConfig(properties))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasCauseInstanceOf(UnsupportedAuthenticationException.class);
+    }
+
+    @Test
+    void loadConfigRecordsTransportSettings() {
+        var properties = new Properties();
+        properties.setProperty("maxConnectionsPerNode", "2");
+        properties.setProperty("connectionKeepAliveTime", "1000");
+        properties.setProperty("connectionKeepAliveTimeout", "1000");
+        properties.setProperty("batchingThreads", "2");
+        properties.setProperty("authParams", "token:1234");
+        try (var shared = SharedResources.builder().numWorkerThreads(1).build()) {
+            assertThatThrownBy(() -> builder.loadConfig(properties).sharedResources(shared).asyncClient())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContainingAll(
+                            "maxConnectionPerNode",
+                            "connectionKeepAliveTime",
+                            "connectionKeepAliveTimeout",
+                            "batchingThreads",
+                            "authentication");
+        }
+        var impl = (OxiaClientBuilderImpl) builder;
+        assertThat(impl.maxConnectionsPerNode).isEqualTo(2);
+        assertThat(impl.authentication).isNull();
     }
 
     @Test

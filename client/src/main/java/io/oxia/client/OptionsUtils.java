@@ -15,8 +15,6 @@
  */
 package io.oxia.client;
 
-import io.oxia.client.api.options.GetOption;
-import io.oxia.client.api.options.defs.OptionComparisonType;
 import io.oxia.client.api.options.defs.OptionEphemeral;
 import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
 import io.oxia.client.api.options.defs.OptionOverrideVersionId;
@@ -26,7 +24,6 @@ import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 import io.oxia.client.api.options.defs.OptionSequenceKeysDeltas;
 import io.oxia.client.api.options.defs.OptionVersionId;
 import io.oxia.client.grpc.OxiaStatusException;
-import io.oxia.proto.KeyComparisonType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -110,36 +107,6 @@ public class OptionsUtils {
         }
 
         return sequenceKeysDeltas;
-    }
-
-    public static KeyComparisonType getComparisonType(Set<GetOption> options) {
-        if (options == null || options.isEmpty()) {
-            return KeyComparisonType.EQUAL;
-        }
-
-        boolean alreadyHasComparisonType = false;
-        KeyComparisonType comparisonType = KeyComparisonType.EQUAL;
-        for (GetOption o : options) {
-            if (o instanceof OptionComparisonType e) {
-
-                if (alreadyHasComparisonType) {
-                    throw OxiaStatusException.invalidArgument(
-                            "Incompatible " + GetOption.class.getSimpleName() + "s: " + options);
-                }
-
-                comparisonType =
-                        switch (e.comparisonType()) {
-                            case Equal -> KeyComparisonType.EQUAL;
-                            case Floor -> KeyComparisonType.FLOOR;
-                            case Ceiling -> KeyComparisonType.CEILING;
-                            case Lower -> KeyComparisonType.LOWER;
-                            case Higher -> KeyComparisonType.HIGHER;
-                        };
-                alreadyHasComparisonType = true;
-            }
-        }
-
-        return comparisonType;
     }
 
     public static List<OptionSecondaryIndex> getSecondaryIndexes(Set<?> options) {
