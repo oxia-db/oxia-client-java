@@ -17,6 +17,7 @@
 plugins {
     `java-library`
     jacoco
+    `jacoco-report-aggregation`
     alias(libs.plugins.spotless)
     alias(libs.plugins.spotbugs)
     alias(libs.plugins.maven.publish) apply false
@@ -56,6 +57,22 @@ allprojects {
             }
         }
     }
+}
+
+dependencies {
+    jacocoAggregation(project(":client"))
+}
+
+tasks.named<JacocoReport>("testCodeCoverageReport") {
+    classDirectories.setFrom(
+            classDirectories.files.map {
+                fileTree(it) { exclude("io/oxia/proto/**", "io/netty/buffer/LightProto*") }
+            },
+    )
+}
+
+tasks.check {
+    dependsOn(tasks.named("testCodeCoverageReport"))
 }
 
 subprojects {
@@ -150,7 +167,6 @@ subprojects {
 
     tasks.test {
         useJUnitPlatform()
-        finalizedBy(tasks.jacocoTestReport)
     }
 
     spotless {
