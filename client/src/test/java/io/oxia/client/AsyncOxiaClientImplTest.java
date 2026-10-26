@@ -27,8 +27,10 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.grpc.Status;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
@@ -39,6 +41,7 @@ import io.oxia.client.api.exceptions.RequestTimeoutException;
 import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.PutOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
@@ -52,20 +55,26 @@ import io.oxia.client.notify.NotificationManager;
 import io.oxia.client.operation.rangescan.CompositeRangeScanConsumer;
 import io.oxia.client.session.SessionManager;
 import io.oxia.client.shard.ShardManager;
+import io.oxia.client.util.ConfigUtils;
 import io.oxia.proto.ListRequest;
 import io.oxia.proto.ListResponse;
+import io.oxia.proto.RangeScanRequest;
+import io.oxia.proto.RangeScanResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -864,5 +873,140 @@ class AsyncOxiaClientImplTest {
         Assertions.assertEquals(stopAfter, results.size());
         shared.onCompleted();
         Assertions.assertEquals(1, onCompletedCount.get());
+    }
+
+    @Test
+    void ephemeralPutFailsWithoutSession() {
+        when(sessionManager.getSession(any()))
+                .thenReturn(
+                        CompletableFuture.failedFuture(OxiaStatusException.resourceUnavailable("no session")));
+
+        assertThatThrownBy(client.put("k", new byte[1], Set.of(PutOption.AsEphemeralRecord))::join)
+                .hasCauseInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
+    void getAcrossShardsFailsWhenAShardFails() {
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L, 1L));
+        var opCaptor = ArgumentCaptor.forClass(GetOperation.class);
+        doNothing().when(readBatchManager).add(opCaptor.capture());
+
+        var result = client.get("k", Set.of(GetOption.ComparisonFloor));
+        opCaptor.getAllValues().get(0).callback().complete(null);
+        opCaptor
+                .getAllValues()
+                .get(1)
+                .callback()
+                .completeExceptionally(OxiaStatusException.resourceUnavailable("unavailable"));
+
+        assertThatThrownBy(result::join).hasCauseInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
+    void listFailsWhenAShardFails() {
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L, 1L));
+        doAnswer(
+                        i -> {
+                            var request = (ListRequest) i.getArgument(0);
+                            var so = (CancelableStreamObserver<ListResponse>) i.getArgument(1);
+                            if (request.getShard() == 0L) {
+                                so.onCompleted();
+                            } else {
+                                so.onError(Status.UNAVAILABLE.asRuntimeException());
+                            }
+                            return null;
+                        })
+                .when(rpcProvider)
+                .list(any(ListRequest.class), any(CancelableStreamObserver.class));
+
+        assertThatThrownBy(client.list("a", "e")::join)
+                .hasCauseInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
+    void rangeScanReportsAShardFailure() {
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L));
+        doAnswer(
+                        i -> {
+                            var so = (CancelableStreamObserver<RangeScanResponse>) i.getArgument(1);
+                            so.onError(Status.UNAVAILABLE.asRuntimeException());
+                            return null;
+                        })
+                .when(rpcProvider)
+                .rangeScan(any(RangeScanRequest.class), any(CancelableStreamObserver.class));
+        var it = new GetResultIterator();
+
+        client.rangeScan("a", "e", it);
+
+        assertThatThrownBy(it::hasNext).hasCauseInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
+    void rangeScanClosed() throws Exception {
+        client.close();
+        var it = new GetResultIterator();
+
+        client.rangeScan("a", "e", it);
+
+        assertThatThrownBy(it::hasNext).hasCauseInstanceOf(AlreadyClosedException.class);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var config = ConfigUtils.getDefaultClientConfig();
+        var consumer = new GetResultIterator();
+        Object[] args = {
+            "id",
+            mock(ScheduledExecutorService.class),
+            InstrumentProvider.NOOP,
+            rpcProvider,
+            shardManager,
+            notificationManager,
+            readBatchManager,
+            writeBatchManager,
+            sessionManager
+        };
+        List<ThrowingCallable> calls =
+                new ArrayList<>(
+                        List.of(
+                                () -> AsyncOxiaClientImpl.newInstance(null),
+                                () -> AsyncOxiaClientImpl.newInstance(null, mock(SharedResourcesImpl.class)),
+                                () -> AsyncOxiaClientImpl.newInstance(config, null),
+                                () -> client.notifications(null),
+                                () -> client.getSequenceUpdates(null, k -> {}, Set.of()),
+                                () -> client.getSequenceUpdates("k", null, Set.of()),
+                                () -> client.getSequenceUpdates("k", k -> {}, null),
+                                () -> client.rangeScan(null, "e", consumer),
+                                () -> client.rangeScan("a", null, consumer),
+                                () -> client.rangeScan("a", "e", null),
+                                () -> client.rangeScan(null, "e", consumer, Set.of()),
+                                () -> client.rangeScan("a", null, consumer, Set.of()),
+                                () -> client.rangeScan("a", "e", null, Set.of()),
+                                () -> client.rangeScan("a", "e", consumer, null)));
+        for (int i = 0; i < args.length; i++) {
+            var withNull = args.clone();
+            withNull[i] = null;
+            calls.add(() -> newClient(withNull));
+        }
+
+        for (var call : calls) {
+            assertThatThrownBy(call).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    private AsyncOxiaClientImpl newClient(Object[] args) {
+        return new AsyncOxiaClientImpl(
+                (String) args[0],
+                (ScheduledExecutorService) args[1],
+                (InstrumentProvider) args[2],
+                (RpcProvider) args[3],
+                (ShardManager) args[4],
+                (NotificationManager) args[5],
+                (BatchManager) args[6],
+                (BatchManager) args[7],
+                (SessionManager) args[8],
+                requestTimeout,
+                maxPendingBytes,
+                true);
     }
 }

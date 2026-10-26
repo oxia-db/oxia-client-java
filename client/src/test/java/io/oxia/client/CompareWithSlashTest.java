@@ -16,6 +16,7 @@
 package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -49,11 +50,11 @@ class CompareWithSlashTest {
     }
 
     @Test
-    void withinRange() {
-        assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaaa")).isTrue();
-        assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaab")).isTrue();
-        assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaac")).isFalse();
-        assertThat(CompareWithSlash.withinRange("aaaaa", "aaaac", "aaaa")).isFalse();
+    void rejectsNullArguments() {
+        assertThatThrownBy(() -> CompareWithSlash.INSTANCE.compare(null, "a"))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> CompareWithSlash.INSTANCE.compare("a", null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test

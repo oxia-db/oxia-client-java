@@ -51,9 +51,8 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     @Override
     public PutResult put(@NonNull String key, byte @NonNull [] value) {
         try {
-            return put(key, value, Collections.emptySet());
-        } catch (UnexpectedVersionIdException | KeyAlreadyExistsException e) {
-            // Only a put with options can fail with them
+            return CompletableFutures.await(asyncClient.put(key, value, Collections.emptySet()));
+        } catch (OxiaException e) {
             throw new OxiaUncheckedException(e);
         }
     }
@@ -74,9 +73,8 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     @Override
     public boolean delete(@NonNull String key) {
         try {
-            return delete(key, Collections.emptySet());
-        } catch (UnexpectedVersionIdException e) {
-            // Only a delete with options can fail with it
+            return CompletableFutures.await(asyncClient.delete(key, Collections.emptySet()));
+        } catch (OxiaException e) {
             throw new OxiaUncheckedException(e);
         }
     }
