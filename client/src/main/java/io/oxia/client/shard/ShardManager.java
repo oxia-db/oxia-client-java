@@ -53,7 +53,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
     private final Logger log;
     private final ScheduledExecutorService asyncExecutor;
-    private final RpcProvider rpcProvider;
+    private volatile RpcProvider rpcProvider;
     private final ShardAssignmentsContainer assignments;
     private final CompositeConsumer<ShardAssignmentChanges> callbacks;
 
@@ -66,10 +66,8 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
 
     public ShardManager(
             @NonNull ScheduledExecutorService asyncExecutor,
-            @NonNull RpcProvider rpcProvider,
             @NonNull InstrumentProvider instrumentProvider,
             @NonNull String namespace) {
-        this.rpcProvider = rpcProvider;
         this.asyncExecutor = asyncExecutor;
         this.assignments = new ShardAssignmentsContainer(Xxh332HashRangeShardStrategy, namespace);
         this.callbacks = new CompositeConsumer<>();
@@ -90,12 +88,17 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         closed = true;
     }
 
-    public CompletableFuture<Void> start() {
+    public CompletableFuture<Void> start(@NonNull RpcProvider rpcProvider) {
+        this.rpcProvider = rpcProvider;
+        subscribe();
+        return initialAssignmentsFuture;
+    }
+
+    private void subscribe() {
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
         rpcProvider.getShardAssignments(req, this);
-        return initialAssignmentsFuture;
     }
 
     @Override
@@ -141,7 +144,7 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         asyncExecutor.schedule(
                 () -> {
                     if (!closed) {
-                        start();
+                        subscribe();
                     }
                 },
                 delayMillis,

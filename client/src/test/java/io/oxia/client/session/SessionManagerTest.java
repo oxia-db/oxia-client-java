@@ -106,8 +106,7 @@ class SessionManagerTest {
                         Duration.ofSeconds(10),
                         Duration.ofSeconds(3),
                         1);
-        shardManager =
-                new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+        shardManager = new ShardManager(executor, InstrumentProvider.NOOP, DefaultNamespace);
         manager =
                 new SessionManager(executor, config, rpcProvider, shardManager, InstrumentProvider.NOOP);
     }

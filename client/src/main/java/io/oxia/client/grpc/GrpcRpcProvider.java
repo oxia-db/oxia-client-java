@@ -73,17 +73,7 @@ final class GrpcRpcProvider implements RpcProvider {
     // can only be streamed once, which holds as the channel doesn't retry calls.
     private static final MethodDescriptor<InputStream, WriteResponse> WRITE_STREAM_METHOD =
             OxiaClientGrpc.getWriteStreamMethod().toBuilder(
-                            new MethodDescriptor.Marshaller<InputStream>() {
-                                @Override
-                                public InputStream stream(InputStream value) {
-                                    return value;
-                                }
-
-                                @Override
-                                public InputStream parse(InputStream stream) {
-                                    return stream;
-                                }
-                            },
+                            InputStreamMarshaller.INSTANCE,
                             OxiaClientGrpc.getWriteStreamMethod().getResponseMarshaller())
                     .build();
 
@@ -473,7 +463,7 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         requestTimeouts.close();
         try {
             writeStreams.values().forEach(ManagedWriteStream::close);

@@ -62,6 +62,9 @@ public interface RpcProvider extends AutoCloseable {
 
     CompletableFuture<CloseSessionResponse> closeSession(@NonNull CloseSessionRequest request);
 
+    @Override
+    void close();
+
     void read(@NonNull ReadRequest request, @NonNull StreamObserver<ReadResponse> observer);
 
     /** Opens a write stream, which takes requests serialized by ManagedSubWriteStream.serialize(). */

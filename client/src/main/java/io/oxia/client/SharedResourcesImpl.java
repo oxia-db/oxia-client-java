@@ -34,7 +34,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 
 /**
@@ -141,14 +140,9 @@ public class SharedResourcesImpl implements SharedResources {
         // The shard-assignment stream is shared, so attribute its metrics to the pool's OpenTelemetry
         // rather than to whichever client happened to create the namespace first.
         var instrumentProvider = new InstrumentProvider(openTelemetry, config.namespace());
-        var shardManagerRef = new AtomicReference<ShardManager>();
-        var rpcProvider =
-                RpcProvider.create(
-                        config, executor, connectionManager, shardId -> shardManagerRef.get().leader(shardId));
-        var shardManager =
-                new ShardManager(executor, rpcProvider, instrumentProvider, config.namespace());
-        shardManagerRef.set(shardManager);
-        return new SharedNamespace(rpcProvider, shardManager, shardManager.start());
+        var shardManager = new ShardManager(executor, instrumentProvider, config.namespace());
+        var rpcProvider = RpcProvider.create(config, executor, connectionManager, shardManager::leader);
+        return new SharedNamespace(rpcProvider, shardManager, shardManager.start(rpcProvider));
     }
 
     @Override
@@ -161,11 +155,7 @@ public class SharedResourcesImpl implements SharedResources {
         // then the shared connection pool and finally the executor.
         namespaces.values().forEach(SharedNamespace::close);
         namespaces.clear();
-        try {
-            connectionManager.close();
-        } catch (Exception e) {
-            log.warn().exception(e).log("Failed to close shared connection manager");
-        }
+        connectionManager.close();
         readBatcherPool.close();
         writeBatcherPool.close();
         executor.shutdownNow();
@@ -177,11 +167,7 @@ public class SharedResourcesImpl implements SharedResources {
             RpcProvider rpcProvider, ShardManager shardManager, CompletableFuture<Void> started) {
         void close() {
             shardManager.close();
-            try {
-                rpcProvider.close();
-            } catch (Exception e) {
-                log.warn().exception(e).log("Failed to close shared shard RpcProvider");
-            }
+            rpcProvider.close();
         }
     }
 
