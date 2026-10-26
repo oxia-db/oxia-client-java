@@ -18,12 +18,14 @@ package io.oxia.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.options.PutOption;
 import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
 import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.proto.KeyComparisonType;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -81,5 +83,38 @@ class OptionsUtilsTest {
         assertThat(OptionsUtils.getSecondaryIndexes(Set.of(PutOption.AsEphemeralRecord))).isEmpty();
         assertThat(OptionsUtils.getSecondaryIndexes(Set.of(a, b, PutOption.AsEphemeralRecord)))
                 .containsExactlyInAnyOrder(a, b);
+    }
+
+    static Stream<Arguments> comparisonTypes() {
+        return Stream.of(
+                Arguments.of(GetOption.ComparisonEqual, KeyComparisonType.EQUAL),
+                Arguments.of(GetOption.ComparisonFloor, KeyComparisonType.FLOOR),
+                Arguments.of(GetOption.ComparisonCeiling, KeyComparisonType.CEILING),
+                Arguments.of(GetOption.ComparisonLower, KeyComparisonType.LOWER),
+                Arguments.of(GetOption.ComparisonHigher, KeyComparisonType.HIGHER));
+    }
+
+    @ParameterizedTest
+    @MethodSource("comparisonTypes")
+    void getComparisonType(GetOption option, KeyComparisonType expected) {
+        assertThat(OptionsUtils.getComparisonType(Set.of(option, GetOption.PartitionKey("a"))))
+                .isEqualTo(expected);
+    }
+
+    @Test
+    void getComparisonTypeDefaultsToEqual() {
+        assertThat(OptionsUtils.getComparisonType(null)).isEqualTo(KeyComparisonType.EQUAL);
+        assertThat(OptionsUtils.getComparisonType(Set.of())).isEqualTo(KeyComparisonType.EQUAL);
+        assertThat(OptionsUtils.getComparisonType(Set.of(GetOption.PartitionKey("a"))))
+                .isEqualTo(KeyComparisonType.EQUAL);
+    }
+
+    @Test
+    void getComparisonTypeRejectsTwoComparisons() {
+        assertThatThrownBy(
+                        () ->
+                                OptionsUtils.getComparisonType(
+                                        Set.of(GetOption.ComparisonFloor, GetOption.ComparisonCeiling)))
+                .isInstanceOf(OxiaStatusException.class);
     }
 }
