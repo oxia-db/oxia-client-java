@@ -21,8 +21,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import io.grpc.Status;
 import io.oxia.client.grpc.OxiaStatusCode;
@@ -40,7 +43,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +53,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -323,6 +331,133 @@ public class ShardManagerTest {
                                 assertThat(oxiaError.getMetadata()).containsEntry("shard", "0");
                                 assertThat(oxiaError.isRetryable()).isTrue();
                             });
+        }
+
+        @Test
+        void rejectsInvalidArguments() {
+            assertThatThrownBy(
+                            () -> new ShardManager(null, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () ->
+                                    new ShardManager(asyncExecutor, null, InstrumentProvider.NOOP, DefaultNamespace))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> new ShardManager(asyncExecutor, rpcProvider, null, DefaultNamespace))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () -> new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, null))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () -> new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, ""))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> manager.addCallback(null)).isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> manager.removeCallback(null))
+                    .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        void routesKeysToTheAssignedShards() {
+            var shard = new Shard(0, "leader0", new HashRange(0, (1L << 32) - 1));
+            manager.onNext(assignments(shard));
+
+            assertThat(manager.getShardForKey("a")).isZero();
+            assertThat(manager.allShards()).containsExactly(shard);
+        }
+
+        @Test
+        void failsAssignmentsWithoutTheNamespace() {
+            var sa = new ShardAssignments();
+            sa.putNamespaces("other");
+
+            assertThatThrownBy(() -> manager.onNext(sa))
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND));
+        }
+
+        @Test
+        void notifiesShardsRemovedByAWiderShard() {
+            var received = new ArrayList<ShardAssignmentChanges>();
+            manager.onNext(
+                    assignments(
+                            new Shard(0, "leader0", new HashRange(0, 10)),
+                            new Shard(1, "leader0", new HashRange(11, 20))));
+            manager.addCallback(received::add);
+
+            manager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, 20))));
+
+            assertThat(received).hasSize(1);
+            assertThat(received.get(0).added()).isEmpty();
+            assertThat(received.get(0).reassigned()).isEmpty();
+            assertThat(received.get(0).removed()).extracting(Shard::id).containsExactly(1L);
+        }
+
+        @Test
+        void removedCallbackIsNoLongerNotified() {
+            var received = new ArrayList<ShardAssignmentChanges>();
+            Consumer<ShardAssignmentChanges> callback = received::add;
+            manager.addCallback(callback);
+            manager.removeCallback(callback);
+
+            manager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, 20))));
+
+            assertThat(received).isEmpty();
+        }
+
+        @ParameterizedTest
+        @EnumSource(
+                value = Status.Code.class,
+                names = {"CANCELLED", "DEADLINE_EXCEEDED"})
+        void renewsRightAwayOnlyOnceAssigned(Status.Code code) {
+            var executor = mock(ScheduledExecutorService.class);
+            var shardManager =
+                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+
+            shardManager.onError(code.toStatus().asException());
+            assertThat(scheduledRestartDelay(executor)).isBetween(100L, 120L);
+
+            shardManager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, 20))));
+            shardManager.onError(code.toStatus().asException());
+            assertThat(scheduledRestartDelay(executor)).isZero();
+        }
+
+        @Test
+        void retriesNamespaceNotFoundOnceAssigned() {
+            var executor = mock(ScheduledExecutorService.class);
+            var shardManager =
+                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            var started = shardManager.start();
+            shardManager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, 20))));
+
+            shardManager.onError(OxiaStatusException.namespaceNotFound(DefaultNamespace));
+
+            assertThat(started).isCompleted();
+            assertThat(scheduledRestartDelay(executor)).isBetween(100L, 120L);
+        }
+
+        @Test
+        void closedManagerDoesNotRestart() {
+            var executor = mock(ScheduledExecutorService.class);
+            var shardManager =
+                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            shardManager.onCompleted();
+            var restart = ArgumentCaptor.forClass(Runnable.class);
+            verify(executor).schedule(restart.capture(), any(Long.class), eq(TimeUnit.MILLISECONDS));
+
+            shardManager.close();
+            restart.getValue().run();
+            shardManager.onError(Status.UNAVAILABLE.asException());
+            shardManager.onCompleted();
+
+            verifyNoInteractions(rpcProvider);
+            verify(executor).schedule(any(Runnable.class), any(Long.class), any(TimeUnit.class));
+        }
+
+        private long scheduledRestartDelay(ScheduledExecutorService executor) {
+            var delay = ArgumentCaptor.forClass(Long.class);
+            verify(executor, atLeastOnce())
+                    .schedule(any(Runnable.class), delay.capture(), eq(TimeUnit.MILLISECONDS));
+            return delay.getValue();
         }
     }
 }

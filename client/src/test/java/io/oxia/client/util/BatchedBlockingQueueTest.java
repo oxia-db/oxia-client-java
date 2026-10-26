@@ -15,6 +15,9 @@
  */
 package io.oxia.client.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.common.collect.Lists;
@@ -23,6 +26,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -265,5 +269,76 @@ public class BatchedBlockingQueueTest {
 
         assertTrue(latch.await(1, TimeUnit.SECONDS));
         assertEquals(10, queue.size());
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(4);
+
+        assertThatThrownBy(() -> queue.offer(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> queue.put(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> queue.drainTo(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> queue.drainTo(null, 1)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void offerTimesOutWhenFull() throws Exception {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(1);
+        queue.put(1);
+
+        assertThat(queue.offer(2, 0, TimeUnit.NANOSECONDS)).isFalse();
+        assertThat(queue.offer(2, 1, TimeUnit.NANOSECONDS)).isFalse();
+        assertThat(queue.take()).isEqualTo(1);
+    }
+
+    @Test
+    void takeWaitsForAnItem() throws Exception {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(4);
+        var taken = new FutureTask<>(queue::take);
+        var taker = new Thread(taken);
+        taker.start();
+
+        await().until(() -> taker.getState() == Thread.State.WAITING);
+        queue.put(1);
+        assertThat(taken.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+    }
+
+    @Test
+    void pollAllTimesOutWhenEmpty() throws Exception {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(4);
+
+        assertThat(queue.pollAll(new Integer[4], 1, TimeUnit.NANOSECONDS)).isZero();
+    }
+
+    @Test
+    void pollAllWaitsForAnItem() throws Exception {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(4);
+        Integer[] items = new Integer[4];
+        var polled = new FutureTask<>(() -> queue.pollAll(items, 1, TimeUnit.HOURS));
+        var poller = new Thread(polled);
+        poller.start();
+
+        await().until(() -> poller.getState() == Thread.State.TIMED_WAITING);
+        queue.put(7);
+        assertThat(polled.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(items[0]).isEqualTo(7);
+    }
+
+    @Test
+    void putAllAndTakeAllWrapAround() throws Exception {
+        BatchedArrayBlockingQueue<Integer> queue = new BatchedArrayBlockingQueue<>(4);
+        queue.putAll(new Integer[] {1, 2, 3}, 0, 3);
+        Integer[] items = new Integer[4];
+        assertThat(queue.takeAll(new Integer[2])).isEqualTo(2);
+
+        queue.putAll(new Integer[] {4, 5, 6}, 0, 3);
+        assertThat(queue.remainingCapacity()).isZero();
+        assertThat(queue.takeAll(items)).isEqualTo(4);
+        assertThat(items).containsExactly(3, 4, 5, 6);
+
+        queue.putAll(new Integer[] {7, 8}, 0, 2);
+        assertThat(queue.takeAll(items)).isEqualTo(2);
+        assertThat(queue.offer(9)).isTrue();
+        assertThat(queue.poll()).isEqualTo(9);
     }
 }

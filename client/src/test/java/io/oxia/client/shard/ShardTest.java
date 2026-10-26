@@ -16,6 +16,7 @@
 package io.oxia.client.shard;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.proto.ShardAssignment;
 import java.util.Set;
@@ -72,5 +73,13 @@ class ShardTest {
 
     static Shard shard(long id, int leader, long min, long max) {
         return new Shard(id, Integer.toString(leader), new HashRange(min, max));
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var shard = shard(0, 0, 0, 0);
+        assertThatThrownBy(() -> shard.overlaps(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> shard.findOverlapping(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Shard.fromProto(null)).isInstanceOf(NullPointerException.class);
     }
 }

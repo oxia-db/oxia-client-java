@@ -77,4 +77,11 @@ class HashRangeTest {
         assertThat(range.minInclusive()).isEqualTo(((long) Integer.MAX_VALUE) + 1L);
         assertThat(range.maxInclusive()).isEqualTo(((long) Integer.MAX_VALUE * 2L) + 1L);
     }
+
+    @Test
+    void rejectsNullArguments() {
+        var range = new HashRange(0, 1);
+        assertThatThrownBy(() -> range.overlaps(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> HashRange.fromProto(null)).isInstanceOf(NullPointerException.class);
+    }
 }

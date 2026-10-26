@@ -115,13 +115,12 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         }
 
         final var oxiaError = OxiaStatusException.from(error);
-        if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND && !initialAssignmentsFuture.isDone()) {
+        if (oxiaError.getStatusCode() == NAMESPACE_NOT_FOUND
+                && initialAssignmentsFuture.completeExceptionally(
+                        OxiaStatusException.namespaceNotFound(assignments.getNamespace()))) {
             log.error("Namespace not found");
-            if (initialAssignmentsFuture.completeExceptionally(
-                    OxiaStatusException.namespaceNotFound(assignments.getNamespace()))) {
-                close();
-                return;
-            }
+            close();
+            return;
         }
         final long retryDelayMillis;
         final var code = Status.fromThrowable(getRootCause(error)).getCode();

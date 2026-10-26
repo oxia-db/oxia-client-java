@@ -17,6 +17,7 @@ package io.oxia.client.session;
 
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
@@ -470,6 +471,173 @@ class SessionManagerTest {
 
         pending.complete(createSessionResponse(20L));
         assertThat(manager.getSession(() -> 1L).join()).isSameAs(creating.join());
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var noop = InstrumentProvider.NOOP;
+        assertThatThrownBy(() -> new SessionManager(null, config, rpcProvider, shardManager, noop))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SessionManager(executor, null, rpcProvider, shardManager, noop))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SessionManager(executor, config, null, shardManager, noop))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SessionManager(executor, config, rpcProvider, null, noop))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new SessionManager(executor, config, rpcProvider, shardManager, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> manager.getSession(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> manager.onSessionRejected(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> manager.accept(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void sessionUnderCreationIsShared() {
+        var pending = new CompletableFuture<CreateSessionResponse>();
+        when(rpcProvider.createSession(any(CreateSessionRequest.class))).thenReturn(pending);
+
+        var first = manager.getSession(() -> 1L);
+        var second = manager.getSession(() -> 1L);
+
+        assertThat(second).isSameAs(first);
+        pending.complete(createSessionResponse(10L));
+        assertThat(second.join().getSessionId()).isEqualTo(10L);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void closedSessionIsReplaced() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+
+        manager.getSession(() -> 1L).join().close().join();
+
+        assertThat(sessionOn(1L)).isEqualTo(20L);
+    }
+
+    @Test
+    void usesTheSessionOfTheShardLookedUpUnderTheLock() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+        var session = manager.getSession(() -> 1L).join();
+        // The key moved from shard 2 to shard 1 between the two lookups
+        var lookups = new AtomicInteger();
+
+        assertThat(manager.getSession(() -> lookups.getAndIncrement() == 0 ? 2L : 1L).join())
+                .isSameAs(session);
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void lateVerdictsAfterTheSessionWasRemovedOrFailed() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.failedFuture(new IllegalStateException("failed")));
+        var session = manager.getSession(() -> 1L).join();
+
+        manager.onSessionExpired(session);
+        manager.onSessionRejected(session);
+        var failed = manager.getSession(() -> 1L);
+        manager.onSessionRejected(session);
+
+        assertThat(failed).isCompletedExceptionally();
+        assertThat(session.isClosed()).isTrue();
+    }
+
+    @Test
+    void closeTwice() throws Exception {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+        manager.getSession(() -> 1L).join();
+
+        manager.close();
+        manager.close();
+
+        verify(rpcProvider, times(1)).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void closedManagerIgnoresSplits() throws Exception {
+        shardManager.onNext(assignments(List.of(new Shard(0L, "leader", new HashRange(0, 99)))));
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(createSessionResponse(10L)));
+        when(rpcProvider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(new CloseSessionResponse()));
+        var session = manager.getSession(() -> 0L).join();
+        manager.close();
+        shardManager.addCallback(manager);
+
+        shardManager.onNext(
+                assignments(
+                        List.of(
+                                new Shard(1L, "leader", new HashRange(0, 49)),
+                                new Shard(2L, "leader", new HashRange(50, 99)))));
+
+        assertThat(session.isClosed()).isTrue();
+        verify(rpcProvider, times(1)).createSession(any(CreateSessionRequest.class));
+        verify(rpcProvider, times(1)).closeSession(any(CloseSessionRequest.class));
+    }
+
+    @Test
+    void keepsSessionsOfShardsWithoutSuccessors() {
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.completedFuture(createSessionResponse(10L)),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+        var session = manager.getSession(() -> 1L).join();
+
+        assertThat(sessionOn(2L)).isEqualTo(20L);
+        assertThat(manager.getSession(() -> 1L).join()).isSameAs(session);
+        assertThat(session.isClosed()).isFalse();
+    }
+
+    @Test
+    void failedSessionOfASplitShardIsNotMoved() {
+        shardManager.onNext(assignments(List.of(new Shard(0L, "leader", new HashRange(0, 99)))));
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(
+                        CompletableFuture.failedFuture(new IllegalStateException("failed")),
+                        CompletableFuture.completedFuture(createSessionResponse(20L)));
+        assertThat(manager.getSession(() -> 0L)).isCompletedExceptionally();
+
+        shardManager.onNext(
+                assignments(
+                        List.of(
+                                new Shard(1L, "leader", new HashRange(0, 49)),
+                                new Shard(2L, "leader", new HashRange(50, 99)))));
+
+        assertThat(sessionOn(1L)).isEqualTo(20L);
+        verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void sessionCreatedDuringASplitMovesOnlyToTheShardsWithoutSession() {
+        shardManager.onNext(assignments(List.of(new Shard(0L, "leader", new HashRange(0, 99)))));
+        var pending = new CompletableFuture<CreateSessionResponse>();
+        when(rpcProvider.createSession(any(CreateSessionRequest.class)))
+                .thenReturn(pending, CompletableFuture.completedFuture(createSessionResponse(21L)));
+        var creating = manager.getSession(() -> 0L);
+
+        shardManager.onNext(
+                assignments(
+                        List.of(
+                                new Shard(1L, "leader", new HashRange(0, 49)),
+                                new Shard(2L, "leader", new HashRange(50, 99)))));
+        assertThat(sessionOn(1L)).isEqualTo(21L);
+        pending.complete(createSessionResponse(10L));
+
+        assertThat(sessionOn(2L)).isEqualTo(10L);
+        assertThat(sessionOn(1L)).isEqualTo(21L);
+        assertThat(creating.join().isClosed()).isTrue();
         verify(rpcProvider, times(2)).createSession(any(CreateSessionRequest.class));
     }
 

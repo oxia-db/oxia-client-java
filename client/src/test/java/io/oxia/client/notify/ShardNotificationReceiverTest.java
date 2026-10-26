@@ -18,10 +18,14 @@ package io.oxia.client.notify;
 import static io.oxia.proto.NotificationType.KEY_CREATED;
 import static io.oxia.proto.NotificationType.KEY_DELETED;
 import static io.oxia.proto.NotificationType.KEY_MODIFIED;
+import static io.oxia.proto.NotificationType.KEY_RANGE_DELETED;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,6 +51,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -55,6 +60,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -114,7 +122,8 @@ class ShardNotificationReceiverTest {
                         .build()
                         .start();
         channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
-        doAnswer(
+        lenient()
+                .doAnswer(
                         invocation -> {
                             OxiaClientGrpc.newStub(channel)
                                     .getNotifications(invocation.getArgument(0), invocation.getArgument(1));
@@ -204,8 +213,11 @@ class ShardNotificationReceiverTest {
         assertThat(requests).hasValue(2);
     }
 
-    @Test
-    void renewsImmediatelyAtConfiguredMaximumAge() {
+    @ParameterizedTest
+    @EnumSource(
+            value = Status.Code.class,
+            names = {"DEADLINE_EXCEEDED", "CANCELLED"})
+    void renewsImmediatelyAtConfiguredMaximumAge(Status.Code code) {
         @Cleanup("shutdownNow")
         ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
         when(notificationManager.getExecutor()).thenReturn(executorService);
@@ -215,8 +227,7 @@ class ShardNotificationReceiverTest {
 
         assertThat(
                         responses.offer(
-                                new NotificationWrapper(
-                                        null, Status.DEADLINE_EXCEEDED.asRuntimeException(), false)))
+                                new NotificationWrapper(null, code.toStatus().asRuntimeException(), false)))
                 .isTrue();
         assertThat(
                         responses.offer(
@@ -291,6 +302,80 @@ class ShardNotificationReceiverTest {
                             });
         }
         assertThat(requests).hasValue(2);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var offset = OptionalLong.empty();
+        assertThatThrownBy(
+                        () ->
+                                new ShardNotificationReceiver(
+                                        null, shardId, notificationCallback, notificationManager, offset))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () ->
+                                new ShardNotificationReceiver(
+                                        rpcProvider, shardId, null, notificationManager, offset))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () ->
+                                new ShardNotificationReceiver(
+                                        rpcProvider, shardId, notificationCallback, null, offset))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () ->
+                                new ShardNotificationReceiver(
+                                        rpcProvider, shardId, notificationCallback, notificationManager, null))
+                .isInstanceOf(NullPointerException.class);
+        var factory = new ShardNotificationReceiver.Factory(rpcProvider);
+        assertThatThrownBy(() -> factory.newReceiver(shardId, null, offset))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> factory.newReceiver(shardId, notificationManager, null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void skipsRepeatedBatchesAndUnknownNotificationTypes() throws Exception {
+        when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
+        when(notificationManager.getCounterNotificationsBatchesReceived())
+                .thenReturn(mock(Counter.class));
+        var unknown = new io.oxia.proto.Notification();
+        unknown.parseFrom(new byte[] {0x08, 0x7f});
+        var rangeDeleted = new io.oxia.proto.Notification();
+        rangeDeleted.setType(KEY_RANGE_DELETED).setKeyRangeLast("b");
+        var batch = newNotificationBatch("a", rangeDeleted).setOffset(6);
+        batch.putNotifications("unknown").copyFrom(unknown);
+        responses.put(
+                new NotificationWrapper(
+                        newNotificationBatch("old", created(1L)).setOffset(5), null, false));
+        responses.put(new NotificationWrapper(batch, null, false));
+
+        try (var notificationReceiver =
+                new ShardNotificationReceiver(
+                        rpcProvider, shardId, notificationCallback, notificationManager, OptionalLong.of(5))) {
+            await()
+                    .untilAsserted(
+                            () -> verify(notificationCallback).accept(new Notification.KeyRangeDelete("a", "b")));
+            verify(notificationCallback, never()).accept(new KeyCreated("old", 1L));
+            assertThat(notificationReceiver.getOffset()).hasValue(6);
+        }
+    }
+
+    @Test
+    void scheduledRestartAfterCloseDoesNotResubscribe() {
+        var executor = mock(ScheduledExecutorService.class);
+        when(notificationManager.getExecutor()).thenReturn(executor);
+        responses.offer(new NotificationWrapper(null, Status.UNAVAILABLE.asException(), false));
+        var notificationReceiver =
+                new ShardNotificationReceiver(
+                        rpcProvider, shardId, notificationCallback, notificationManager, OptionalLong.empty());
+        var restart = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor).schedule(restart.capture(), anyLong(), eq(TimeUnit.MILLISECONDS));
+
+        notificationReceiver.close();
+        restart.getValue().run();
+
+        assertThat(requests).hasValue(1);
     }
 
     static NotificationBatch newNotificationBatch(

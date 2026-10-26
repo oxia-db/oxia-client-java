@@ -161,4 +161,47 @@ class TimeoutSweeperTest {
             realExecutor.shutdownNow();
         }
     }
+
+    @Test
+    void rejectsNullArguments() {
+        assertThatThrownBy(() -> new TimeoutSweeper(null, Duration.ofSeconds(1)))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new TimeoutSweeper(executor, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> sweeper.add(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void keepsFutureCompletedBeforeItsDeadlineSweep() {
+        var future = sweeper.add(new CompletableFuture<String>());
+        sweeper.sweep(0);
+        future.complete("done");
+
+        sweeper.sweep(TIMEOUT_NANOS);
+        assertThat(future).isCompletedWithValue("done");
+        assertThat(sweeper.pendingCount()).isZero();
+    }
+
+    @Test
+    void dropsGenerationWhoseFuturesAllCompleted() {
+        var future = sweeper.add(new CompletableFuture<String>());
+        sweeper.sweep(0);
+        future.complete("done");
+
+        sweeper.sweep(1);
+        assertThat(sweeper.pendingCount()).isZero();
+        sweeper.sweep(TIMEOUT_NANOS);
+        assertThat(future).isCompletedWithValue("done");
+    }
+
+    @Test
+    void sweepAfterCloseDoesNothing() {
+        var future = sweeper.add(new CompletableFuture<String>());
+        sweeper.close();
+
+        sweeper.sweep(0);
+        sweeper.sweep(TIMEOUT_NANOS);
+        assertThat(future).isNotDone();
+        assertThat(sweeper.pendingCount()).isZero();
+    }
 }

@@ -16,7 +16,12 @@
 package io.oxia.client.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.Test;
@@ -37,5 +42,56 @@ class CompletableFuturesTest {
         var cause = new IllegalStateException("failed");
 
         assertThat(CompletableFutures.unwrapException(cause)).isSameAs(cause);
+    }
+
+    @Test
+    void keepsWrapperWithoutCause() {
+        var error = new CompletionException(null);
+
+        assertThat(CompletableFutures.unwrapException(error)).isSameAs(error);
+    }
+
+    @Test
+    void awaitReturnsTheValue() throws Exception {
+        assertThat(CompletableFutures.await(CompletableFuture.completedFuture("value")))
+                .isEqualTo("value");
+    }
+
+    @Test
+    void awaitThrowsTheCauseOfTheFailure() {
+        var oxiaException = new KeyAlreadyExistsException("key");
+        var runtimeException = new IllegalStateException("failed");
+        var error = new AssertionError("failed");
+
+        assertThatThrownBy(
+                        () -> CompletableFutures.await(CompletableFuture.failedFuture(oxiaException)))
+                .isSameAs(oxiaException);
+        assertThatThrownBy(
+                        () -> CompletableFutures.await(CompletableFuture.failedFuture(runtimeException)))
+                .isSameAs(runtimeException);
+        assertThatThrownBy(() -> CompletableFutures.await(CompletableFuture.failedFuture(error)))
+                .isSameAs(error);
+    }
+
+    @Test
+    void awaitWrapsOtherCheckedExceptions() {
+        var cause = new IOException("failed");
+
+        assertThatThrownBy(() -> CompletableFutures.await(CompletableFuture.failedFuture(cause)))
+                .isInstanceOf(OxiaUncheckedException.class)
+                .hasCause(cause);
+    }
+
+    @Test
+    void awaitWrapsTheInterruption() {
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> CompletableFutures.await(new CompletableFuture<>()))
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .hasCauseInstanceOf(InterruptedException.class);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
     }
 }

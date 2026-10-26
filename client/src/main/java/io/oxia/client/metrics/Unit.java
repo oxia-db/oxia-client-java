@@ -16,34 +16,22 @@
 package io.oxia.client.metrics;
 
 public enum Unit {
-    Bytes,
-    Events,
-    Requests,
-    Seconds,
-    Sessions,
-    None,
+    Bytes("By"),
+    Events("{event}"),
+    Requests("{request}"),
+    Seconds("s"),
+    Sessions("{session}"),
+    None("1"),
     ;
 
+    private final String symbol;
+
+    Unit(String symbol) {
+        this.symbol = symbol;
+    }
+
+    @Override
     public String toString() {
-        switch (this) {
-            case Bytes:
-                return "By";
-
-            case Events:
-                return "{event}";
-
-            case Requests:
-                return "{request}";
-
-            case Seconds:
-                return "s";
-
-            case Sessions:
-                return "{session}";
-
-            case None:
-            default:
-                return "1";
-        }
+        return symbol;
     }
 }
