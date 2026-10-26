@@ -27,6 +27,7 @@ import io.oxia.client.api.options.defs.OptionVersionId;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -138,6 +139,17 @@ class PutOptionTest {
             assertThat(OptionsUtils.getOverrideVersionId(Set.of(new OptionOverrideVersionId(5L))))
                     .hasValue(5L);
         }
+    }
+
+    @Test
+    void sequenceKeysDeltas() {
+        assertThatNoException().isThrownBy(() -> PutOption.SequenceKeysDeltas(List.of(1L, 0L)));
+        assertThatThrownBy(() -> PutOption.SequenceKeysDeltas(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PutOption.SequenceKeysDeltas(List.of(0L)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PutOption.SequenceKeysDeltas(List.of(1L, -1L)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Nested

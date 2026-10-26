@@ -18,7 +18,6 @@ package io.oxia.client.internal;
 import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.SharedResources;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 
 /**
  * This class loads the implementation for {@link OxiaClientBuilder} and allows you to decouple the
@@ -28,25 +27,26 @@ import java.lang.reflect.Method;
  * @hidden
  */
 public class DefaultImplementation {
-    private static final Constructor<?> CONSTRUCTOR;
-
     private static final String IMPL_CLASS_NAME = "io.oxia.client.OxiaClientBuilderImpl";
 
-    private static final String SHARED_RESOURCES_IMPL_CLASS_NAME =
-            "io.oxia.client.SharedResourcesImpl";
+    private static final String SHARED_RESOURCES_BUILDER_CLASS_NAME =
+            "io.oxia.client.SharedResourcesImpl$Builder";
 
-    private static final Method SHARED_RESOURCES_BUILDER =
-            ReflectionUtils.getStaticMethod(SHARED_RESOURCES_IMPL_CLASS_NAME, "builder");
+    private static final Constructor<?> CONSTRUCTOR;
+
+    private static final Constructor<?> SHARED_RESOURCES_BUILDER_CONSTRUCTOR;
 
     static {
-        Constructor<?> impl;
         try {
-            impl = ReflectionUtils.newClassInstance(IMPL_CLASS_NAME).getConstructor(String.class);
+            CONSTRUCTOR = ReflectionUtils.newClassInstance(IMPL_CLASS_NAME).getConstructor(String.class);
+            SHARED_RESOURCES_BUILDER_CONSTRUCTOR =
+                    ReflectionUtils.newClassInstance(SHARED_RESOURCES_BUILDER_CLASS_NAME).getConstructor();
         } catch (Throwable error) {
             throw new RuntimeException("Cannot load Oxia Client Implementation: " + error, error);
         }
-        CONSTRUCTOR = impl;
     }
+
+    private DefaultImplementation() {}
 
     /**
      * Access the actual implementation of the Oxia Client API.
@@ -55,11 +55,7 @@ public class DefaultImplementation {
      * @return the loaded implementation.
      */
     public static OxiaClientBuilder getDefaultImplementation(String serviceAddress) {
-        try {
-            return (OxiaClientBuilder) CONSTRUCTOR.newInstance(serviceAddress);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        return newInstance(CONSTRUCTOR, serviceAddress);
     }
 
     /**
@@ -68,7 +64,15 @@ public class DefaultImplementation {
      * @return a new builder for a shared-resources pool
      */
     public static SharedResources.Builder getSharedResourcesBuilder() {
-        return ReflectionUtils.catchExceptions(
-                () -> (SharedResources.Builder) SHARED_RESOURCES_BUILDER.invoke(null));
+        return newInstance(SHARED_RESOURCES_BUILDER_CONSTRUCTOR);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T newInstance(Constructor<?> constructor, Object... args) {
+        try {
+            return (T) constructor.newInstance(args);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }
