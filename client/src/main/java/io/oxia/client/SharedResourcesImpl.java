@@ -245,6 +245,13 @@ public class SharedResourcesImpl implements SharedResources {
         @Override
         public SharedResources.Builder connectionBackoff(
                 @NonNull Duration minDelay, @NonNull Duration maxDelay) {
+            if (minDelay.isNegative() || minDelay.isZero()) {
+                throw new IllegalArgumentException("minDelay must be greater than zero: " + minDelay);
+            }
+            if (minDelay.compareTo(maxDelay) >= 0) {
+                throw new IllegalArgumentException(
+                        "minDelay must be less than maxDelay: minDelay=" + minDelay + " maxDelay=" + maxDelay);
+            }
             this.connectionBackoffMinDelay = minDelay;
             this.connectionBackoffMaxDelay = maxDelay;
             return this;

@@ -97,6 +97,27 @@ class OxiaClientBuilderTest {
     }
 
     @Test
+    void connectionBackoff() {
+        assertThatThrownBy(() -> builder.connectionBackoff(ZERO, Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(-1), Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(5), Duration.ofMillis(5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(5), Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(null, Duration.ofMillis(1)))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(1), null))
+                .isInstanceOf(NullPointerException.class);
+
+        builder.connectionBackoff(Duration.ofMillis(1), Duration.ofMillis(2));
+        var config = ((OxiaClientBuilderImpl) builder).getClientConfig();
+        assertThat(config.connectionBackoffMinDelay()).isEqualTo(Duration.ofMillis(1));
+        assertThat(config.connectionBackoffMaxDelay()).isEqualTo(Duration.ofMillis(2));
+    }
+
+    @Test
     void loadConfigWithIllegalArgument() {
         assertThatThrownBy(() -> builder.loadConfig("configPath"))
                 .isInstanceOf(IllegalArgumentException.class);

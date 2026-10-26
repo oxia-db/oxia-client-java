@@ -375,7 +375,7 @@ class GrpcRpcProviderTest {
         var config =
                 ((OxiaClientBuilderImpl)
                                 OxiaClientBuilder.create("localhost:0")
-                                        .connectionBackoff(Duration.ofSeconds(5), Duration.ofSeconds(5)))
+                                        .connectionBackoff(Duration.ofSeconds(5), Duration.ofSeconds(10)))
                         .getClientConfig();
 
         try (var provider =
