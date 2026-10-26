@@ -17,6 +17,7 @@ package io.oxia.client.session;
 
 import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.*;
@@ -27,6 +28,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.Status;
+import io.grpc.StatusException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.protobuf.StatusProto;
@@ -59,6 +61,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,27 +83,7 @@ class SessionTest {
     void setup() throws IOException {
         executor = Executors.newSingleThreadScheduledExecutor();
 
-        config =
-                new ClientConfig(
-                        "address",
-                        Duration.ZERO,
-                        1,
-                        1024 * 1024,
-                        256L * 1024 * 1024,
-                        4,
-                        4,
-                        1,
-                        sessionTimeout,
-                        clientId,
-                        null,
-                        DefaultNamespace,
-                        null,
-                        false,
-                        Duration.ofMillis(100),
-                        Duration.ofSeconds(30),
-                        Duration.ofSeconds(10),
-                        Duration.ofSeconds(5),
-                        1);
+        config = config(sessionTimeout);
 
         String serverName = InProcessServerBuilder.generateName();
         service = new TestService();
@@ -339,6 +322,147 @@ class SessionTest {
         assertThat(service.closed).isFalse();
         assertThat(sum(metricReader, "oxia.client.sessions.opened")).isEqualTo(1);
         assertThat(sum(metricReader, "oxia.client.sessions.closed")).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var noop = InstrumentProvider.NOOP;
+        var listener = mock(SessionNotificationListener.class);
+        assertThatThrownBy(
+                        () -> new Session(null, rpcProvider, config, shardId, sessionId, noop, listener))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () -> new Session(executor, null, config, shardId, sessionId, noop, listener))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () -> new Session(executor, rpcProvider, null, shardId, sessionId, noop, listener))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () -> new Session(executor, rpcProvider, config, shardId, sessionId, null, listener))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(
+                        () -> new Session(executor, rpcProvider, config, shardId, sessionId, noop, null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void keepAliveToleratesFailures() {
+        var heartbeatExecutor = mock(ScheduledExecutorService.class, RETURNS_MOCKS);
+        var provider = mock(RpcProvider.class);
+        var listener = mock(SessionNotificationListener.class);
+        new Session(
+                heartbeatExecutor, provider, config, shardId, sessionId, InstrumentProvider.NOOP, listener);
+        var keepAlive = scheduledKeepAlive(heartbeatExecutor);
+
+        when(provider.keepAlive(any(SessionHeartbeat.class), any(Duration.class)))
+                .thenReturn(CompletableFuture.failedFuture(Status.UNAVAILABLE.asException()))
+                .thenThrow(new IllegalStateException("failed"));
+        keepAlive.run();
+        keepAlive.run();
+
+        verify(provider, times(2)).keepAlive(any(SessionHeartbeat.class), any(Duration.class));
+        verifyNoInteractions(listener);
+    }
+
+    @Test
+    void keepAliveExpiresTheSessionAfterTheTimeout() {
+        var heartbeatExecutor = mock(ScheduledExecutorService.class, RETURNS_MOCKS);
+        var provider = mock(RpcProvider.class);
+        var listener = mock(SessionNotificationListener.class);
+        var session =
+                new Session(
+                        heartbeatExecutor,
+                        provider,
+                        config(Duration.ZERO),
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        listener);
+        var keepAlive = scheduledKeepAlive(heartbeatExecutor);
+        lenient()
+                .when(provider.keepAlive(any(SessionHeartbeat.class), any(Duration.class)))
+                .thenReturn(new CompletableFuture<>());
+
+        await()
+                .untilAsserted(
+                        () -> {
+                            keepAlive.run();
+                            verify(listener).onSessionExpired(session);
+                        });
+    }
+
+    @Test
+    void noKeepAliveOnceClosed() {
+        var heartbeatExecutor = mock(ScheduledExecutorService.class, RETURNS_MOCKS);
+        var provider = mock(RpcProvider.class);
+        var session =
+                new Session(
+                        heartbeatExecutor,
+                        provider,
+                        config,
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        mock(SessionNotificationListener.class));
+        var keepAlive = scheduledKeepAlive(heartbeatExecutor);
+
+        session.detach();
+        session.detach();
+        keepAlive.run();
+
+        assertThat(session.isClosed()).isTrue();
+        verifyNoInteractions(provider);
+    }
+
+    @Test
+    void closeFailsWhenTheServerFailsIt() {
+        var provider = mock(RpcProvider.class);
+        when(provider.closeSession(any(CloseSessionRequest.class)))
+                .thenReturn(CompletableFuture.failedFuture(Status.UNAVAILABLE.asException()));
+        var session =
+                new Session(
+                        executor,
+                        provider,
+                        config,
+                        shardId,
+                        sessionId,
+                        InstrumentProvider.NOOP,
+                        mock(SessionNotificationListener.class));
+
+        assertThat(session.close())
+                .failsWithin(Duration.ofSeconds(5))
+                .withThrowableOfType(ExecutionException.class)
+                .withCauseInstanceOf(StatusException.class);
+    }
+
+    private static Runnable scheduledKeepAlive(ScheduledExecutorService heartbeatExecutor) {
+        var keepAlive = ArgumentCaptor.forClass(Runnable.class);
+        verify(heartbeatExecutor)
+                .scheduleAtFixedRate(keepAlive.capture(), anyLong(), anyLong(), eq(TimeUnit.MILLISECONDS));
+        return keepAlive.getValue();
+    }
+
+    private ClientConfig config(Duration sessionTimeout) {
+        return new ClientConfig(
+                "address",
+                Duration.ZERO,
+                1,
+                1024 * 1024,
+                256L * 1024 * 1024,
+                4,
+                4,
+                1,
+                sessionTimeout,
+                clientId,
+                null,
+                DefaultNamespace,
+                null,
+                false,
+                Duration.ofMillis(100),
+                Duration.ofSeconds(30),
+                Duration.ofSeconds(10),
+                Duration.ofSeconds(5),
+                1);
     }
 
     @Test

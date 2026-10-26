@@ -30,7 +30,6 @@ import io.oxia.proto.SessionHeartbeat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -213,19 +212,16 @@ public class Session {
                     rpcProvider
                             .closeSession(closeRequest)
                             .thenRun(() -> {})
-                            .exceptionally(
+                            .exceptionallyCompose(
                                     error -> {
                                         // A session the server no longer knows about is
                                         // already closed server-side: the goal of the close
                                         // is achieved, so tolerate it (as the Go client does).
                                         if (OxiaStatusException.from(error).getStatusCode()
                                                 == OxiaStatusCode.SESSION_NOT_FOUND) {
-                                            return null;
+                                            return CompletableFuture.completedFuture(null);
                                         }
-                                        if (error instanceof CompletionException completion) {
-                                            throw completion;
-                                        }
-                                        throw new CompletionException(error);
+                                        return CompletableFuture.failedFuture(error);
                                     });
         } catch (Throwable ex) {
             future = CompletableFuture.failedFuture(Throwables.getRootCause(ex));

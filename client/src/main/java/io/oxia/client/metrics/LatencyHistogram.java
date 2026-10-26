@@ -36,12 +36,6 @@ public class LatencyHistogram {
     private final Attributes failedAttributes;
     private final DoubleHistogram histogram;
 
-    private LatencyHistogram() {
-        successAttributes = null;
-        failedAttributes = null;
-        histogram = null;
-    }
-
     LatencyHistogram(
             Meter meter, String name, String description, String namespace, Attributes attributes) {
         DoubleHistogramBuilder builder =
@@ -58,21 +52,6 @@ public class LatencyHistogram {
         successAttributes = attributes.toBuilder().put("oxia.response.status", "success").build();
         failedAttributes = attributes.toBuilder().put("oxia.response.status", "failed").build();
         this.histogram = builder.build();
-    }
-
-    private LatencyHistogram(
-            DoubleHistogram histogram, Attributes successAttributes, Attributes failedAttributes) {
-        this.histogram = histogram;
-        this.successAttributes = successAttributes;
-        this.failedAttributes = failedAttributes;
-    }
-
-    /** Create a new histograms that inherits the old histograms attributes and adds new ones. */
-    public LatencyHistogram withAttributes(Attributes attributes) {
-        return new LatencyHistogram(
-                histogram,
-                successAttributes.toBuilder().putAll(attributes).build(),
-                failedAttributes.toBuilder().putAll(attributes).build());
     }
 
     public void recordSuccess(long latencyNanos) {

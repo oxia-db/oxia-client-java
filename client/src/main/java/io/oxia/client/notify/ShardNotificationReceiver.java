@@ -138,10 +138,6 @@ public class ShardNotificationReceiver implements Closeable {
     }
 
     private void handleError(Throwable t) {
-        if (closed) {
-            return;
-        }
-
         var code = Status.fromThrowable(getRootCause(t)).getCode();
         // The server resets the stream with CANCEL when its deadline timer fires first
         if (code == Status.Code.DEADLINE_EXCEEDED || code == Status.Code.CANCELLED) {
@@ -160,22 +156,11 @@ public class ShardNotificationReceiver implements Closeable {
     }
 
     private void handleCompleted() {
-        if (!closed) {
-            scheduleRestart(0);
-        }
+        scheduleRestart(0);
     }
 
     private void scheduleRestart(long delayMillis) {
-        notificationManager
-                .getExecutor()
-                .schedule(
-                        () -> {
-                            if (!closed) {
-                                start();
-                            }
-                        },
-                        delayMillis,
-                        TimeUnit.MILLISECONDS);
+        notificationManager.getExecutor().schedule(this::start, delayMillis, TimeUnit.MILLISECONDS);
     }
 
     @RequiredArgsConstructor(access = PACKAGE)

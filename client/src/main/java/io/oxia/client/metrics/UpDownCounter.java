@@ -54,8 +54,4 @@ public class UpDownCounter {
     public void add(long delta) {
         counter.add(delta, attributes);
     }
-
-    public void subtract(long diff) {
-        add(-diff);
-    }
 }

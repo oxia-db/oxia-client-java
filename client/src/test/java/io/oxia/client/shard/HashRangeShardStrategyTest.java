@@ -16,6 +16,7 @@
 package io.oxia.client.shard;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -116,5 +117,13 @@ class HashRangeShardStrategyTest {
                 assertThat(router.getShardForKey(key)).isEqualTo(expected);
             }
         }
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        assertThatThrownBy(() -> keyAsHashStrategy.acceptsKeyPredicate(null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> keyAsHashStrategy.createRouter(null))
+                .isInstanceOf(NullPointerException.class);
     }
 }

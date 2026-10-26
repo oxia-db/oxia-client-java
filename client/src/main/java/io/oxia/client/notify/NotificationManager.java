@@ -54,10 +54,10 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
     @Getter private final Counter counterNotificationsBatchesReceived;
 
     public NotificationManager(
-            @NonNull ScheduledExecutorService executor,
-            @NonNull RpcProvider rpcProvider,
-            @NonNull ShardManager shardManager,
-            @NonNull InstrumentProvider instrumentProvider) {
+            ScheduledExecutorService executor,
+            RpcProvider rpcProvider,
+            ShardManager shardManager,
+            InstrumentProvider instrumentProvider) {
         this(
                 executor,
                 new ShardNotificationReceiver.Factory(rpcProvider),
@@ -121,7 +121,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                         Set.copyOf(shardManager.allShards()), Collections.emptySet(), Collections.emptySet()));
     }
 
-    private void connectNotificationReceivers(@NonNull ShardAssignmentChanges changes) {
+    private void connectNotificationReceivers(ShardAssignmentChanges changes) {
         changes
                 .removed()
                 .forEach(

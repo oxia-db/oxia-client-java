@@ -23,9 +23,11 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -53,6 +55,7 @@ import io.oxia.client.shard.ShardManager.ShardAssignmentChanges;
 import io.oxia.proto.NotificationBatch;
 import io.oxia.proto.NotificationsRequest;
 import io.oxia.proto.OxiaClientGrpc;
+import java.util.List;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -249,6 +252,103 @@ class NotificationManagerTest {
             verify(receiver3).close();
             verify(receiverFactory).newReceiver(1L, manager, OptionalLong.empty());
             verify(receiverFactory).newReceiver(2L, manager, OptionalLong.empty());
+        }
+
+        @Test
+        void rejectsNullArguments() {
+            assertThatThrownBy(
+                            () ->
+                                    new NotificationManager(
+                                            null, receiverFactory, shardManager, InstrumentProvider.NOOP))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () ->
+                                    new NotificationManager(
+                                            executor,
+                                            (ShardNotificationReceiver.Factory) null,
+                                            shardManager,
+                                            InstrumentProvider.NOOP))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () ->
+                                    new NotificationManager(executor, receiverFactory, null, InstrumentProvider.NOOP))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () -> new NotificationManager(executor, receiverFactory, shardManager, null))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(
+                            () ->
+                                    new NotificationManager(
+                                            executor, (RpcProvider) null, shardManager, InstrumentProvider.NOOP))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> manager.accept(null)).isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> manager.registerCallback(null))
+                    .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        void concurrentFirstRegistrationsStartOnce() throws Exception {
+            var second = new Thread(() -> manager.registerCallback(n -> {}));
+            when(shardManager.allShards())
+                    .thenAnswer(
+                            invocation -> {
+                                second.start();
+                                await().until(() -> second.getState() == Thread.State.BLOCKED);
+                                return Set.of(new Shard(1L, "leader1", r));
+                            });
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+
+            manager.registerCallback(n -> {});
+            second.join();
+            manager.registerCallback(n -> {});
+
+            verify(receiverFactory, times(1)).newReceiver(1L, manager, OptionalLong.empty());
+            verify(shardManager, times(1)).allShards();
+        }
+
+        @Test
+        void acceptSplitShard() {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(1L)).thenReturn(List.of(2L, 3L));
+            when(receiver1.getOffset()).thenReturn(OptionalLong.of(7));
+
+            manager.accept(
+                    new ShardAssignmentChanges(
+                            Set.of(new Shard(2L, "leader1", r), new Shard(3L, "leader1", r)),
+                            Set.of(new Shard(1L, "leader1", r)),
+                            Set.of()));
+
+            verify(receiver1).close();
+            verify(receiverFactory).newReceiver(2L, manager, OptionalLong.of(7));
+            verify(receiverFactory).newReceiver(3L, manager, OptionalLong.of(7));
+        }
+
+        @Test
+        void acceptRemovedShardWithoutSuccessors() {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(1L)).thenReturn(List.of());
+
+            manager.accept(
+                    new ShardAssignmentChanges(Set.of(), Set.of(new Shard(1L, "leader1", r)), Set.of()));
+
+            verify(receiver1).close();
+            verify(receiverFactory, times(1)).newReceiver(anyLong(), any(), any());
+        }
+
+        @Test
+        void closeTwice() throws Exception {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            manager.registerCallback(n -> {});
+
+            manager.close();
+            manager.close();
+
+            verify(receiver1, times(1)).close();
         }
 
         @Test
