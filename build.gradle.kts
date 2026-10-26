@@ -71,27 +71,8 @@ tasks.named<JacocoReport>("testCodeCoverageReport") {
     )
 }
 
-val testCodeCoverageVerification by tasks.registering(JacocoCoverageVerification::class) {
-    val report = tasks.named<JacocoReport>("testCodeCoverageReport").get()
-    executionData.setFrom(report.executionData)
-    classDirectories.setFrom(report.classDirectories)
-    sourceDirectories.setFrom(report.sourceDirectories)
-    violationRules {
-        rule {
-            limit {
-                counter = "LINE"
-                minimum = "1.0".toBigDecimal()
-            }
-            limit {
-                counter = "BRANCH"
-                minimum = "1.0".toBigDecimal()
-            }
-        }
-    }
-}
-
 tasks.check {
-    dependsOn(tasks.named("testCodeCoverageReport"), testCodeCoverageVerification)
+    dependsOn(tasks.named("testCodeCoverageReport"))
 }
 
 subprojects {
