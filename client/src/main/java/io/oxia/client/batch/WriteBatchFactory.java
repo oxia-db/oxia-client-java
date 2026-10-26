@@ -34,9 +34,9 @@ class WriteBatchFactory extends BatchFactory {
     private final ConcurrentMap<Long, DispatchWindow> windows = new ConcurrentHashMap<>();
 
     public WriteBatchFactory(
-            @NonNull RpcProvider rpcProvider,
+            RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
-            @NonNull ClientConfig config,
+            ClientConfig config,
             @NonNull InstrumentProvider instrumentProvider) {
         super(rpcProvider, config);
         this.sessionManager = sessionManager;

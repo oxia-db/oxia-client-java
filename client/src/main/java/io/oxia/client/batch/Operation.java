@@ -165,19 +165,19 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             }
 
             public PutOperation(
-                    @NonNull BatchManager batchManager,
+                    BatchManager batchManager,
                     long shardId,
-                    @NonNull CompletableFuture<PutResult> callback,
-                    @NonNull String key,
-                    @NonNull Optional<String> partitionKey,
-                    @NonNull Optional<List<Long>> sequenceKeysDeltas,
-                    byte @NonNull [] value,
-                    @NonNull OptionalLong expectedVersionId,
-                    @NonNull Optional<Session> session,
+                    CompletableFuture<PutResult> callback,
+                    String key,
+                    Optional<String> partitionKey,
+                    Optional<List<Long>> sequenceKeysDeltas,
+                    byte[] value,
+                    OptionalLong expectedVersionId,
+                    Optional<Session> session,
                     Optional<String> clientIdentifier,
                     List<OptionSecondaryIndex> secondaryIndexes,
-                    @NonNull OptionalLong overrideVersionId,
-                    @NonNull OptionalLong overrideModificationsCount) {
+                    OptionalLong overrideVersionId,
+                    OptionalLong overrideModificationsCount) {
                 this(
                         batchManager,
                         shardId,
@@ -288,19 +288,19 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
             }
 
             public DeleteOperation(
-                    @NonNull BatchManager batchManager,
+                    BatchManager batchManager,
                     long shardId,
-                    @NonNull CompletableFuture<Boolean> callback,
-                    @NonNull String key,
-                    @NonNull OptionalLong expectedVersionId) {
+                    CompletableFuture<Boolean> callback,
+                    String key,
+                    OptionalLong expectedVersionId) {
                 this(batchManager, shardId, callback, key, expectedVersionId, ByteBufUtil.utf8Bytes(key));
             }
 
             public DeleteOperation(
-                    @NonNull BatchManager batchManager,
+                    BatchManager batchManager,
                     long shardId,
-                    @NonNull CompletableFuture<Boolean> callback,
-                    @NonNull String key) {
+                    CompletableFuture<Boolean> callback,
+                    String key) {
                 this(batchManager, shardId, callback, key, OptionalLong.empty());
             }
         }
@@ -315,11 +315,11 @@ public sealed interface Operation<R> permits ReadOperation, WriteOperation {
                 implements WriteOperation<Void> {
 
             public DeleteRangeOperation(
-                    @NonNull BatchManager batchManager,
+                    BatchManager batchManager,
                     long shardId,
-                    @NonNull CompletableFuture<Void> callback,
-                    @NonNull String startKeyInclusive,
-                    @NonNull String endKeyExclusive) {
+                    CompletableFuture<Void> callback,
+                    String startKeyInclusive,
+                    String endKeyExclusive) {
                 this(
                         batchManager,
                         shardId,

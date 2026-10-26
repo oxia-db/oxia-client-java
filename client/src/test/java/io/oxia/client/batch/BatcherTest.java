@@ -16,11 +16,16 @@
 package io.oxia.client.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,10 +34,12 @@ import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.GetResult;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
+import io.oxia.client.grpc.OxiaStatusException;
 import io.oxia.client.options.GetOptions;
 import io.oxia.proto.KeyComparisonType;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,6 +106,7 @@ class BatcherTest {
     void singleOperationIsFlushedImmediately() {
         var op = newOp(1L);
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(1);
@@ -117,6 +125,7 @@ class BatcherTest {
     @Test
     void sendBatchWhenFull() {
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(config.maxRequestsPerBatch());
@@ -130,6 +139,7 @@ class BatcherTest {
     void sealBatchWhenOperationDoesNotFit() {
         var op = newOp(1L);
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(false);
         when(batch.size()).thenReturn(1);
@@ -150,6 +160,8 @@ class BatcherTest {
     void groupOperationsByShard() {
         var batch2 = mock(Batch.class);
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(anyLong()))
+                .thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batchFactory.getBatch(2L)).thenReturn(batch2);
         when(batch.canAdd(any())).thenReturn(true);
@@ -179,6 +191,7 @@ class BatcherTest {
         var op1 = newOp(1L);
         var op2 = newOp(1L);
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(1L)).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         doThrow(new RuntimeException("add failed")).when(batch).add(op1);
@@ -296,5 +309,194 @@ class BatcherTest {
         add(newOp(2L));
         await().untilAsserted(() -> verify(shard2Batch).send());
         verify(batch, times(1)).send();
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        assertThatThrownBy(() -> batcher.add(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> batcher.closeFactory(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void addWhileInterruptedFailsAndKeepsTheInterrupt() {
+        var op = newOp(1L);
+        Thread.currentThread().interrupt();
+
+        assertThatThrownBy(() -> add(op))
+                .isInstanceOf(RuntimeException.class)
+                .hasCauseInstanceOf(InterruptedException.class);
+        assertThat(Thread.interrupted()).isTrue();
+    }
+
+    @Test
+    void closeWhileInterruptedKeepsTheInterrupt() {
+        Thread.currentThread().interrupt();
+
+        batcher.close();
+
+        assertThat(Thread.interrupted()).isTrue();
+    }
+
+    @Test
+    void closeFactoryAfterCloseCompletesImmediately() {
+        batcher.close();
+
+        assertThat(batcher.closeFactory(batchFactory)).isCompleted();
+    }
+
+    @Test
+    void operationLargerThanAnEmptyBatchIsAddedToIt() {
+        var op = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(false);
+        when(batch.size()).thenReturn(0, 1);
+
+        add(op);
+
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op);
+                            verify(batch).send();
+                        });
+        verify(batchFactory).getBatch(1L);
+    }
+
+    @Test
+    void failureToOpenABatchFailsOnlyThatOperation() {
+        var op1 = newOp(1L);
+        var op2 = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenThrow(new RuntimeException("no batch")).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+
+        add(op1);
+        await().untilAsserted(() -> assertThat(op1.callback()).isCompletedExceptionally());
+
+        add(op2);
+        await()
+                .untilAsserted(
+                        () -> {
+                            verify(batch).add(op2);
+                            verify(batch).send();
+                        });
+    }
+
+    @Test
+    void failedOperationKeepsTheOtherOperationsOfItsBatch() {
+        var op1 = newOp(1L);
+        var op2 = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        doAnswer(
+                        inv -> {
+                            add(op2);
+                            return null;
+                        })
+                .when(batch)
+                .add(op1);
+        doThrow(new RuntimeException("add failed")).when(batch).add(op2);
+
+        add(op1);
+
+        await().untilAsserted(() -> verify(batch).send());
+        assertThat(op2.callback()).isCompletedExceptionally();
+        verify(batchFactory).getBatch(1L);
+    }
+
+    @Test
+    void closeFactoryFailsItsOpenBatches() {
+        var op = newOp(1L);
+        var factoryClosed = new AtomicReference<CompletableFuture<Void>>();
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        doAnswer(
+                        inv -> {
+                            factoryClosed.set(batcher.closeFactory(batchFactory));
+                            return null;
+                        })
+                .when(batch)
+                .add(op);
+
+        add(op);
+
+        await().untilAsserted(() -> assertThat(factoryClosed.get()).isNotNull().isCompleted());
+        verify(batch).fail(any(OxiaStatusException.class));
+        verify(batch, never()).send();
+    }
+
+    @Test
+    void closeFailsOpenBatchesAndQueuedCommands() throws Exception {
+        var op1 = newOp(1L);
+        var op2 = newOp(1L);
+        var factoryClosed = new AtomicReference<CompletableFuture<Void>>();
+        var closer = new Thread(batcher::close);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        doAnswer(
+                        inv -> {
+                            add(op2);
+                            factoryClosed.set(batcher.closeFactory(batchFactory));
+                            closer.start();
+                            while (!Thread.currentThread().isInterrupted()) {
+                                Thread.onSpinWait();
+                            }
+                            return null;
+                        })
+                .when(batch)
+                .add(op1);
+
+        add(op1);
+
+        await().untilAsserted(() -> assertThat(factoryClosed.get()).isNotNull().isCompleted());
+        closer.join();
+        verify(batch).fail(any(OxiaStatusException.class));
+        verify(batch, never()).send();
+        assertThat(op2.callback()).isCompletedExceptionally();
+    }
+
+    @Test
+    void parkedBatchIsReclaimedByTheNextOperation() {
+        var window = spy(new DispatchWindow(1));
+        var batch2 = mock(Batch.class);
+        var op3 = newOp(1L);
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(window);
+        when(batchFactory.getBatch(1L)).thenReturn(batch, batch2);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        when(batch2.canAdd(any())).thenReturn(true);
+        when(batch2.size()).thenReturn(1, 2);
+        lenient()
+                .doAnswer(
+                        inv -> {
+                            inv.callRealMethod();
+                            add(op3);
+                            return null;
+                        })
+                .doCallRealMethod()
+                .when(window)
+                .sendOrPark(batch2);
+
+        add(newOp(1L));
+        await().untilAsserted(() -> verify(batch).send());
+
+        add(newOp(1L));
+        await().untilAsserted(() -> verify(batch2).add(op3));
+        verify(batchFactory, times(2)).getBatch(1L);
+        verify(batch2, never()).send();
     }
 }

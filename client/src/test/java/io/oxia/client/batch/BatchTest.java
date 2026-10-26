@@ -84,6 +84,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -883,5 +884,94 @@ class BatchTest {
                 assertThat(batch.getShardId()).isEqualTo(shardId);
             }
         }
+    }
+
+    @Test
+    void writeBatchAcceptsOperationsUpToItsMaxSize() {
+        var factory =
+                new WriteBatchFactory(
+                        mock(RpcProvider.class), sessionManager, config, InstrumentProvider.NOOP);
+        var batch = new WriteBatch(factory, clientByShardId, sessionManager, shardId, 3);
+        var delete = new DeleteOperation(batchManager, shardId, new CompletableFuture<>(), "ab");
+
+        assertThat(batch.canAdd(delete)).isTrue();
+        batch.add(delete);
+        assertThat(batch.canAdd(delete)).isFalse();
+    }
+
+    @Test
+    void readBatchAcceptsAnyOperation() {
+        var factory = new ReadBatchFactory(mock(RpcProvider.class), config, InstrumentProvider.NOOP);
+        var batch = new ReadBatch(factory, clientByShardId, shardId);
+        var get =
+                new GetOperation(
+                        batchManager,
+                        shardId,
+                        new CompletableFuture<>(),
+                        "k",
+                        new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+
+        assertThat(batch.canAdd(get)).isTrue();
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var rpc = mock(RpcProvider.class);
+        var metrics = InstrumentProvider.NOOP;
+        var readFactory = new ReadBatchFactory(rpc, config, metrics);
+        var writeFactory = new WriteBatchFactory(rpc, sessionManager, config, metrics);
+        var readBatch = new ReadBatch(readFactory, rpc, shardId);
+        var writeBatch = new WriteBatch(writeFactory, rpc, sessionManager, shardId, 1024);
+        List.<ThrowingCallable>of(
+                        () -> new ReadBatchFactory(rpc, config, null),
+                        () -> new WriteBatchFactory(rpc, null, config, metrics),
+                        () -> new WriteBatchFactory(rpc, sessionManager, config, null),
+                        () -> new ReadBatch(readFactory, null, shardId),
+                        () -> readBatch.canAdd(null),
+                        () -> readBatch.add(null),
+                        () -> readBatch.fail(null),
+                        () -> new WriteBatch(null, rpc, sessionManager, shardId, 1024),
+                        () -> new WriteBatch(writeFactory, rpc, null, shardId, 1024),
+                        () -> writeBatch.sizeOf(null),
+                        () -> writeBatch.add(null),
+                        () -> writeBatch.canAdd(null),
+                        () -> writeBatch.fail(null))
+                .forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
+    }
+
+    @Test
+    void readFactoryFailsTheBatchesHeldBackByItsWindows() {
+        var factory = new ReadBatchFactory(mock(RpcProvider.class), config, InstrumentProvider.NOOP);
+        var window = factory.getDispatchWindow(shardId);
+        for (int i = 0; i < config.maxReadBatchesInFlight(); i++) {
+            window.send(mock(Batch.class));
+        }
+        var parked = mock(Batch.class);
+        window.sendOrPark(parked);
+        var error = new RuntimeException("closed");
+
+        factory.failWindows(error);
+
+        verify(parked).fail(error);
+        verify(parked, never()).send();
+    }
+
+    @Test
+    void writeFactoryFailsTheBatchesHeldBackByItsWindows() {
+        var factory =
+                new WriteBatchFactory(
+                        mock(RpcProvider.class), sessionManager, config, InstrumentProvider.NOOP);
+        var window = factory.getDispatchWindow(shardId);
+        for (int i = 0; i < config.maxWriteBatchesInFlight(); i++) {
+            window.send(mock(Batch.class));
+        }
+        var parked = mock(Batch.class);
+        window.sendOrPark(parked);
+        var error = new RuntimeException("closed");
+
+        factory.failWindows(error);
+
+        verify(parked).fail(error);
+        verify(parked, never()).send();
     }
 }

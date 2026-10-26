@@ -25,6 +25,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -35,6 +36,7 @@ import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
 import io.oxia.client.api.exceptions.UnknownException;
+import io.oxia.client.api.options.defs.OptionSecondaryIndex;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteRangeOperation;
@@ -53,16 +55,22 @@ import io.oxia.proto.KeyComparisonType;
 import io.oxia.proto.PutRequest;
 import io.oxia.proto.PutResponse;
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -772,5 +780,404 @@ class OperationTest {
             op.complete(response);
             assertFailedWithUnknown(callback, "GRPC.Status: UNRECOGNIZED(99)");
         }
+    }
+
+    private static PutOperation put(
+            BatchManager batchManager,
+            CompletableFuture<PutResult> callback,
+            String key,
+            Optional<String> partitionKey,
+            Optional<List<Long>> sequenceKeysDeltas,
+            byte[] value,
+            OptionalLong expectedVersionId,
+            Optional<Session> session,
+            OptionalLong overrideVersionId,
+            OptionalLong overrideModificationsCount) {
+        return new PutOperation(
+                batchManager,
+                1L,
+                callback,
+                key,
+                partitionKey,
+                sequenceKeysDeltas,
+                value,
+                expectedVersionId,
+                session,
+                Optional.empty(),
+                Collections.emptyList(),
+                overrideVersionId,
+                overrideModificationsCount,
+                0);
+    }
+
+    static Stream<Arguments> nullArguments() {
+        var putCallback = new CompletableFuture<PutResult>();
+        var deleteCallback = new CompletableFuture<Boolean>();
+        Optional<String> noString = Optional.empty();
+        Optional<List<Long>> noDeltas = Optional.empty();
+        Optional<Session> noSession = Optional.empty();
+        var noVersion = OptionalLong.empty();
+        var value = new byte[0];
+        var get =
+                new GetOperation(
+                        batchManager,
+                        1L,
+                        new CompletableFuture<>(),
+                        "k",
+                        new GetOptions(null, true, KeyComparisonType.EQUAL, null));
+        var putOp =
+                put(
+                        batchManager,
+                        putCallback,
+                        "k",
+                        noString,
+                        noDeltas,
+                        value,
+                        noVersion,
+                        noSession,
+                        noVersion,
+                        noVersion);
+        var delete = new DeleteOperation(batchManager, 1L, deleteCallback, "k");
+        var deleteRange =
+                new DeleteRangeOperation(batchManager, 1L, new CompletableFuture<>(), "a", "b");
+        return Stream.of(
+                arguments(
+                        "put batchManager",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                null,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put callback",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                null,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put key",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                null,
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put partitionKey",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                null,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put sequenceKeysDeltas",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                null,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put value",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                null,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put expectedVersionId",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                null,
+                                                noSession,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put session",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                null,
+                                                noVersion,
+                                                noVersion)),
+                arguments(
+                        "put overrideVersionId",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                null,
+                                                noVersion)),
+                arguments(
+                        "put overrideModificationsCount",
+                        (ThrowingCallable)
+                                () ->
+                                        put(
+                                                batchManager,
+                                                putCallback,
+                                                "k",
+                                                noString,
+                                                noDeltas,
+                                                value,
+                                                noVersion,
+                                                noSession,
+                                                noVersion,
+                                                null)),
+                arguments(
+                        "delete batchManager",
+                        (ThrowingCallable)
+                                () -> new DeleteOperation(null, 1L, deleteCallback, "k", noVersion, 0)),
+                arguments(
+                        "delete callback",
+                        (ThrowingCallable)
+                                () -> new DeleteOperation(batchManager, 1L, null, "k", noVersion, 0)),
+                arguments(
+                        "delete key",
+                        (ThrowingCallable)
+                                () -> new DeleteOperation(batchManager, 1L, deleteCallback, null, noVersion, 0)),
+                arguments(
+                        "delete expectedVersionId",
+                        (ThrowingCallable)
+                                () -> new DeleteOperation(batchManager, 1L, deleteCallback, "k", null, 0)),
+                arguments("get complete", (ThrowingCallable) () -> get.complete(null)),
+                arguments("put complete", (ThrowingCallable) () -> putOp.complete(null)),
+                arguments("delete complete", (ThrowingCallable) () -> delete.complete(null)),
+                arguments("delete range complete", (ThrowingCallable) () -> deleteRange.complete(null)));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("nullArguments")
+    void rejectsNullArguments(String argument, ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOf(NullPointerException.class);
+    }
+
+    @Nested
+    @DisplayName("Tests of put operation fields")
+    class PutOperationFieldTests {
+        CompletableFuture<PutResult> callback = new CompletableFuture<>();
+        Optional<Session> noSession = Optional.empty();
+        OptionalLong noVersion = OptionalLong.empty();
+
+        @Test
+        void sequenceKeysRejectExpectedVersionId() {
+            assertThatThrownBy(
+                            () ->
+                                    put(
+                                            batchManager,
+                                            callback,
+                                            "k",
+                                            Optional.of("pk"),
+                                            Optional.of(List.of(1L)),
+                                            new byte[0],
+                                            OptionalLong.of(1),
+                                            noSession,
+                                            noVersion,
+                                            noVersion))
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.INVALID_ARGUMENT));
+        }
+
+        @Test
+        void sequenceKeysRequirePartitionKey() {
+            assertThatThrownBy(
+                            () ->
+                                    put(
+                                            batchManager,
+                                            callback,
+                                            "k",
+                                            Optional.empty(),
+                                            Optional.of(List.of(1L)),
+                                            new byte[0],
+                                            noVersion,
+                                            noSession,
+                                            noVersion,
+                                            noVersion))
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.INVALID_ARGUMENT));
+        }
+
+        @Test
+        void toProtoSequenceKeysAndSecondaryIndexes() {
+            var op =
+                    new PutOperation(
+                            batchManager,
+                            1L,
+                            callback,
+                            "k",
+                            Optional.of("pk"),
+                            Optional.of(List.of(1L, 2L)),
+                            new byte[0],
+                            noVersion,
+                            noSession,
+                            Optional.empty(),
+                            List.of(new OptionSecondaryIndex("idx", "sk")),
+                            noVersion,
+                            noVersion);
+            var request = new PutRequest();
+            op.toProto(request);
+            assertThat(request.getPartitionKey()).isEqualTo("pk");
+            assertThat(request.getSequenceKeyDeltasCount()).isEqualTo(2);
+            assertThat(request.getSequenceKeyDeltaAt(1)).isEqualTo(2L);
+            assertThat(request.getSecondaryIndexesCount()).isEqualTo(1);
+            assertThat(request.getSecondaryIndexeAt(0).getIndexName()).isEqualTo("idx");
+            assertThat(request.getSecondaryIndexeAt(0).getSecondaryKey()).isEqualTo("sk");
+        }
+
+        @Test
+        void equalityCoversKeyValueAndExpectedVersionId() {
+            var op =
+                    put(
+                            batchManager,
+                            callback,
+                            "k",
+                            Optional.empty(),
+                            Optional.empty(),
+                            new byte[] {1},
+                            OptionalLong.of(1),
+                            noSession,
+                            noVersion,
+                            noVersion);
+            var same =
+                    put(
+                            batchManager,
+                            new CompletableFuture<>(),
+                            "k",
+                            Optional.of("pk"),
+                            Optional.empty(),
+                            new byte[] {1},
+                            OptionalLong.of(1),
+                            noSession,
+                            noVersion,
+                            noVersion);
+            var otherKey =
+                    put(
+                            batchManager,
+                            callback,
+                            "j",
+                            Optional.empty(),
+                            Optional.empty(),
+                            new byte[] {1},
+                            OptionalLong.of(1),
+                            noSession,
+                            noVersion,
+                            noVersion);
+            var otherValue =
+                    put(
+                            batchManager,
+                            callback,
+                            "k",
+                            Optional.empty(),
+                            Optional.empty(),
+                            new byte[] {2},
+                            OptionalLong.of(1),
+                            noSession,
+                            noVersion,
+                            noVersion);
+            var otherVersion =
+                    put(
+                            batchManager,
+                            callback,
+                            "k",
+                            Optional.empty(),
+                            Optional.empty(),
+                            new byte[] {1},
+                            OptionalLong.of(2),
+                            noSession,
+                            noVersion,
+                            noVersion);
+
+            assertThat(op.equals(op)).isTrue();
+            assertThat(op.equals(same)).isTrue();
+            assertThat(op.hashCode()).isEqualTo(same.hashCode());
+            assertThat(op.equals(null)).isFalse();
+            assertThat(op.equals("k")).isFalse();
+            assertThat(op.equals(otherKey)).isFalse();
+            assertThat(op.equals(otherValue)).isFalse();
+            assertThat(op.equals(otherVersion)).isFalse();
+        }
+    }
+
+    @Test
+    void getToProtoSecondaryIndexName() {
+        var op =
+                new GetOperation(
+                        batchManager,
+                        1L,
+                        new CompletableFuture<>(),
+                        "k",
+                        new GetOptions(null, true, KeyComparisonType.EQUAL, "idx"));
+        var request = new GetRequest();
+        op.toProto(request);
+        assertThat(request.getSecondaryIndexName()).isEqualTo("idx");
     }
 }

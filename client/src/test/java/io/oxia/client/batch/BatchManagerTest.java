@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,10 +31,15 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.grpc.OxiaStatusCode;
 import io.oxia.client.grpc.OxiaStatusException;
+import io.oxia.client.grpc.RpcProvider;
+import io.oxia.client.metrics.InstrumentProvider;
 import io.oxia.client.options.GetOptions;
+import io.oxia.client.session.SessionManager;
 import io.oxia.proto.KeyComparisonType;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -94,6 +101,8 @@ class BatchManagerTest {
     @Test
     void routesOperationsByShard() {
         when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(anyLong()))
+                .thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(batchFactory.getBatch(anyLong())).thenReturn(batch);
         when(batch.canAdd(any())).thenReturn(true);
         when(batch.size()).thenReturn(1);
@@ -125,5 +134,58 @@ class BatchManagerTest {
     void closeFailsWindowHeldBatches() throws Exception {
         manager.close();
         verify(batchFactory).failWindows(any(OxiaStatusException.class));
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        var rpc = mock(RpcProvider.class);
+        var sessions = mock(SessionManager.class);
+        var metrics = InstrumentProvider.NOOP;
+        List.<ThrowingCallable>of(
+                        () -> new BatchManager(null, pool, false),
+                        () -> new BatchManager(batchFactory, null, false),
+                        () -> manager.add(null),
+                        () -> BatchManager.newReadBatchManager(null, rpc, metrics, pool, false),
+                        () -> BatchManager.newReadBatchManager(config, null, metrics, pool, false),
+                        () -> BatchManager.newReadBatchManager(config, rpc, null, pool, false),
+                        () -> BatchManager.newReadBatchManager(config, rpc, metrics, null, false),
+                        () -> BatchManager.newWriteBatchManager(null, rpc, sessions, metrics, pool, false),
+                        () -> BatchManager.newWriteBatchManager(config, null, sessions, metrics, pool, false),
+                        () -> BatchManager.newWriteBatchManager(config, rpc, null, metrics, pool, false),
+                        () -> BatchManager.newWriteBatchManager(config, rpc, sessions, null, pool, false),
+                        () -> BatchManager.newWriteBatchManager(config, rpc, sessions, metrics, null, false))
+                .forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
+    }
+
+    @Test
+    void createsReadAndWriteManagers() {
+        var rpc = mock(RpcProvider.class);
+        assertThat(
+                        BatchManager.newReadBatchManager(config, rpc, InstrumentProvider.NOOP, pool, false)
+                                .factory())
+                .isInstanceOf(ReadBatchFactory.class);
+        assertThat(
+                        BatchManager.newWriteBatchManager(
+                                        config, rpc, mock(SessionManager.class), InstrumentProvider.NOOP, pool, false)
+                                .factory())
+                .isInstanceOf(WriteBatchFactory.class);
+    }
+
+    @Test
+    void closingAClientOfASharedPoolKeepsThePoolRunning() throws Exception {
+        when(batchFactory.getConfig()).thenReturn(config);
+        when(batchFactory.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(batchFactory.getBatch(1L)).thenReturn(batch);
+        when(batch.canAdd(any())).thenReturn(true);
+        when(batch.size()).thenReturn(1);
+        var otherFactory = mock(BatchFactory.class);
+        var other = new BatchManager(otherFactory, pool, false);
+
+        other.close();
+        other.close();
+
+        verify(otherFactory, times(1)).failWindows(any(OxiaStatusException.class));
+        manager.add(newOp(1L));
+        await().untilAsserted(() -> verify(batch).send());
     }
 }

@@ -48,9 +48,7 @@ final class ReadBatch extends BatchBase implements Batch, StreamObserver<ReadRes
     }
 
     public void add(@NonNull Operation<?> operation) {
-        if (operation instanceof Operation.ReadOperation.GetOperation g) {
-            gets.add(g);
-        }
+        gets.add((Operation.ReadOperation.GetOperation) operation);
     }
 
     @Override
