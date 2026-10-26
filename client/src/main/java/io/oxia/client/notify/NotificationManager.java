@@ -178,7 +178,7 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (closed) {
             return;
         }

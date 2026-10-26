@@ -56,7 +56,7 @@ public class BatchManager implements AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (closed) {
             return;
         }

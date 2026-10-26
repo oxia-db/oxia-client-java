@@ -109,14 +109,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                             if (!healthCheckInProgress.compareAndSet(false, true)) {
                                 return;
                             }
-                            try {
-                                this.healthStub
-                                        .withDeadlineAfter(
-                                                clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
-                                        .check(HealthCheckRequest.newBuilder().build(), this);
-                            } catch (RuntimeException e) {
-                                onError(e);
-                            }
+                            this.healthStub
+                                    .withDeadlineAfter(
+                                            clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
+                                    .check(HealthCheckRequest.newBuilder().build(), this);
                         },
                         clientConfig.connectionKeepAliveTime().toMillis(),
                         clientConfig.connectionKeepAliveTime().toMillis(),

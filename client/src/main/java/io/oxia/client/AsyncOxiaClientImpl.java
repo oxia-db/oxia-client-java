@@ -71,7 +71,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import lombok.NonNull;
 
@@ -81,12 +80,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         final ScheduledExecutorService asyncExecutor =
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client-async"));
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
-        var shardManagerRef = new AtomicReference<ShardManager>();
-        var rpcProvider =
-                RpcProvider.create(config, asyncExecutor, shardId -> shardManagerRef.get().leader(shardId));
-        var shardManager =
-                new ShardManager(asyncExecutor, rpcProvider, instrumentProvider, config.namespace());
-        shardManagerRef.set(shardManager);
+        var shardManager = new ShardManager(asyncExecutor, instrumentProvider, config.namespace());
+        var rpcProvider = RpcProvider.create(config, asyncExecutor, shardManager::leader);
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);
@@ -120,14 +115,10 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         // event loop that reports the failure: closing waits for the client's connections to shut
         // down, which needs that event loop.
         return shardManager
-                .start()
+                .start(rpcProvider)
                 .exceptionallyComposeAsync(
                         error -> {
-                            try {
-                                client.close();
-                            } catch (Exception e) {
-                                error.addSuppressed(e);
-                            }
+                            client.close();
                             return CompletableFuture.failedFuture(error);
                         })
                 .thenApply(v -> client);
@@ -665,41 +656,34 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(
+                        v -> {
+                            List<GetResult> results =
+                                    futures.stream()
+                                            .map(CompletableFuture::join)
+                                            .filter(Objects::nonNull)
+                                            // Through an index, order the records by their secondary key,
+                                            // then by their primary key, as the shards do
+                                            .sorted(
+                                                    Comparator.comparing(
+                                                                    (GetResult r) -> r.secondaryIndexKey().orElse(""),
+                                                                    CompareWithSlash.INSTANCE)
+                                                            .thenComparing(GetResult::key, CompareWithSlash.INSTANCE))
+                                            .toList();
+                            if (results.isEmpty()) {
+                                return null;
+                            }
+                            return switch (options.comparisonType()) {
+                                case FLOOR, LOWER -> results.get(results.size() - 1);
+                                default -> results.get(0);
+                            };
+                        })
                 .whenComplete(
-                        (v, ex) -> {
+                        (gr, ex) -> {
                             if (ex != null) {
                                 result.completeExceptionally(ex);
-                                return;
-                            }
-
-                            try {
-                                List<GetResult> results =
-                                        futures.stream()
-                                                .map(CompletableFuture::join)
-                                                .filter(Objects::nonNull)
-                                                // Through an index, order the records by their
-                                                // secondary key, then by their primary key, as the
-                                                // shards do
-                                                .sorted(
-                                                        Comparator.comparing(
-                                                                        (GetResult r) -> r.secondaryIndexKey().orElse(""),
-                                                                        CompareWithSlash.INSTANCE)
-                                                                .thenComparing(GetResult::key, CompareWithSlash.INSTANCE))
-                                                .toList();
-                                if (results.isEmpty()) {
-                                    result.complete(null);
-                                    return;
-                                }
-
-                                GetResult gr =
-                                        switch (options.comparisonType()) {
-                                            case FLOOR, LOWER -> results.get(results.size() - 1);
-                                            default -> results.get(0);
-                                        };
-
+                            } else {
                                 result.complete(gr);
-                            } catch (Throwable t) {
-                                result.completeExceptionally(t);
                             }
                         });
     }
@@ -992,7 +976,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (closed) {
             return;
         }

@@ -150,7 +150,7 @@ public class SessionManager
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         final List<CompletableFuture<Void>> futures;
         lock.lock();
         try {

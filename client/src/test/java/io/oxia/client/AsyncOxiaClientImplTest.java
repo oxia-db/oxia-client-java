@@ -942,6 +942,49 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
+    void rangeScanDeliversRecordsToAConsumerWithoutFlowControl() {
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L));
+        doAnswer(
+                        i -> {
+                            var so = (CancelableStreamObserver<RangeScanResponse>) i.getArgument(1);
+                            var response = new RangeScanResponse();
+                            response.addRecord().setKey("a").setValue("1".getBytes(UTF_8));
+                            response.addRecord().setKey("b").setValue("2".getBytes(UTF_8));
+                            so.onNext(response);
+                            so.onCompleted();
+                            return null;
+                        })
+                .when(rpcProvider)
+                .rangeScan(any(RangeScanRequest.class), any(CancelableStreamObserver.class));
+        var keys = new ArrayList<String>();
+        var completed = new CompletableFuture<Void>();
+
+        client.rangeScan(
+                "a",
+                "e",
+                new RangeScanConsumer() {
+                    @Override
+                    public boolean onNext(GetResult result) {
+                        keys.add(result.key());
+                        return true;
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        completed.completeExceptionally(throwable);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        completed.complete(null);
+                    }
+                });
+
+        completed.join();
+        assertThat(keys).containsExactly("a", "b");
+    }
+
+    @Test
     void rangeScanClosed() throws Exception {
         client.close();
         var it = new GetResultIterator();

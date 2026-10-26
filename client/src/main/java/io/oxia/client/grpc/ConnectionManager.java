@@ -68,16 +68,14 @@ public class ConnectionManager implements AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         for (Connection connection : connections.values()) {
             connection.close();
         }
     }
 
     private void removeConnection(Key key, Connection connection) {
-        if (!connections.remove(key, connection)) {
-            return;
-        }
+        connections.remove(key, connection);
         log.info()
                 .attr("address", key.address)
                 .attr("connectionKey", key.random)

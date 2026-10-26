@@ -153,8 +153,7 @@ public class ShardManagerTest {
         void mocking() {
             asyncExecutor = Executors.newSingleThreadScheduledExecutor();
 
-            manager =
-                    new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            manager = new ShardManager(asyncExecutor, InstrumentProvider.NOOP, DefaultNamespace);
         }
 
         @AfterEach
@@ -178,7 +177,7 @@ public class ShardManagerTest {
                     .when(rpcProvider)
                     .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
 
-            var future = manager.start();
+            var future = manager.start(rpcProvider);
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
 
             assertThat(manager.leader(0)).isEqualTo("leader0");
@@ -187,8 +186,7 @@ public class ShardManagerTest {
         @Test
         void refetchesStubWhenRetryingShardAssignmentStream() {
             var stubCalls = new AtomicInteger();
-            manager =
-                    new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            manager = new ShardManager(asyncExecutor, InstrumentProvider.NOOP, DefaultNamespace);
 
             var assignment = new ShardAssignment();
             assignment.setShard(0).setLeader("leader0");
@@ -208,7 +206,7 @@ public class ShardManagerTest {
                     .when(rpcProvider)
                     .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
 
-            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.start(rpcProvider)).succeedsWithin(Duration.ofSeconds(1));
 
             verify(rpcProvider, org.mockito.Mockito.times(2))
                     .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
@@ -319,7 +317,7 @@ public class ShardManagerTest {
                     .when(rpcProvider)
                     .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
 
-            assertThat(manager.start()).succeedsWithin(Duration.ofSeconds(1));
+            assertThat(manager.start(rpcProvider)).succeedsWithin(Duration.ofSeconds(1));
             assertThat(manager.allShardIds()).containsExactly(0L);
             assertThatThrownBy(() -> manager.leader(0))
                     .isInstanceOf(OxiaStatusException.class)
@@ -335,20 +333,18 @@ public class ShardManagerTest {
 
         @Test
         void rejectsInvalidArguments() {
-            assertThatThrownBy(
-                            () -> new ShardManager(null, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace))
+            assertThatThrownBy(() -> new ShardManager(null, InstrumentProvider.NOOP, DefaultNamespace))
                     .isInstanceOf(NullPointerException.class);
             assertThatThrownBy(
                             () ->
-                                    new ShardManager(asyncExecutor, null, InstrumentProvider.NOOP, DefaultNamespace))
+                                    new ShardManager(asyncExecutor, InstrumentProvider.NOOP, DefaultNamespace)
+                                            .start(null))
                     .isInstanceOf(NullPointerException.class);
-            assertThatThrownBy(() -> new ShardManager(asyncExecutor, rpcProvider, null, DefaultNamespace))
+            assertThatThrownBy(() -> new ShardManager(asyncExecutor, null, DefaultNamespace))
                     .isInstanceOf(NullPointerException.class);
-            assertThatThrownBy(
-                            () -> new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, null))
+            assertThatThrownBy(() -> new ShardManager(asyncExecutor, InstrumentProvider.NOOP, null))
                     .isInstanceOf(NullPointerException.class);
-            assertThatThrownBy(
-                            () -> new ShardManager(asyncExecutor, rpcProvider, InstrumentProvider.NOOP, ""))
+            assertThatThrownBy(() -> new ShardManager(asyncExecutor, InstrumentProvider.NOOP, ""))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> manager.addCallback(null)).isInstanceOf(NullPointerException.class);
             assertThatThrownBy(() -> manager.removeCallback(null))
@@ -410,8 +406,7 @@ public class ShardManagerTest {
                 names = {"CANCELLED", "DEADLINE_EXCEEDED"})
         void renewsRightAwayOnlyOnceAssigned(Status.Code code) {
             var executor = mock(ScheduledExecutorService.class);
-            var shardManager =
-                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            var shardManager = new ShardManager(executor, InstrumentProvider.NOOP, DefaultNamespace);
 
             shardManager.onError(code.toStatus().asException());
             assertThat(scheduledRestartDelay(executor)).isBetween(100L, 120L);
@@ -424,9 +419,8 @@ public class ShardManagerTest {
         @Test
         void retriesNamespaceNotFoundOnceAssigned() {
             var executor = mock(ScheduledExecutorService.class);
-            var shardManager =
-                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
-            var started = shardManager.start();
+            var shardManager = new ShardManager(executor, InstrumentProvider.NOOP, DefaultNamespace);
+            var started = shardManager.start(rpcProvider);
             shardManager.onNext(assignments(new Shard(0, "leader0", new HashRange(0, 20))));
 
             shardManager.onError(OxiaStatusException.namespaceNotFound(DefaultNamespace));
@@ -438,8 +432,7 @@ public class ShardManagerTest {
         @Test
         void closedManagerDoesNotRestart() {
             var executor = mock(ScheduledExecutorService.class);
-            var shardManager =
-                    new ShardManager(executor, rpcProvider, InstrumentProvider.NOOP, DefaultNamespace);
+            var shardManager = new ShardManager(executor, InstrumentProvider.NOOP, DefaultNamespace);
             shardManager.onCompleted();
             var restart = ArgumentCaptor.forClass(Runnable.class);
             verify(executor).schedule(restart.capture(), any(Long.class), eq(TimeUnit.MILLISECONDS));
