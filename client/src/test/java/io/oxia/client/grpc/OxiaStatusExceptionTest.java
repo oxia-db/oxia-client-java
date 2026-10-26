@@ -17,6 +17,7 @@ package io.oxia.client.grpc;
 
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -29,10 +30,12 @@ import io.grpc.protobuf.ProtoUtils;
 import io.grpc.protobuf.StatusProto;
 import io.oxia.proto.LeaderHint;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 class OxiaStatusExceptionTest {
@@ -351,6 +354,63 @@ class OxiaStatusExceptionTest {
 
         assertThat(translated.getStatusCode()).isEqualTo(OxiaStatusCode.UNKNOWN);
         assertThat(translated).hasMessageContaining("outer unknown");
+    }
+
+    @Test
+    void convertsCheckedGrpcStatusException() {
+        var error =
+                OxiaStatusException.from(
+                        StatusProto.toStatusException(grpcStatus("SESSION_NOT_FOUND", "oxia: not found")));
+
+        assertThat(error.getStatusCode()).isEqualTo(OxiaStatusCode.SESSION_NOT_FOUND);
+    }
+
+    @Test
+    void ignoresEmptyLeaderHint() {
+        var error =
+                new OxiaStatusException(
+                        OxiaStatusCode.NODE_IS_NOT_LEADER,
+                        Map.of("shard", "1", "leader", ""),
+                        "not leader",
+                        null);
+
+        assertThat(error.getLeaderHint(1)).isEmpty();
+    }
+
+    @Test
+    void createsClientSideErrors() {
+        assertThat(OxiaStatusException.namespaceNotFound("ns"))
+                .hasMessage("Namespace not found: ns")
+                .satisfies(
+                        e -> {
+                            assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.NAMESPACE_NOT_FOUND);
+                            assertThat(e.getMetadata()).containsEntry("namespace", "ns");
+                        });
+        assertThat(OxiaStatusException.alreadyClosed("closed"))
+                .hasMessage("closed")
+                .extracting(OxiaStatusException::getStatusCode)
+                .isEqualTo(OxiaStatusCode.ALREADY_CLOSED);
+        assertThat(OxiaStatusException.invalidArgument("invalid"))
+                .hasMessage("invalid")
+                .extracting(OxiaStatusException::getStatusCode)
+                .isEqualTo(OxiaStatusCode.INVALID_ARGUMENT);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        List<ThrowingCallable> calls =
+                List.of(
+                        () -> new OxiaStatusException(null, Map.of(), "message", null),
+                        () -> new OxiaStatusException(OxiaStatusCode.UNKNOWN, null, "message", null),
+                        () -> OxiaStatusException.namespaceNotFound(null),
+                        () -> OxiaStatusException.shardNotFound(null),
+                        () -> OxiaStatusException.resourceUnavailable(null),
+                        () -> OxiaStatusException.alreadyClosed(null),
+                        () -> OxiaStatusException.invalidArgument(null),
+                        () -> OxiaStatusException.timeout(null),
+                        () -> OxiaStatusException.from(null));
+
+        calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
     }
 
     private static com.google.rpc.Status grpcStatus(String reason, String message) {

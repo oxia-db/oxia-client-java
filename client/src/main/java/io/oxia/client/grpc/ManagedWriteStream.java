@@ -218,11 +218,7 @@ public final class ManagedWriteStream implements AutoCloseable {
             }
         }
         for (CompletableFuture<WriteResponse> inflight : inflights) {
-            try {
-                inflight.completeExceptionally(error);
-            } catch (Throwable ex) {
-                log.warn().exceptionMessage(ex).log("Failed to complete inflight write");
-            }
+            inflight.completeExceptionally(error);
         }
     }
 }

@@ -134,9 +134,7 @@ public class OxiaStatusException extends RuntimeException {
                     return decodedError;
                 }
             }
-            return decodedError != null
-                    ? decodedError
-                    : new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
+            return decodedError;
         } catch (RuntimeException e) {
             return new OxiaStatusException(UNKNOWN, Map.of(), cause.getMessage(), cause);
         }

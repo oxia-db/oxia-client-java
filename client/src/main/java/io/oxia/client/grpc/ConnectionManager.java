@@ -83,11 +83,7 @@ public class ConnectionManager implements AutoCloseable {
                 .attr("connectionKey", key.random)
                 .attr("connectionId", connection.getConnectionId())
                 .log("Removing unhealthy GRPC connection");
-        try {
-            connection.close();
-        } catch (Exception e) {
-            log.warn().exception(e).log("Failed to close unhealthy GRPC connection");
-        }
+        connection.close();
     }
 
     record Key(String address, int random) {}

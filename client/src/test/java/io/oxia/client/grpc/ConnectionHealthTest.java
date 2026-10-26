@@ -19,8 +19,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import io.grpc.BindableService;
+import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.ServerCall;
+import io.grpc.ServerCallHandler;
+import io.grpc.ServerInterceptor;
+import io.grpc.ServerInterceptors;
 import io.grpc.Status;
 import io.grpc.health.v1.HealthCheckRequest;
 import io.grpc.health.v1.HealthCheckResponse;
@@ -30,9 +35,12 @@ import io.grpc.services.HealthStatusManager;
 import io.grpc.stub.StreamObserver;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.auth.TokenAuthentication;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +97,44 @@ class ConnectionHealthTest {
                         stub -> failed.set(true), Duration.ofSeconds(1), new UnimplementedHealthService())) {
 
             await().during(Duration.ofMillis(100)).untilAsserted(() -> assertThat(failed).isFalse());
+        }
+    }
+
+    @Test
+    void sendsAuthenticationCredentials() throws Exception {
+        var health = new HealthStatusManager();
+        health.setStatus("", ServingStatus.SERVING);
+        var authorization = new CompletableFuture<String>();
+        var authorizationKey = Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
+        var server =
+                ServerBuilder.forPort(0)
+                        .directExecutor()
+                        .addService(
+                                ServerInterceptors.intercept(
+                                        health.getHealthService(),
+                                        new ServerInterceptor() {
+                                            @Override
+                                            public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
+                                                    ServerCall<ReqT, RespT> call,
+                                                    Metadata headers,
+                                                    ServerCallHandler<ReqT, RespT> next) {
+                                                authorization.complete(headers.get(authorizationKey));
+                                                return next.startCall(call, headers);
+                                            }
+                                        }))
+                        .build()
+                        .start();
+        var address = "127.0.0.1:" + server.getPort();
+        var clientConfig =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(address)
+                                        .connectionKeepAliveTime(Duration.ofMillis(10))
+                                        .authentication(new TokenAuthentication("token")))
+                        .getClientConfig();
+
+        try (var target =
+                new Target(server, new Connection(address, clientConfig, executor, connection -> {}))) {
+            assertThat(authorization.get(5, TimeUnit.SECONDS)).isEqualTo("Bearer token");
         }
     }
 
