@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -375,7 +376,7 @@ class GrpcRpcProviderTest {
         var config =
                 ((OxiaClientBuilderImpl)
                                 OxiaClientBuilder.create("localhost:0")
-                                        .connectionBackoff(Duration.ofSeconds(5), Duration.ofSeconds(5)))
+                                        .connectionBackoff(Duration.ofSeconds(5), Duration.ofSeconds(10)))
                         .getClientConfig();
 
         try (var provider =
@@ -948,15 +949,13 @@ class GrpcRpcProviderTest {
     }
 
     @Test
-    void reportsInvalidRetryBackoff() throws Exception {
+    void reportsRejectedExecution() throws Exception {
         var executor = Executors.newSingleThreadScheduledExecutor();
         var config =
-                ((OxiaClientBuilderImpl)
-                                OxiaClientBuilder.create("localhost:0")
-                                        .connectionBackoff(Duration.ofMillis(50), Duration.ofMillis(50)))
-                        .getClientConfig();
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create("localhost:0")).getClientConfig();
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> "localhost:0")) {
+            executor.shutdown();
             var shardAssignmentsError = new CompletableFuture<Throwable>();
             provider.getShardAssignments(
                     new ShardAssignmentsRequest(), failingStreamObserver(shardAssignmentsError));
@@ -987,7 +986,7 @@ class GrpcRpcProviderTest {
                         .isCompletedWithValueMatching(
                                 e ->
                                         e instanceof OxiaStatusException
-                                                && e.getCause() instanceof IllegalArgumentException);
+                                                && e.getCause() instanceof RejectedExecutionException);
             }
         } finally {
             executor.shutdownNow();

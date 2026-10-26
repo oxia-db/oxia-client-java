@@ -223,9 +223,11 @@ public interface OxiaClientBuilder {
      *
      * <p>Defaults are <code>min=100millis, max=30sec</code>.
      *
-     * @param minDelay the minimum delay between retries
-     * @param maxDelay the maximum delay between retries
+     * @param minDelay the minimum delay between retries, greater than zero
+     * @param maxDelay the maximum delay between retries, greater than {@code minDelay}
      * @return the builder instance
+     * @throws IllegalArgumentException if {@code minDelay} is not greater than zero or not less than
+     *     {@code maxDelay}
      */
     OxiaClientBuilder connectionBackoff(Duration minDelay, Duration maxDelay);
 

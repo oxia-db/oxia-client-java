@@ -35,6 +35,14 @@ class SharedResourcesImplTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> builder.maxConnectionPerNode(0))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ZERO, Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(-1), Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(5), Duration.ofMillis(5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> builder.connectionBackoff(Duration.ofMillis(5), Duration.ofMillis(1)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

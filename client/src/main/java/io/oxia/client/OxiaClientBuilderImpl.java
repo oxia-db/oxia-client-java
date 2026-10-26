@@ -225,7 +225,15 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
-    public OxiaClientBuilder connectionBackoff(Duration minDelay, Duration maxDelay) {
+    public @NonNull OxiaClientBuilder connectionBackoff(
+            @NonNull Duration minDelay, @NonNull Duration maxDelay) {
+        if (minDelay.isNegative() || minDelay.isZero()) {
+            throw new IllegalArgumentException("minDelay must be greater than zero: " + minDelay);
+        }
+        if (minDelay.compareTo(maxDelay) >= 0) {
+            throw new IllegalArgumentException(
+                    "minDelay must be less than maxDelay: minDelay=" + minDelay + " maxDelay=" + maxDelay);
+        }
         this.connectionBackoffMinDelay = minDelay;
         this.connectionBackoffMaxDelay = maxDelay;
         return this;
