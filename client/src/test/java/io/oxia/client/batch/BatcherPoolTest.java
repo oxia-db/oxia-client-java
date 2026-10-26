@@ -15,6 +15,7 @@
  */
 package io.oxia.client.batch;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -27,7 +28,9 @@ import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.options.GetOptions;
 import io.oxia.proto.KeyComparisonType;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,6 +98,8 @@ class BatcherPoolTest {
     void oneThreadPoolServesMultipleClients() {
         when(factoryA.getConfig()).thenReturn(config);
         when(factoryB.getConfig()).thenReturn(config);
+        when(factoryA.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
+        when(factoryB.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(factoryA.getBatch(1L)).thenReturn(batchA);
         when(factoryB.getBatch(1L)).thenReturn(batchB);
         when(batchA.canAdd(any())).thenReturn(true);
@@ -120,6 +125,7 @@ class BatcherPoolTest {
     @Test
     void closingOneClientKeepsThePoolRunningForOthers() {
         when(factoryB.getConfig()).thenReturn(config);
+        when(factoryB.getDispatchWindow(1L)).thenReturn(new DispatchWindow(Integer.MAX_VALUE));
         when(factoryB.getBatch(1L)).thenReturn(batchB);
         when(batchB.canAdd(any())).thenReturn(true);
         when(batchB.size()).thenReturn(1);
@@ -134,5 +140,12 @@ class BatcherPoolTest {
                             verify(factoryB).getBatch(1L);
                             verify(batchB).send();
                         });
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        List.<ThrowingCallable>of(
+                        () -> new BatcherPool(null, 1), () -> pool.route(null), () -> pool.closeFactory(null))
+                .forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
     }
 }

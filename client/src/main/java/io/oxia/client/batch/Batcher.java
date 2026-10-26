@@ -131,7 +131,8 @@ final class Batcher implements AutoCloseable {
             local[index++] = null;
             if (command instanceof Operation<?> operation) {
                 process(operation.batchManager().factory(), operation);
-            } else if (command instanceof CloseFactory closeFactory) {
+            } else {
+                var closeFactory = (CloseFactory) command;
                 closeFactoryBatches(closeFactory.factory());
                 closeFactory.done().complete(null);
             }
@@ -147,8 +148,7 @@ final class Batcher implements AutoCloseable {
             if (batch == null) {
                 // Take back a batch parked in the shard's dispatch window, if any: it must keep
                 // accumulating, and stay ahead of newer operations, until a slot frees up.
-                DispatchWindow window = factory.getDispatchWindow(shardId);
-                batch = window != null ? window.reclaim() : null;
+                batch = factory.getDispatchWindow(shardId).reclaim();
                 if (batch == null) {
                     batch = factory.getBatch(shardId);
                 }
@@ -192,14 +192,9 @@ final class Batcher implements AutoCloseable {
         }
     }
 
-    // Dispatch a batch that takes no more operations, through the shard's window when it has one.
+    // Dispatch a batch that takes no more operations, through the shard's window.
     private static void send(BatchFactory factory, long shardId, Batch batch) {
-        DispatchWindow window = factory.getDispatchWindow(shardId);
-        if (window == null) {
-            batch.send();
-        } else {
-            window.send(batch);
-        }
+        factory.getDispatchWindow(shardId).send(batch);
     }
 
     private void sendAll() {
@@ -209,12 +204,7 @@ final class Batcher implements AutoCloseable {
                         // If the shard's window is exhausted, the batch is parked instead: it is
                         // flushed when an in-flight request completes, or reclaimed to accumulate
                         // more operations.
-                        DispatchWindow window = factory.getDispatchWindow(entry.key());
-                        if (window == null) {
-                            entry.value().send();
-                        } else {
-                            window.sendOrPark(entry.value());
-                        }
+                        factory.getDispatchWindow(entry.key()).sendOrPark(entry.value());
                     }
                     // Keep the emptied map for the factory's next operations
                     shardBatches.clear();
@@ -231,8 +221,8 @@ final class Batcher implements AutoCloseable {
         while ((command = commands.poll()) != null) {
             if (command instanceof Operation<?> operation) {
                 operation.fail(closedException);
-            } else if (command instanceof CloseFactory closeFactory) {
-                closeFactory.done().complete(null);
+            } else {
+                ((CloseFactory) command).done().complete(null);
             }
         }
     }

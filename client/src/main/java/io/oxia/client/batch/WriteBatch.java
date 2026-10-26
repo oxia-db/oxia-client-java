@@ -52,7 +52,7 @@ final class WriteBatch extends BatchBase implements Batch {
 
     WriteBatch(
             @NonNull WriteBatchFactory factory,
-            @NonNull RpcProvider rpcProvider,
+            RpcProvider rpcProvider,
             @NonNull SessionManager sessionManager,
             long shardId,
             int maxBatchSize) {
@@ -66,10 +66,7 @@ final class WriteBatch extends BatchBase implements Batch {
 
     // The operation carries its size, so that canAdd() and add() don't scan the keys again
     int sizeOf(@NonNull Operation<?> operation) {
-        if (operation instanceof Operation.WriteOperation<?> w) {
-            return w.byteSize();
-        }
-        return 0;
+        return ((Operation.WriteOperation<?>) operation).byteSize();
     }
 
     public void add(@NonNull Operation<?> operation) {
@@ -80,7 +77,8 @@ final class WriteBatch extends BatchBase implements Batch {
         } else if (operation instanceof Operation.WriteOperation.DeleteOperation d) {
             deletes.add(d);
             operations.add(d);
-        } else if (operation instanceof Operation.WriteOperation.DeleteRangeOperation r) {
+        } else {
+            var r = (Operation.WriteOperation.DeleteRangeOperation) operation;
             deleteRanges.add(r);
             operations.add(r);
         }
@@ -169,8 +167,9 @@ final class WriteBatch extends BatchBase implements Batch {
                 p.toProto(req.addPut().setOpIndex(opIndex));
             } else if (op instanceof Operation.WriteOperation.DeleteOperation d) {
                 d.toProto(req.addDelete().setOpIndex(opIndex));
-            } else if (op instanceof Operation.WriteOperation.DeleteRangeOperation dr) {
-                dr.toProto(req.addDeleteRange().setOpIndex(opIndex));
+            } else {
+                ((Operation.WriteOperation.DeleteRangeOperation) op)
+                        .toProto(req.addDeleteRange().setOpIndex(opIndex));
             }
         }
         return req;

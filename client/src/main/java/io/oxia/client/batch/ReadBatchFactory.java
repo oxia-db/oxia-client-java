@@ -33,8 +33,8 @@ class ReadBatchFactory extends BatchFactory {
     private final ConcurrentMap<Long, DispatchWindow> windows = new ConcurrentHashMap<>();
 
     public ReadBatchFactory(
-            @NonNull RpcProvider rpcProvider,
-            @NonNull ClientConfig config,
+            RpcProvider rpcProvider,
+            ClientConfig config,
             @NonNull InstrumentProvider instrumentProvider) {
         super(rpcProvider, config);
 
