@@ -136,39 +136,35 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull StreamObserver<ShardAssignments> observer) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        try {
-            Failsafe.with(getRetryPolicy("get shard assignments", null))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
-                                attempt.set(attemptContext);
-                                try {
-                                    var stub =
-                                            withSubscriptionMaxAge(
-                                                    connectionManager.getConnection(clientConfig.serviceAddress()).stub());
-                                    attemptContext.run(() -> stub.getShardAssignments(request, barrierObserver));
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
-                                // Don't leave an attempt that timed out open on the server
-                                final var attemptContext = attempt.get();
-                                if (attemptContext != null) {
-                                    attemptContext.cancel(null);
-                                }
-                                return null;
-                            });
-        } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(getRetryPolicy("get shard assignments", null))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                            final var attemptContext = Context.current().withCancellation();
+                            attempt.set(attemptContext);
+                            try {
+                                var stub =
+                                        withSubscriptionMaxAge(
+                                                connectionManager.getConnection(clientConfig.serviceAddress()).stub());
+                                attemptContext.run(() -> stub.getShardAssignments(request, barrierObserver));
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            guardedObserver.onError(OxiaStatusException.from(error));
+                            // Don't leave an attempt that timed out open on the server
+                            final var attemptContext = attempt.get();
+                            if (attemptContext != null) {
+                                attemptContext.cancel(null);
+                            }
+                            return null;
+                        });
     }
 
     @Override
@@ -177,48 +173,44 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull CancelableStreamObserver<NotificationBatch> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        try {
-            Failsafe.with(getRetryPolicy("get notifications", hint))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
-                                // Only a new subscription is confirmed right away, by a first "dummy" batch. A
-                                // resumed one gets nothing until a new notification is written, so it is only
-                                // bounded by the subscription max age, like the sequence updates.
-                                if (!request.hasStartOffsetExclusive()) {
-                                    requestTimeouts.add(barrierFuture);
-                                }
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
-                                attempt.set(attemptContext);
-                                try {
-                                    attemptContext.run(
-                                            () ->
-                                                    withSubscriptionMaxAge(
-                                                                    connectionManager
-                                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                                            .stub())
-                                                            .getNotifications(request, barrierObserver));
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                observer.onError(OxiaStatusException.from(error));
-                                // Don't leave an attempt that timed out open on the server
-                                final var attemptContext = attempt.get();
-                                if (attemptContext != null) {
-                                    attemptContext.cancel(null);
-                                }
-                                return null;
-                            });
-        } catch (Throwable error) {
-            observer.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(getRetryPolicy("get notifications", hint))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = new CompletableFuture<Void>();
+                            // Only a new subscription is confirmed right away, by a first "dummy" batch. A
+                            // resumed one gets nothing until a new notification is written, so it is only
+                            // bounded by the subscription max age, like the sequence updates.
+                            if (!request.hasStartOffsetExclusive()) {
+                                requestTimeouts.add(barrierFuture);
+                            }
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                            final var attemptContext = Context.current().withCancellation();
+                            attempt.set(attemptContext);
+                            try {
+                                attemptContext.run(
+                                        () ->
+                                                withSubscriptionMaxAge(
+                                                                connectionManager
+                                                                        .getConnection(getLeader(request.getShard(), hint))
+                                                                        .stub())
+                                                        .getNotifications(request, barrierObserver));
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            observer.onError(OxiaStatusException.from(error));
+                            // Don't leave an attempt that timed out open on the server
+                            final var attemptContext = attempt.get();
+                            if (attemptContext != null) {
+                                attemptContext.cancel(null);
+                            }
+                            return null;
+                        });
     }
 
     @Override
@@ -293,41 +285,37 @@ final class GrpcRpcProvider implements RpcProvider {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        try {
-            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("read", hint))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
-                                attempt.set(attemptContext);
-                                try {
-                                    attemptContext.run(
-                                            () ->
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub()
-                                                            .read(request, barrierObserver));
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                guardedObserver.onError(OxiaStatusException.from(error));
-                                // Don't leave an attempt that timed out open on the server
-                                final var attemptContext = attempt.get();
-                                if (attemptContext != null) {
-                                    attemptContext.cancel(null);
-                                }
-                                return null;
-                            });
-        } catch (Throwable error) {
-            guardedObserver.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("read", hint))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierStreamObserver(guardedObserver, barrierFuture);
+                            final var attemptContext = Context.current().withCancellation();
+                            attempt.set(attemptContext);
+                            try {
+                                attemptContext.run(
+                                        () ->
+                                                connectionManager
+                                                        .getConnection(getLeader(request.getShard(), hint))
+                                                        .stub()
+                                                        .read(request, barrierObserver));
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            guardedObserver.onError(OxiaStatusException.from(error));
+                            // Don't leave an attempt that timed out open on the server
+                            final var attemptContext = attempt.get();
+                            if (attemptContext != null) {
+                                attemptContext.cancel(null);
+                            }
+                            return null;
+                        });
     }
 
     @Override
@@ -368,42 +356,38 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull ListRequest request, @NonNull CancelableStreamObserver<ListResponse> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        try {
-            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("list", hint))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
-                                attempt.set(attemptContext);
-                                try {
-                                    attemptContext.run(
-                                            () ->
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub()
-                                                            .list(request, barrierObserver));
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                observer.onError(OxiaStatusException.from(error));
-                                // Don't leave an attempt that timed out open on the server. The observer is
-                                // now terminated, so cancelling it would not cancel the call.
-                                final var attemptContext = attempt.get();
-                                if (attemptContext != null) {
-                                    attemptContext.cancel(null);
-                                }
-                                return null;
-                            });
-        } catch (Throwable error) {
-            observer.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("list", hint))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                            final var attemptContext = Context.current().withCancellation();
+                            attempt.set(attemptContext);
+                            try {
+                                attemptContext.run(
+                                        () ->
+                                                connectionManager
+                                                        .getConnection(getLeader(request.getShard(), hint))
+                                                        .stub()
+                                                        .list(request, barrierObserver));
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            observer.onError(OxiaStatusException.from(error));
+                            // Don't leave an attempt that timed out open on the server. The observer is
+                            // now terminated, so cancelling it would not cancel the call.
+                            final var attemptContext = attempt.get();
+                            if (attemptContext != null) {
+                                attemptContext.cancel(null);
+                            }
+                            return null;
+                        });
     }
 
     @Override
@@ -412,42 +396,38 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull CancelableStreamObserver<RangeScanResponse> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        try {
-            Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("range scan", hint))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
-                                final var attemptContext = Context.current().withCancellation();
-                                attempt.set(attemptContext);
-                                try {
-                                    attemptContext.run(
-                                            () ->
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub()
-                                                            .rangeScan(request, barrierObserver));
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                observer.onError(OxiaStatusException.from(error));
-                                // Don't leave an attempt that timed out open on the server. The observer is
-                                // now terminated, so cancelling it would not cancel the call.
-                                final var attemptContext = attempt.get();
-                                if (attemptContext != null) {
-                                    attemptContext.cancel(null);
-                                }
-                                return null;
-                            });
-        } catch (Throwable error) {
-            observer.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(Timeout.of(clientConfig.requestTimeout()), getRetryPolicy("range scan", hint))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = requestTimeouts.add(new CompletableFuture<Void>());
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                            final var attemptContext = Context.current().withCancellation();
+                            attempt.set(attemptContext);
+                            try {
+                                attemptContext.run(
+                                        () ->
+                                                connectionManager
+                                                        .getConnection(getLeader(request.getShard(), hint))
+                                                        .stub()
+                                                        .rangeScan(request, barrierObserver));
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            observer.onError(OxiaStatusException.from(error));
+                            // Don't leave an attempt that timed out open on the server. The observer is
+                            // now terminated, so cancelling it would not cancel the call.
+                            final var attemptContext = attempt.get();
+                            if (attemptContext != null) {
+                                attemptContext.cancel(null);
+                            }
+                            return null;
+                        });
     }
 
     @Override
@@ -455,33 +435,27 @@ final class GrpcRpcProvider implements RpcProvider {
             @NonNull GetSequenceUpdatesRequest request,
             @NonNull CancelableStreamObserver<GetSequenceUpdatesResponse> observer) {
         final var hint = new AtomicReference<OxiaStatusException>();
-        try {
-            Failsafe.with(getRetryPolicy("get sequence updates", hint))
-                    .with(asyncExecutor)
-                    .getStageAsync(
-                            () -> {
-                                final var barrierFuture = new CompletableFuture<Void>();
-                                final var barrierObserver =
-                                        ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
-                                try {
-                                    withSubscriptionMaxAge(
-                                                    connectionManager
-                                                            .getConnection(getLeader(request.getShard(), hint))
-                                                            .stub())
-                                            .getSequenceUpdates(request, barrierObserver);
-                                } catch (Throwable error) {
-                                    barrierFuture.completeExceptionally(OxiaStatusException.from(error));
-                                }
-                                return barrierFuture;
-                            })
-                    .exceptionally(
-                            error -> {
-                                observer.onError(OxiaStatusException.from(error));
-                                return null;
-                            });
-        } catch (Throwable error) {
-            observer.onError(OxiaStatusException.from(error));
-        }
+        Failsafe.with(getRetryPolicy("get sequence updates", hint))
+                .with(asyncExecutor)
+                .getStageAsync(
+                        () -> {
+                            final var barrierFuture = new CompletableFuture<Void>();
+                            final var barrierObserver =
+                                    ManagedObservers.toBarrierClientResponseObserver(observer, barrierFuture);
+                            try {
+                                withSubscriptionMaxAge(
+                                                connectionManager.getConnection(getLeader(request.getShard(), hint)).stub())
+                                        .getSequenceUpdates(request, barrierObserver);
+                            } catch (Throwable error) {
+                                barrierFuture.completeExceptionally(OxiaStatusException.from(error));
+                            }
+                            return barrierFuture;
+                        })
+                .exceptionally(
+                        error -> {
+                            observer.onError(OxiaStatusException.from(error));
+                            return null;
+                        });
     }
 
     private OxiaClientGrpc.OxiaClientStub withSubscriptionMaxAge(OxiaClientGrpc.OxiaClientStub stub) {
