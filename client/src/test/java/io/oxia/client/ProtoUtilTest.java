@@ -16,7 +16,12 @@
 package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.oxia.proto.GetResponse;
+import io.oxia.proto.PutResponse;
+import java.util.List;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 class ProtoUtilTest {
@@ -29,5 +34,19 @@ class ProtoUtilTest {
         assertThat(ProtoUtil.uint32ToLong(Integer.MIN_VALUE + 1)).isEqualTo(Integer.MAX_VALUE + 2L);
         assertThat(ProtoUtil.uint32ToLong(-1)).isEqualTo(4294967295L);
         assertThat(ProtoUtil.uint32ToLong(0)).isEqualTo(0L);
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        List<ThrowingCallable> calls =
+                List.of(
+                        () -> ProtoUtil.getPutResultFromProto(null, new PutResponse()),
+                        () -> ProtoUtil.getPutResultFromProto("k", null),
+                        () -> ProtoUtil.getResultFromProto(null, new GetResponse()),
+                        () -> ProtoUtil.getResultFromProto("k", null),
+                        () -> ProtoUtil.getVersionFromProto(null));
+        for (var call : calls) {
+            assertThatThrownBy(call).isInstanceOf(NullPointerException.class);
+        }
     }
 }

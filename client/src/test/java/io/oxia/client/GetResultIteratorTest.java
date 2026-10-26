@@ -17,6 +17,7 @@ package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Version;
@@ -29,6 +30,7 @@ import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -215,6 +217,43 @@ class GetResultIteratorTest {
                 .isInstanceOf(OxiaUncheckedException.class)
                 .hasCauseInstanceOf(InterruptedException.class);
         // The interrupt flag is kept
+        assertThat(Thread.interrupted()).isTrue();
+    }
+
+    @Test
+    void idleStreamAfterCloseIsNotResumed() {
+        var it = new GetResultIterator();
+        var handle = new TestStreamHandle();
+        it.onStreamStarted(handle);
+        it.close();
+        it.close();
+
+        it.onStreamIdle(handle);
+        assertThat(handle.requested).hasValue(0);
+        assertThatThrownBy(it::next).isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void nextWaitsForARecord() throws Exception {
+        var it = new GetResultIterator();
+        var received = new AtomicReference<GetResult>();
+        var consumer = new Thread(() -> received.set(it.next()));
+        consumer.start();
+        await().until(() -> consumer.getState() == Thread.State.WAITING);
+
+        it.onNext(result("a"));
+        consumer.join();
+        assertThat(received.get().key()).isEqualTo("a");
+    }
+
+    @Test
+    void interruptionWhileWaitingForNextThrowsUnchecked() {
+        var it = new GetResultIterator();
+
+        Thread.currentThread().interrupt();
+        assertThatThrownBy(it::next)
+                .isInstanceOf(OxiaUncheckedException.class)
+                .hasCauseInstanceOf(InterruptedException.class);
         assertThat(Thread.interrupted()).isTrue();
     }
 }

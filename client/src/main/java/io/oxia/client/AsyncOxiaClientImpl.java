@@ -61,6 +61,7 @@ import java.io.Closeable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -680,18 +681,10 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                                                 // secondary key, then by their primary key, as the
                                                 // shards do
                                                 .sorted(
-                                                        (o1, o2) -> {
-                                                            if (o1.secondaryIndexKey().isPresent()
-                                                                    && o2.secondaryIndexKey().isPresent()) {
-                                                                int c =
-                                                                        CompareWithSlash.INSTANCE.compare(
-                                                                                o1.secondaryIndexKey().get(), o2.secondaryIndexKey().get());
-                                                                if (c != 0) {
-                                                                    return c;
-                                                                }
-                                                            }
-                                                            return CompareWithSlash.INSTANCE.compare(o1.key(), o2.key());
-                                                        })
+                                                        Comparator.comparing(
+                                                                        (GetResult r) -> r.secondaryIndexKey().orElse(""),
+                                                                        CompareWithSlash.INSTANCE)
+                                                                .thenComparing(GetResult::key, CompareWithSlash.INSTANCE))
                                                 .toList();
                                 if (results.isEmpty()) {
                                     result.complete(null);
@@ -700,9 +693,8 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
                                 GetResult gr =
                                         switch (options.comparisonType()) {
-                                            case EQUAL, CEILING, HIGHER -> results.get(0);
                                             case FLOOR, LOWER -> results.get(results.size() - 1);
-                                            default -> null;
+                                            default -> results.get(0);
                                         };
 
                                 result.complete(gr);
@@ -808,14 +800,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 request,
                 new CancelableStreamObserver<>() {
                     @Override
-                    protected void handleNext(@NonNull ListResponse response) {
+                    protected void handleNext(ListResponse response) {
                         for (int i = 0; i < response.getKeysCount(); i++) {
                             result.add(response.getKeyAt(i));
                         }
                     }
 
                     @Override
-                    protected void handleError(@NonNull Throwable t) {
+                    protected void handleError(Throwable t) {
                         future.completeExceptionally(t);
                     }
 

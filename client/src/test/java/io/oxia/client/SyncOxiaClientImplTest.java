@@ -20,17 +20,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.oxia.client.api.AsyncOxiaClient;
+import io.oxia.client.api.Notification;
+import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.api.exceptions.KeyAlreadyExistsException;
 import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.exceptions.SessionDoesNotExistException;
 import io.oxia.client.api.exceptions.UnexpectedVersionIdException;
+import java.io.Closeable;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 class SyncOxiaClientImplTest {
@@ -95,5 +102,106 @@ class SyncOxiaClientImplTest {
                 .hasCauseInstanceOf(InterruptedException.class);
         // The interrupt flag is kept
         assertThat(Thread.interrupted()).isTrue();
+    }
+
+    @Test
+    void delegatesToTheAsyncClient() throws Exception {
+        when(asyncClient.delete(any(), anySet())).thenReturn(CompletableFuture.completedFuture(true));
+        when(asyncClient.deleteRange(any(), any(), anySet()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+        when(asyncClient.list(any(), any(), anySet()))
+                .thenReturn(CompletableFuture.completedFuture(List.of("a")));
+        var updates = mock(Closeable.class);
+        Consumer<String> listener = k -> {};
+        when(asyncClient.getSequenceUpdates("k", listener, Set.of())).thenReturn(updates);
+        Consumer<Notification> callback = n -> {};
+
+        assertThat(client.delete("k")).isTrue();
+        client.deleteRange("a", "b");
+        assertThat(client.list("a", "b")).containsExactly("a");
+        client.notifications(callback);
+        assertThat(client.getSequenceUpdates("k", listener, Set.of())).isSameAs(updates);
+        client.close();
+
+        verify(asyncClient).deleteRange("a", "b", Set.of());
+        verify(asyncClient).notifications(callback);
+        verify(asyncClient).close();
+    }
+
+    @Test
+    void wrapsUndeclaredExceptionsOfEveryOperation() {
+        var noSession = new SessionDoesNotExistException();
+        var failed = CompletableFuture.failedFuture(noSession);
+        when(asyncClient.put(any(), any(), anySet())).thenAnswer(i -> failed);
+        when(asyncClient.delete(any(), anySet())).thenAnswer(i -> failed);
+        when(asyncClient.deleteRange(any(), any(), anySet())).thenAnswer(i -> failed);
+        when(asyncClient.list(any(), any(), anySet())).thenAnswer(i -> failed);
+
+        List<ThrowingCallable> calls =
+                List.of(
+                        () -> client.put("k", new byte[0]),
+                        () -> client.delete("k"),
+                        () -> client.delete("k", Set.of()),
+                        () -> client.deleteRange("a", "b"),
+                        () -> client.list("a", "b"));
+        for (var call : calls) {
+            assertThatThrownBy(call).isInstanceOf(OxiaUncheckedException.class).hasCause(noSession);
+        }
+    }
+
+    @Test
+    void rangeScanIterableClosesItsIterators() {
+        var iterable = client.rangeScan("a", "b");
+        var first = iterable.iterator();
+        var second = iterable.iterator();
+        verify(asyncClient).rangeScan("a", "b", (RangeScanConsumer) first, Set.of());
+        verify(asyncClient).rangeScan("a", "b", (RangeScanConsumer) second, Set.of());
+
+        iterable.close();
+        iterable.close();
+
+        assertThat(first.hasNext()).isFalse();
+        assertThat(second.hasNext()).isFalse();
+        assertThatThrownBy(iterable::iterator).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @SuppressWarnings("resource")
+    void rejectsNullArguments() {
+        var value = new byte[0];
+        List<ThrowingCallable> calls =
+                List.of(
+                        () -> client.put(null, value),
+                        () -> client.put("k", null),
+                        () -> client.put(null, value, Set.of()),
+                        () -> client.put("k", null, Set.of()),
+                        () -> client.put("k", value, null),
+                        () -> client.delete(null),
+                        () -> client.delete(null, Set.of()),
+                        () -> client.delete("k", null),
+                        () -> client.deleteRange(null, "b"),
+                        () -> client.deleteRange("a", null),
+                        () -> client.deleteRange(null, "b", Set.of()),
+                        () -> client.deleteRange("a", null, Set.of()),
+                        () -> client.deleteRange("a", "b", null),
+                        () -> client.get(null),
+                        () -> client.get(null, Set.of()),
+                        () -> client.get("k", null),
+                        () -> client.list(null, "b"),
+                        () -> client.list("a", null),
+                        () -> client.list(null, "b", Set.of()),
+                        () -> client.list("a", null, Set.of()),
+                        () -> client.list("a", "b", null),
+                        () -> client.notifications(null),
+                        () -> client.getSequenceUpdates(null, k -> {}, Set.of()),
+                        () -> client.getSequenceUpdates("k", null, Set.of()),
+                        () -> client.getSequenceUpdates("k", k -> {}, null),
+                        () -> client.rangeScan(null, "b"),
+                        () -> client.rangeScan("a", null),
+                        () -> client.rangeScan(null, "b", Set.of()),
+                        () -> client.rangeScan("a", null, Set.of()));
+        for (var call : calls) {
+            assertThatThrownBy(call).isInstanceOf(NullPointerException.class);
+        }
     }
 }

@@ -16,7 +16,6 @@
 package io.oxia.client;
 
 import java.util.Comparator;
-import java.util.function.Predicate;
 import lombok.NonNull;
 
 enum CompareWithSlash implements Comparator<String> {
@@ -71,16 +70,5 @@ enum CompareWithSlash implements Comparator<String> {
             }
         }
         return (toA - fromA) - (toB - fromB);
-    }
-
-    static boolean withinRange(
-            @NonNull String startKeyInclusive, @NonNull String endKeyExclusive, @NonNull String key) {
-        return INSTANCE.compare(key, startKeyInclusive) >= 0
-                && INSTANCE.compare(key, endKeyExclusive) < 0;
-    }
-
-    public static @NonNull Predicate<String> withinRange(
-            @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
-        return k -> withinRange(startKeyInclusive, endKeyExclusive, k);
     }
 }

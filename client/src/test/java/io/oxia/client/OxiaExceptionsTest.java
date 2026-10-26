@@ -76,6 +76,8 @@ class OxiaExceptionsTest {
         // A plain gRPC status without an Oxia reason, e.g. the server is unreachable
         assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asRuntimeException()))
                 .isInstanceOf(ResourceUnavailableException.class);
+        assertThat(OxiaExceptions.translate(Status.UNAVAILABLE.asException()))
+                .isInstanceOf(ResourceUnavailableException.class);
     }
 
     @ParameterizedTest

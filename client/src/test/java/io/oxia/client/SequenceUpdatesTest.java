@@ -17,12 +17,14 @@ package io.oxia.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.grpc.Status;
@@ -33,11 +35,19 @@ import io.oxia.client.shard.ShardManager;
 import io.oxia.proto.GetSequenceUpdatesRequest;
 import io.oxia.proto.GetSequenceUpdatesResponse;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class SequenceUpdatesTest {
     @Test
@@ -157,5 +167,130 @@ class SequenceUpdatesTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    private final RpcProvider rpcProvider = mock(RpcProvider.class);
+    private final ShardManager shardManager = mock(ShardManager.class);
+    private final List<CancelableStreamObserver<GetSequenceUpdatesResponse>> observers =
+            new ArrayList<>();
+    private final List<Runnable> scheduledTasks = new ArrayList<>();
+    private final ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+
+    @BeforeEach
+    void setUp() {
+        doAnswer(
+                        invocation -> {
+                            observers.add(invocation.getArgument(1));
+                            return null;
+                        })
+                .when(rpcProvider)
+                .getSequenceUpdates(any(GetSequenceUpdatesRequest.class), any());
+        when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+                .thenAnswer(
+                        invocation -> {
+                            scheduledTasks.add(invocation.getArgument(0));
+                            return null;
+                        });
+    }
+
+    private SequenceUpdates subscribe(Function<Void, Boolean> isClientClosed) {
+        return new SequenceUpdates(
+                "key",
+                "partition",
+                ignored -> {},
+                rpcProvider,
+                shardManager,
+                InstrumentProvider.NOOP,
+                isClientClosed,
+                executor);
+    }
+
+    @Test
+    void resubscribesWhenTheStreamCompletes() throws Exception {
+        try (var updates = subscribe(ignored -> false)) {
+            observers.get(0).onCompleted();
+            scheduledTasks.remove(0).run();
+
+            assertThat(observers).hasSize(2);
+        }
+    }
+
+    @Test
+    void doesNotResubscribeOnceClosed() throws Exception {
+        var updates = subscribe(ignored -> false);
+        observers.get(0).onError(Status.UNAVAILABLE.asRuntimeException());
+        updates.close();
+        scheduledTasks.remove(0).run();
+
+        assertThat(observers).hasSize(1);
+    }
+
+    @Test
+    void neverSubscribesForAClosedClient() throws Exception {
+        subscribe(ignored -> true).close();
+
+        assertThat(observers).isEmpty();
+    }
+
+    @Test
+    void ignoresStreamEventsOnceTheClientIsClosed() throws Exception {
+        var clientClosed = new AtomicBoolean();
+        try (var failing = subscribe(ignored -> clientClosed.get());
+                var completing = subscribe(ignored -> clientClosed.get())) {
+            clientClosed.set(true);
+            observers.get(0).onError(Status.UNAVAILABLE.asRuntimeException());
+            observers.get(1).onCompleted();
+
+            assertThat(scheduledTasks).isEmpty();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    void survivesARejectedResubscription(boolean completes, boolean clientCloses) throws Exception {
+        var clientClosed = new AtomicBoolean();
+        when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+                .thenAnswer(
+                        invocation -> {
+                            clientClosed.set(clientCloses);
+                            throw new RejectedExecutionException();
+                        });
+
+        try (var updates = subscribe(ignored -> clientClosed.get())) {
+            if (completes) {
+                assertThatNoException().isThrownBy(observers.get(0)::onCompleted);
+            } else {
+                assertThatNoException()
+                        .isThrownBy(() -> observers.get(0).onError(new RuntimeException("failed")));
+            }
+        }
+        verify(executor).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        Consumer<String> listener = ignored -> {};
+        Object[] args = {
+            "key", "partition", listener, rpcProvider, shardManager, InstrumentProvider.NOOP, executor
+        };
+        for (int i = 0; i < args.length; i++) {
+            var withNull = args.clone();
+            withNull[i] = null;
+            assertThatThrownBy(() -> newSequenceUpdates(withNull))
+                    .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SequenceUpdates newSequenceUpdates(Object[] args) {
+        return new SequenceUpdates(
+                (String) args[0],
+                (String) args[1],
+                (Consumer<String>) args[2],
+                (RpcProvider) args[3],
+                (ShardManager) args[4],
+                (InstrumentProvider) args[5],
+                ignored -> false,
+                (ScheduledExecutorService) args[6]);
     }
 }

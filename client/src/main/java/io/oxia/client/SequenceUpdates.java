@@ -95,14 +95,14 @@ public class SequenceUpdates implements Closeable {
         var observer =
                 new CancelableStreamObserver<GetSequenceUpdatesResponse>() {
                     @Override
-                    protected void handleNext(@NonNull GetSequenceUpdatesResponse value) {
+                    protected void handleNext(GetSequenceUpdatesResponse value) {
                         backoff.reset();
                         listener.accept(value.getHighestSequenceKey());
                         counterSequenceUpdatesReceived.increment();
                     }
 
                     @Override
-                    protected void handleError(@NonNull Throwable t) {
+                    protected void handleError(Throwable t) {
                         SequenceUpdates.this.handleError(t);
                     }
 
@@ -132,7 +132,7 @@ public class SequenceUpdates implements Closeable {
         return closed || isClientClosed.apply(null);
     }
 
-    private synchronized void handleError(@NonNull Throwable t) {
+    private synchronized void handleError(Throwable t) {
         if (isClosed()) {
             return;
         }
