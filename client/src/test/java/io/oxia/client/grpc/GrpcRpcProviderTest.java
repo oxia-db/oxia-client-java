@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.mockito.Mockito.mock;
 
 import com.google.protobuf.Any;
 import com.google.rpc.ErrorInfo;
@@ -61,7 +62,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongFunction;
 import lombok.NonNull;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 class GrpcRpcProviderTest {
@@ -874,6 +877,162 @@ class GrpcRpcProviderTest {
                                 assertThat(oxiaError.getMetadata()).containsEntry("shard", "1");
                             });
         } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void reportsLeaderLookupFailures() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create("localhost:0")).getClientConfig();
+
+        try (var provider =
+                new GrpcRpcProvider(
+                        config,
+                        executor,
+                        shardId -> {
+                            throw OxiaStatusException.shardNotFound(shardId);
+                        })) {
+            var notificationsError = new CompletableFuture<Throwable>();
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1), failingCancelableObserver(notificationsError));
+            var readError = new CompletableFuture<Throwable>();
+            provider.read(new ReadRequest().setShard(1), failingStreamObserver(readError));
+            var listError = new CompletableFuture<Throwable>();
+            provider.list(new ListRequest().setShard(1), failingCancelableObserver(listError));
+            var rangeScanError = new CompletableFuture<Throwable>();
+            provider.rangeScan(
+                    new RangeScanRequest().setShard(1), failingCancelableObserver(rangeScanError));
+            var errors =
+                    List.of(
+                            notificationsError,
+                            readError,
+                            listError,
+                            rangeScanError,
+                            provider.createSession(new CreateSessionRequest().setShard(1)).handle((r, e) -> e),
+                            provider
+                                    .keepAlive(new SessionHeartbeat().setShard(1), Duration.ofSeconds(5))
+                                    .handle((r, e) -> e),
+                            provider.closeSession(new CloseSessionRequest().setShard(1)).handle((r, e) -> e));
+
+            for (var error : errors) {
+                assertThat(error.get(5, TimeUnit.SECONDS))
+                        .satisfies(
+                                e ->
+                                        assertThat(OxiaStatusException.from(e).getStatusCode())
+                                                .isEqualTo(OxiaStatusCode.SHARD_NOT_FOUND));
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsReportsInvalidServiceAddress() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create("invalid address")).getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "localhost:0")) {
+            var error = new CompletableFuture<Throwable>();
+            provider.getShardAssignments(new ShardAssignmentsRequest(), failingStreamObserver(error));
+
+            assertThat(error.get(5, TimeUnit.SECONDS))
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.UNKNOWN));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void reportsInvalidRetryBackoff() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create("localhost:0")
+                                        .connectionBackoff(Duration.ofMillis(50), Duration.ofMillis(50)))
+                        .getClientConfig();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "localhost:0")) {
+            var shardAssignmentsError = new CompletableFuture<Throwable>();
+            provider.getShardAssignments(
+                    new ShardAssignmentsRequest(), failingStreamObserver(shardAssignmentsError));
+            var notificationsError = new CompletableFuture<Throwable>();
+            provider.getNotifications(
+                    new NotificationsRequest().setShard(1), failingCancelableObserver(notificationsError));
+            var readError = new CompletableFuture<Throwable>();
+            provider.read(new ReadRequest().setShard(1), failingStreamObserver(readError));
+            var listError = new CompletableFuture<Throwable>();
+            provider.list(new ListRequest().setShard(1), failingCancelableObserver(listError));
+            var rangeScanError = new CompletableFuture<Throwable>();
+            provider.rangeScan(
+                    new RangeScanRequest().setShard(1), failingCancelableObserver(rangeScanError));
+            var sequenceUpdatesError = new CompletableFuture<Throwable>();
+            provider.getSequenceUpdates(
+                    new GetSequenceUpdatesRequest().setShard(1).setKey("key"),
+                    failingCancelableObserver(sequenceUpdatesError));
+
+            for (var error :
+                    List.of(
+                            shardAssignmentsError,
+                            notificationsError,
+                            readError,
+                            listError,
+                            rangeScanError,
+                            sequenceUpdatesError)) {
+                assertThat(error)
+                        .isCompletedWithValueMatching(
+                                e ->
+                                        e instanceof OxiaStatusException
+                                                && e.getCause() instanceof IllegalArgumentException);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsNullArguments() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create("localhost:0")).getClientConfig();
+        LongFunction<String> leaders = shardId -> "localhost:0";
+        var connections = new ConnectionManager(config, executor);
+
+        try (var provider = new GrpcRpcProvider(config, executor, leaders)) {
+            List<ThrowingCallable> calls =
+                    List.of(
+                            () -> new GrpcRpcProvider(null, executor, leaders),
+                            () -> new GrpcRpcProvider(config, null, leaders),
+                            () -> new GrpcRpcProvider(config, executor, null),
+                            () -> new GrpcRpcProvider(null, executor, connections, leaders),
+                            () -> new GrpcRpcProvider(config, null, connections, leaders),
+                            () -> new GrpcRpcProvider(config, executor, null, leaders),
+                            () -> new GrpcRpcProvider(config, executor, connections, null),
+                            () -> provider.getShardAssignments(null, mock(StreamObserver.class)),
+                            () -> provider.getShardAssignments(new ShardAssignmentsRequest(), null),
+                            () -> provider.getNotifications(null, mock(CancelableStreamObserver.class)),
+                            () -> provider.getNotifications(new NotificationsRequest(), null),
+                            () -> provider.createSession(null),
+                            () -> provider.keepAlive(null, Duration.ofSeconds(1)),
+                            () -> provider.keepAlive(new SessionHeartbeat(), null),
+                            () -> provider.closeSession(null),
+                            () -> provider.read(null, mock(StreamObserver.class)),
+                            () -> provider.read(new ReadRequest(), null),
+                            () -> provider.list(null, mock(CancelableStreamObserver.class)),
+                            () -> provider.list(new ListRequest(), null),
+                            () -> provider.rangeScan(null, mock(CancelableStreamObserver.class)),
+                            () -> provider.rangeScan(new RangeScanRequest(), null),
+                            () -> provider.getSequenceUpdates(null, mock(CancelableStreamObserver.class)),
+                            () -> provider.getSequenceUpdates(new GetSequenceUpdatesRequest(), null));
+
+            calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
+        } finally {
+            connections.close();
             executor.shutdownNow();
         }
     }

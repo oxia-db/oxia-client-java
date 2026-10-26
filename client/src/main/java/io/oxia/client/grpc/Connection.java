@@ -40,7 +40,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
 
@@ -55,8 +54,8 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private final @NonNull HealthGrpc.HealthStub healthStub;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicBoolean healthCheckInProgress = new AtomicBoolean();
-    private final @Nullable ScheduledFuture<?> healthCheckTask;
-    private final @Nullable HealthCheckFailureCallback healthCheckFailureCallback;
+    private final ScheduledFuture<?> healthCheckTask;
+    private final HealthCheckFailureCallback healthCheckFailureCallback;
 
     Connection(
             @NonNull String address,
@@ -143,13 +142,11 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        if (healthCheckTask != null) {
-            healthCheckTask.cancel(false);
-        }
+        healthCheckTask.cancel(false);
         channel.shutdown();
         try {
             if (!channel.awaitTermination(100, MILLISECONDS)) {
@@ -175,9 +172,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                     .attr("connectionId", connectionId)
                     .attr("status", response.getStatus())
                     .log("Connection health check failed");
-            if (healthCheckFailureCallback != null) {
-                healthCheckFailureCallback.onFailure(this);
-            }
+            healthCheckFailureCallback.onFailure(this);
         } finally {
             healthCheckInProgress.set(false);
         }
@@ -191,18 +186,14 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             }
             if (Status.fromThrowable(error).getCode() == Status.Code.UNIMPLEMENTED) {
                 log.debug("Connection health ping is unsupported");
-                if (healthCheckTask != null) {
-                    healthCheckTask.cancel(false);
-                }
+                healthCheckTask.cancel(false);
                 return;
             }
             log.warn()
                     .attr("connectionId", connectionId)
                     .exceptionMessage(error)
                     .log("Connection health check failed");
-            if (healthCheckFailureCallback != null) {
-                healthCheckFailureCallback.onFailure(this);
-            }
+            healthCheckFailureCallback.onFailure(this);
         } finally {
             healthCheckInProgress.set(false);
         }

@@ -16,6 +16,7 @@
 package io.oxia.client.grpc.observer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -148,6 +149,46 @@ class CancelableStreamObserverTest {
         observer.requestNextMessage();
 
         verify(requestStream, never()).request(1);
+    }
+
+    @Test
+    void cancelTwiceCancelsRequestStreamOnce() {
+        var observer = new RecordingStreamObserver();
+        @SuppressWarnings("unchecked")
+        ClientCallStreamObserver<String> requestStream = mock(ClientCallStreamObserver.class);
+        observer.injectRequestStream(requestStream);
+
+        observer.cancel();
+        observer.cancel();
+
+        verify(requestStream).cancel(eq("canceled"), isNull());
+    }
+
+    @Test
+    void cancelAndCompleteBeforeStartCompletes() {
+        var observer = new RecordingStreamObserver();
+
+        observer.cancelAndComplete();
+
+        assertThat(observer.completedCount).hasValue(1);
+    }
+
+    @Test
+    void requestNextMessageBeforeStartIsNoOp() {
+        var observer = new RecordingStreamObserver(true);
+
+        observer.requestNextMessage();
+        observer.onNext("value");
+
+        assertThat(observer.nextCount).hasValue(1);
+    }
+
+    @Test
+    void rejectsNullCallbacks() {
+        var observer = new RecordingStreamObserver();
+
+        assertThatThrownBy(() -> observer.onNext(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> observer.onError(null)).isInstanceOf(NullPointerException.class);
     }
 
     private static final class RecordingStreamObserver extends CancelableStreamObserver<String> {

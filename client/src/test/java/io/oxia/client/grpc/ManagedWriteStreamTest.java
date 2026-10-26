@@ -15,12 +15,17 @@
  */
 package io.oxia.client.grpc;
 
+import static io.oxia.client.constants.Constants.MAXIMUM_FRAME_SIZE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.protobuf.Any;
@@ -31,10 +36,12 @@ import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.buffer.UnpooledHeapByteBuf;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
+import io.oxia.client.api.exceptions.InvalidArgumentException;
 import io.oxia.client.util.TimeoutSweeper;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.WriteRequest;
@@ -48,6 +55,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -467,6 +476,142 @@ class ManagedWriteStreamTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ignoresResponseWithoutInflightWrite() throws Exception {
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        var rpcProvider = rpcProvider(responseObservers, mock(StreamObserver.class));
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream =
+                new ManagedWriteStream(
+                        1, rpcProvider, new TimeoutSweeper(executor, Duration.ofSeconds(30)))) {
+            var first = stream.send(writeRequest(1));
+            var responseObserver = responseObservers.poll(5, TimeUnit.SECONDS);
+            responseObserver.onNext(new WriteResponse());
+            responseObserver.onNext(new WriteResponse());
+            first.get(5, TimeUnit.SECONDS);
+
+            var second = stream.send(writeRequest(2));
+            assertThat(second).isNotDone();
+            responseObserver.onNext(new WriteResponse());
+            second.get(5, TimeUnit.SECONDS);
+            assertThat(responseObservers).isEmpty();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void rejectsWriteOverMaximumFrameSize() throws Exception {
+        var rpcProvider = mock(RpcProvider.class);
+        var chunk = new byte[1024 * 1024];
+        var request = new WriteRequest().setShard(1);
+        for (int i = 0; i <= MAXIMUM_FRAME_SIZE / chunk.length; i++) {
+            request.addPut().setKey("key-" + i).setValue(Unpooled.wrappedBuffer(chunk));
+        }
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream =
+                new ManagedWriteStream(
+                        1, rpcProvider, new TimeoutSweeper(executor, Duration.ofSeconds(30)))) {
+            assertThatThrownBy(() -> stream.send(request).get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(InvalidArgumentException.class);
+            verify(rpcProvider, never()).writeStream(anyLong(), any());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void failsInflightWritesWhenClosingFailedStreamThrows() throws Exception {
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        StreamObserver<InputStream> requestObserver = mock(StreamObserver.class);
+        doThrow(new IllegalStateException("call was cancelled")).when(requestObserver).onCompleted();
+        var rpcProvider = rpcProvider(responseObservers, requestObserver);
+
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        try (var stream =
+                new ManagedWriteStream(
+                        1, rpcProvider, new TimeoutSweeper(executor, Duration.ofSeconds(30)))) {
+            var future = stream.send(writeRequest(1));
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(notLeaderError());
+
+            assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            cause ->
+                                    assertThat(cause.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE));
+            verify(requestObserver).onCompleted();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ignoresTimeoutOfWriteAlreadyFailedByRollover() throws Exception {
+        var sweeps = new CompletableFuture<Runnable>();
+        var executor = mock(ScheduledExecutorService.class);
+        when(executor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+                .thenAnswer(
+                        invocation -> {
+                            sweeps.complete(invocation.getArgument(0));
+                            return mock(ScheduledFuture.class);
+                        });
+        var requestTimeouts = new TimeoutSweeper(executor, Duration.ofNanos(1));
+        var probe = new CompletableFuture<Void>();
+        var responseObservers = new LinkedBlockingQueue<StreamObserver<WriteResponse>>();
+        StreamObserver<InputStream> requestObserver = mock(StreamObserver.class);
+        doAnswer(
+                        invocation -> {
+                            while (!probe.isDone()) {
+                                sweeps.get().run();
+                            }
+                            return null;
+                        })
+                .when(requestObserver)
+                .onCompleted();
+        var rpcProvider = rpcProvider(responseObservers, requestObserver);
+
+        try (var stream = new ManagedWriteStream(1, rpcProvider, requestTimeouts)) {
+            var future = stream.send(writeRequest(1));
+            requestTimeouts.add(probe);
+            responseObservers.poll(5, TimeUnit.SECONDS).onError(notLeaderError());
+
+            assertThat(probe).isCompletedExceptionally();
+            assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            cause ->
+                                    assertThat(cause.getStatusCode()).isEqualTo(OxiaStatusCode.RESOURCE_UNAVAILABLE));
+            verify(requestObserver).onCompleted();
+        }
+    }
+
+    @Test
+    void rejectsNullRequestTimeouts() {
+        assertThatThrownBy(() -> new ManagedWriteStream(1, mock(RpcProvider.class), null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static RpcProvider rpcProvider(
+            Queue<StreamObserver<WriteResponse>> responseObservers,
+            StreamObserver<InputStream> requestObserver) {
+        var rpcProvider = mock(RpcProvider.class);
+        when(rpcProvider.writeStream(anyLong(), any()))
+                .thenAnswer(
+                        invocation -> {
+                            responseObservers.add(invocation.getArgument(1));
+                            return requestObserver;
+                        });
+        return rpcProvider;
     }
 
     private static OxiaClientGrpc.OxiaClientImplBase respondingWriteService(

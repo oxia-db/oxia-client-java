@@ -15,12 +15,101 @@
  */
 package io.oxia.client.grpc;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import io.grpc.InsecureChannelCredentials;
+import io.grpc.Status;
 import io.grpc.TlsChannelCredentials;
+import io.grpc.health.v1.HealthCheckResponse;
+import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
+import io.oxia.client.ClientConfig;
+import io.oxia.client.OxiaClientBuilderImpl;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class ConnectionTest {
+    private static final String ADDRESS = "localhost:6648";
+    private final ClientConfig config = new OxiaClientBuilderImpl(ADDRESS).getClientConfig();
+    private final CompletableFuture<Runnable> healthCheck = new CompletableFuture<>();
+    private final ScheduledFuture<?> healthCheckTask = mock(ScheduledFuture.class);
+    private final ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    private final HealthCheckFailureCallback callback = mock(HealthCheckFailureCallback.class);
+
+    @Test
+    void closeIsIdempotent() {
+        var connection = newConnection();
+
+        connection.close();
+        connection.close();
+
+        verify(healthCheckTask).cancel(false);
+    }
+
+    @Test
+    void closeKeepsInterruptStatus() {
+        var connection = newConnection();
+
+        Thread.currentThread().interrupt();
+        connection.close();
+
+        assertThat(Thread.interrupted()).isTrue();
+    }
+
+    @Test
+    void skipsHealthCheckAfterClose() throws Exception {
+        var connection = newConnection();
+
+        connection.close();
+        healthCheck.get().run();
+
+        verify(callback, never()).onFailure(any());
+    }
+
+    @Test
+    void ignoresHealthCheckResultsAfterClose() {
+        var connection = newConnection();
+
+        connection.close();
+        connection.onNext(
+                HealthCheckResponse.newBuilder().setStatus(ServingStatus.NOT_SERVING).build());
+        connection.onError(Status.UNAVAILABLE.asRuntimeException());
+
+        verify(callback, never()).onFailure(any());
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        List<ThrowingCallable> calls =
+                List.of(
+                        () -> new Connection(null, config, executor, callback),
+                        () -> new Connection(ADDRESS, null, executor, callback),
+                        () -> new Connection(ADDRESS, config, null, callback),
+                        () -> new Connection(ADDRESS, config, executor, null));
+
+        calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
+    }
+
+    private Connection newConnection() {
+        when(executor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+                .thenAnswer(
+                        invocation -> {
+                            healthCheck.complete(invocation.getArgument(0));
+                            return healthCheckTask;
+                        });
+        return new Connection(ADDRESS, config, executor, callback);
+    }
 
     @Test
     public void testAddressTrim() {

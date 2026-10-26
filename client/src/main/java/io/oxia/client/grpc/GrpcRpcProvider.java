@@ -96,9 +96,9 @@ final class GrpcRpcProvider implements RpcProvider {
     private final TimeoutSweeper requestTimeouts;
 
     GrpcRpcProvider(
-            @NonNull ClientConfig clientConfig,
-            @NonNull ScheduledExecutorService asyncExecutor,
-            @NonNull LongFunction<String> shardLeaderProvider) {
+            ClientConfig clientConfig,
+            ScheduledExecutorService asyncExecutor,
+            LongFunction<String> shardLeaderProvider) {
         this(
                 clientConfig,
                 asyncExecutor,
@@ -108,10 +108,10 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     GrpcRpcProvider(
-            @NonNull ClientConfig clientConfig,
-            @NonNull ScheduledExecutorService asyncExecutor,
-            @NonNull ConnectionManager connectionManager,
-            @NonNull LongFunction<String> shardLeaderProvider) {
+            ClientConfig clientConfig,
+            ScheduledExecutorService asyncExecutor,
+            ConnectionManager connectionManager,
+            LongFunction<String> shardLeaderProvider) {
         this(clientConfig, asyncExecutor, connectionManager, shardLeaderProvider, false);
     }
 
@@ -511,7 +511,7 @@ final class GrpcRpcProvider implements RpcProvider {
         }
     }
 
-    private String getLeader(long shardId, @NonNull AtomicReference<OxiaStatusException> hint) {
+    private String getLeader(long shardId, AtomicReference<OxiaStatusException> hint) {
         final var retryHint = hint.get();
         return retryHint == null
                 ? shardLeaderProvider.apply(shardId)
@@ -519,7 +519,7 @@ final class GrpcRpcProvider implements RpcProvider {
     }
 
     private <T> RetryPolicy<T> getRetryPolicy(
-            @NonNull String operation, AtomicReference<OxiaStatusException> hint) {
+            String operation, AtomicReference<OxiaStatusException> hint) {
         return RetryPolicy.<T>builder()
                 .handleIf(
                         error -> {
