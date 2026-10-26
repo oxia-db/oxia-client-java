@@ -150,6 +150,7 @@ subprojects {
 
     tasks.test {
         useJUnitPlatform()
+        finalizedBy(tasks.jacocoTestReport)
     }
 
     spotless {

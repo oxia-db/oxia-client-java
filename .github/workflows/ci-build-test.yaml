@@ -38,6 +38,15 @@ jobs:
       - name: Build and Verify
         run: ./gradlew build --info
 
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: ./client/build/reports/jacoco/test/jacocoTestReport.xml,./perf/build/reports/jacoco/test/jacocoTestReport.xml
+          disable_search: true
+          fail_ci_if_error: true
+          # Empty on fork PRs, where the action falls back to a tokenless upload
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Validate Javadoc creation
         run: ./gradlew :client-api:javadoc
 
