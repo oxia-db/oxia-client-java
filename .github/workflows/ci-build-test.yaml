@@ -41,7 +41,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
-          files: ./client/build/reports/jacoco/test/jacocoTestReport.xml,./perf/build/reports/jacoco/test/jacocoTestReport.xml
+          files: ./build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml
           disable_search: true
           fail_ci_if_error: true
           # Empty on fork PRs, where the action falls back to a tokenless upload
