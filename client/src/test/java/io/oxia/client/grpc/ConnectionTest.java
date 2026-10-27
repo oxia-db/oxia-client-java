@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,6 +39,7 @@ import java.util.concurrent.ScheduledFuture;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class ConnectionTest {
     private static final String ADDRESS = "localhost:6648";
@@ -87,6 +89,61 @@ class ConnectionTest {
         connection.onError(Status.UNAVAILABLE.asRuntimeException());
 
         verify(callback, never()).onFailure(any());
+    }
+
+    @Test
+    void reportsHealthCheckErrorsOnlyAfterConsecutiveFailures() {
+        var connection = newConnection();
+
+        for (int i = 1; i < Connection.HEALTH_CHECK_FAILURE_THRESHOLD; i++) {
+            connection.onError(Status.DEADLINE_EXCEEDED.asRuntimeException());
+        }
+        verify(executor, never()).execute(any());
+
+        connection.onError(Status.DEADLINE_EXCEEDED.asRuntimeException());
+
+        verify(healthCheckTask).cancel(false);
+        verifyFailureReportedOffTheCallbackThread(connection);
+    }
+
+    @Test
+    void servingHealthCheckResetsTheConsecutiveFailures() {
+        var connection = newConnection();
+        var serving = HealthCheckResponse.newBuilder().setStatus(ServingStatus.SERVING).build();
+
+        for (int i = 1; i < Connection.HEALTH_CHECK_FAILURE_THRESHOLD; i++) {
+            connection.onError(Status.UNAVAILABLE.asRuntimeException());
+        }
+        connection.onNext(serving);
+        connection.onCompleted();
+        for (int i = 1; i < Connection.HEALTH_CHECK_FAILURE_THRESHOLD; i++) {
+            connection.onError(Status.UNAVAILABLE.asRuntimeException());
+        }
+
+        verify(executor, never()).execute(any());
+        verify(callback, never()).onFailure(any());
+        verify(healthCheckTask, never()).cancel(false);
+    }
+
+    @Test
+    void reportsNotServingHealthCheckRightAway() {
+        var connection = newConnection();
+
+        connection.onNext(
+                HealthCheckResponse.newBuilder().setStatus(ServingStatus.NOT_SERVING).build());
+
+        verify(healthCheckTask).cancel(false);
+        verifyFailureReportedOffTheCallbackThread(connection);
+    }
+
+    private void verifyFailureReportedOffTheCallbackThread(Connection connection) {
+        var report = ArgumentCaptor.forClass(Runnable.class);
+        verify(executor, times(1)).execute(report.capture());
+        verify(callback, never()).onFailure(any());
+
+        report.getValue().run();
+
+        verify(callback).onFailure(connection);
     }
 
     @Test
