@@ -21,8 +21,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.oxia.client.api.Authentication;
 import java.io.File;
 import java.lang.reflect.Constructor;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TokenAuthenticationTest {
 
@@ -42,6 +47,44 @@ public class TokenAuthenticationTest {
         assertThat(metadata).isNotNull();
         String token = metadata.get("Authorization");
         assertThat(token).isEqualTo("Bearer 1234");
+    }
+
+    @Test
+    void testTokenAuthenticationReusesCredentialsOfTheSameToken() {
+        var token = new AtomicReference<>("1234");
+        TokenAuthentication tokenAuthentication = new TokenAuthentication(token::get);
+        Map<String, String> metadata = tokenAuthentication.generateCredentials();
+        assertThat(metadata).containsExactly(Map.entry("Authorization", "Bearer 1234"));
+        assertThat(tokenAuthentication.generateCredentials()).isSameAs(metadata);
+
+        token.set("5678");
+        assertThat(tokenAuthentication.generateCredentials())
+                .containsExactly(Map.entry("Authorization", "Bearer 5678"));
+    }
+
+    @Test
+    void testTokenFileReadAgainOnlyWhenModified(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("token");
+        Files.writeString(file, "1234\n");
+        FileTime lastModified = FileTime.fromMillis(1_000_000);
+        Files.setLastModifiedTime(file, lastModified);
+        TokenAuthentication auth = new TokenAuthentication("unused");
+        auth.configure("file://" + file.toAbsolutePath());
+        assertThat(auth.generateCredentials()).containsEntry("Authorization", "Bearer 1234");
+
+        // Not read again while its modification time is the same
+        Files.writeString(file, "5678\n");
+        Files.setLastModifiedTime(file, lastModified);
+        assertThat(auth.generateCredentials()).containsEntry("Authorization", "Bearer 1234");
+
+        // Read again once it changes, e.g. on a token rotation
+        Files.setLastModifiedTime(file, FileTime.fromMillis(2_000_000));
+        assertThat(auth.generateCredentials()).containsEntry("Authorization", "Bearer 5678");
+
+        Files.delete(file);
+        assertThatThrownBy(auth::generateCredentials)
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Failed to read token from file");
     }
 
     @Test
