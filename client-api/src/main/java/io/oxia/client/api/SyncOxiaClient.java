@@ -177,7 +177,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return The list of keys that exist within the specified range, or an empty list if there were
      *     none.
+     * @deprecated Use {@link #rangeScan(String, String, Set)} instead, which streams the records with
+     *     backpressure and can stop early.
      */
+    @Deprecated(forRemoval = true)
     List<String> list(String startKeyInclusive, String endKeyExclusive);
 
     /**
@@ -192,7 +195,10 @@ public interface SyncOxiaClient extends AutoCloseable {
      * @param options Set {@link ListOption options} for the list operation.
      * @return The list of keys that exist within the specified range, or an empty list if there were
      *     none.
+     * @deprecated Use {@link #rangeScan(String, String, Set)} instead, which streams the records with
+     *     backpressure and can stop early.
      */
+    @Deprecated(forRemoval = true)
     List<String> list(String startKeyInclusive, String endKeyExclusive, Set<ListOption> options);
 
     /**

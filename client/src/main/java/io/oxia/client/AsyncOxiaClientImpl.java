@@ -689,12 +689,14 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     }
 
     @Override
+    @Deprecated(forRemoval = true)
     public @NonNull CompletableFuture<List<String>> list(
             String startKeyInclusive, String endKeyExclusive) {
         return list(startKeyInclusive, endKeyExclusive, Collections.emptySet());
     }
 
     @Override
+    @Deprecated(forRemoval = true)
     public @NonNull CompletableFuture<List<String>> list(
             String startKeyInclusive, String endKeyExclusive, Set<ListOption> options) {
         long startTime = System.nanoTime();
