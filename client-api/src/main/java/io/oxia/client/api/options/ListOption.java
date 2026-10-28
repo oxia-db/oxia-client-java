@@ -18,7 +18,12 @@ package io.oxia.client.api.options;
 import io.oxia.client.api.options.defs.OptionPartitionKey;
 import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 
-/** Options for listing records. */
+/**
+ * Options for listing records.
+ *
+ * @deprecated Use {@link RangeScanOption} with a range scan instead.
+ */
+@Deprecated(forRemoval = true)
 public interface ListOption {
 
     /**

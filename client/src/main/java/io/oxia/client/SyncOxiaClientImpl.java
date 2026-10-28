@@ -124,12 +124,14 @@ class SyncOxiaClientImpl implements SyncOxiaClient {
     }
 
     @Override
+    @Deprecated(forRemoval = true)
     public @NonNull List<String> list(
             @NonNull String startKeyInclusive, @NonNull String endKeyExclusive) {
         return list(startKeyInclusive, endKeyExclusive, Collections.emptySet());
     }
 
     @Override
+    @Deprecated(forRemoval = true)
     public @NonNull List<String> list(
             @NonNull String startKeyInclusive,
             @NonNull String endKeyExclusive,
