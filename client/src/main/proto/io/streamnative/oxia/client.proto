@@ -439,6 +439,10 @@ message RangeScanRequest {
   string end_exclusive = 3;
 
   optional string secondary_index_name = 4;
+
+  // Whether to return the value of each record, or only its key and version.
+  // Unset is true. Older servers ignore it and send the values.
+  optional bool include_values = 7;
 }
 
 /**

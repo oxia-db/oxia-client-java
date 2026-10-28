@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
 import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionSecondaryIndex;
@@ -116,5 +117,13 @@ class OptionsUtilsTest {
                                 OptionsUtils.getComparisonType(
                                         Set.of(GetOption.ComparisonFloor, GetOption.ComparisonCeiling)))
                 .isInstanceOf(OxiaStatusException.class);
+    }
+
+    @Test
+    void includesValue() {
+        assertThat(OptionsUtils.includesValue(Set.of())).isTrue();
+        assertThat(OptionsUtils.includesValue(Set.of(RangeScanOption.PartitionKey("a")))).isTrue();
+        assertThat(OptionsUtils.includesValue(Set.of(RangeScanOption.IncludeValue(false)))).isFalse();
+        assertThat(OptionsUtils.includesValue(Set.of(RangeScanOption.IncludeValue(true)))).isTrue();
     }
 }

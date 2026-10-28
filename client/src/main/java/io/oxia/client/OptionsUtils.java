@@ -18,6 +18,7 @@ package io.oxia.client;
 import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.options.defs.OptionComparisonType;
 import io.oxia.client.api.options.defs.OptionEphemeral;
+import io.oxia.client.api.options.defs.OptionIncludeValue;
 import io.oxia.client.api.options.defs.OptionOverrideModificationsCount;
 import io.oxia.client.api.options.defs.OptionOverrideVersionId;
 import io.oxia.client.api.options.defs.OptionPartitionKey;
@@ -70,6 +71,16 @@ public class OptionsUtils {
         }
 
         return false;
+    }
+
+    public static boolean includesValue(Set<?> options) {
+        boolean includeValue = true;
+        for (var option : options) {
+            if (option instanceof OptionIncludeValue o) {
+                includeValue = o.includeValue();
+            }
+        }
+        return includeValue;
     }
 
     public static Optional<String> getPartitionKey(Set<?> options) {

@@ -174,8 +174,9 @@ public interface AsyncOxiaClient extends AutoCloseable {
      *     the range.
      * @return The list of keys that exist within the specified range or an empty list if there were
      *     none. Supplied via a future.
-     * @deprecated Use {@link #rangeScan(String, String, RangeScanConsumer, Set)} instead, which
-     *     streams the records with backpressure and can stop early.
+     * @deprecated Use {@link #rangeScan(String, String, RangeScanConsumer, Set)} with {@link
+     *     io.oxia.client.api.options.RangeScanOption#IncludeValue(boolean) IncludeValue(false)}
+     *     instead, which streams the keys with backpressure and can stop early.
      */
     @Deprecated(forRemoval = true)
     CompletableFuture<List<String>> list(String startKeyInclusive, String endKeyExclusive);
@@ -192,8 +193,9 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * @param options Set {@link ListOption options} for the list operation.
      * @return The list of keys that exist within the specified range or an empty list if there were
      *     none. Supplied via a future.
-     * @deprecated Use {@link #rangeScan(String, String, RangeScanConsumer, Set)} instead, which
-     *     streams the records with backpressure and can stop early.
+     * @deprecated Use {@link #rangeScan(String, String, RangeScanConsumer, Set)} with {@link
+     *     io.oxia.client.api.options.RangeScanOption#IncludeValue(boolean) IncludeValue(false)}
+     *     instead, which streams the keys with backpressure and can stop early.
      */
     @Deprecated(forRemoval = true)
     CompletableFuture<List<String>> list(
