@@ -884,6 +884,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
 
             final Optional<String> partitionKey = OptionsUtils.getPartitionKey(options);
             final Optional<String> secondaryIndexName = OptionsUtils.getSecondaryIndexName(options);
+            final boolean includeValue = OptionsUtils.includesValue(options);
             if (partitionKey.isPresent()) {
                 long shardId = shardManager.getShardForKey(partitionKey.get());
                 internalShardRangeScan(
@@ -891,6 +892,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         startKeyInclusive,
                         endKeyExclusive,
                         secondaryIndexName,
+                        includeValue,
                         new CompositeRangeScanConsumer(1, timedConsumer),
                         flowControl);
                 return;
@@ -904,6 +906,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         startKeyInclusive,
                         endKeyExclusive,
                         secondaryIndexName,
+                        includeValue,
                         multiShardConsumer,
                         flowControl);
             }
@@ -917,12 +920,16 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             String startKeyInclusive,
             String endKeyExclusive,
             Optional<String> secondaryIndexName,
+            boolean includeValue,
             CompositeRangeScanConsumer consumer,
             FlowControlledRangeScanConsumer flowControl) {
         var request = new RangeScanRequest();
         request.setShard(shardId).setStartInclusive(startKeyInclusive).setEndExclusive(endKeyExclusive);
         secondaryIndexName.ifPresent(request::setSecondaryIndexName);
-        var observer = new RangeScanShardObserver(consumer, flowControl);
+        if (!includeValue) {
+            request.setIncludeValues(false);
+        }
+        var observer = new RangeScanShardObserver(consumer, flowControl, includeValue);
         rpcProvider.rangeScan(request, observer);
         if (flowControl != null) {
             flowControl.onStreamStarted(observer);
@@ -934,12 +941,16 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             implements FlowControlledRangeScanConsumer.StreamHandle {
         private final CompositeRangeScanConsumer consumer;
         private final FlowControlledRangeScanConsumer flowControl;
+        private final boolean includeValue;
 
         RangeScanShardObserver(
-                CompositeRangeScanConsumer consumer, FlowControlledRangeScanConsumer flowControl) {
+                CompositeRangeScanConsumer consumer,
+                FlowControlledRangeScanConsumer flowControl,
+                boolean includeValue) {
             super(flowControl != null);
             this.consumer = consumer;
             this.flowControl = flowControl;
+            this.includeValue = includeValue;
         }
 
         @Override
@@ -948,7 +959,11 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
             // a lock shared with the other shard streams of the scan.
             final List<GetResult> results = new ArrayList<>(response.getRecordsCount());
             for (int i = 0; i < response.getRecordsCount(); i++) {
-                results.add(ProtoUtil.getResultFromProto("", response.getRecordAt(i)));
+                var record = response.getRecordAt(i);
+                if (!includeValue) {
+                    record.clearValue();
+                }
+                results.add(ProtoUtil.getResultFromProto("", record));
             }
             if (!consumer.onNext(results)) {
                 cancelAndComplete();

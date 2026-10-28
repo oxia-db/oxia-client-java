@@ -59,6 +59,7 @@ import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.testcontainers.OxiaContainer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
@@ -601,6 +602,31 @@ class OxiaClientIT {
             List<String> sameKeys =
                     StreamSupport.stream(iterable.spliterator(), false).map(GetResult::key).sorted().toList();
             assertThat(sameKeys).isEqualTo(keys);
+        }
+    }
+
+    @Test
+    void testRangeScanWithoutValues() throws Exception {
+        try (SyncOxiaClient syncClient =
+                OxiaClientBuilder.create(oxia.getServiceAddress()).syncClient()) {
+            var a = syncClient.put("rs-no-value-a", "0".getBytes());
+            var b = syncClient.put("rs-no-value-b", "1".getBytes());
+
+            try (CloseableIterable<GetResult> scan =
+                    syncClient.rangeScan(
+                            "rs-no-value-", "rs-no-value-~", Set.of(RangeScanOption.IncludeValue(false)))) {
+                var results =
+                        StreamSupport.stream(scan.spliterator(), false)
+                                .sorted(Comparator.comparing(GetResult::key))
+                                .toList();
+                assertThat(results)
+                        .extracting(GetResult::key)
+                        .containsExactly("rs-no-value-a", "rs-no-value-b");
+                assertThat(results).allSatisfy(r -> assertThat(r.value()).isEmpty());
+                assertThat(results)
+                        .extracting(r -> r.version().versionId())
+                        .containsExactly(a.version().versionId(), b.version().versionId());
+            }
         }
     }
 

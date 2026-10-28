@@ -15,6 +15,7 @@
  */
 package io.oxia.client.api.options;
 
+import io.oxia.client.api.options.defs.OptionIncludeValue;
 import io.oxia.client.api.options.defs.OptionPartitionKey;
 import io.oxia.client.api.options.defs.OptionSecondaryIndexName;
 
@@ -47,5 +48,18 @@ public interface RangeScanOption {
      */
     static RangeScanOption UseIndex(String secondaryIndexName) {
         return new OptionSecondaryIndexName(secondaryIndexName);
+    }
+
+    /**
+     * IncludeValue includes or excludes the values of the records. Without the values, the range scan
+     * returns the key and the version of each record, and the {@link
+     * io.oxia.client.api.GetResult#value() value} of each result is empty. Older servers still send
+     * the values, and the client drops them.
+     *
+     * @param includeValue whether to include the values. By default, they are included.
+     * @return the RangeScanOption.
+     */
+    static RangeScanOption IncludeValue(boolean includeValue) {
+        return new OptionIncludeValue(includeValue);
     }
 }

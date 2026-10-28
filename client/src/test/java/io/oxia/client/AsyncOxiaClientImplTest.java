@@ -42,6 +42,7 @@ import io.oxia.client.api.exceptions.ResourceUnavailableException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.GetOption;
 import io.oxia.client.api.options.PutOption;
+import io.oxia.client.api.options.RangeScanOption;
 import io.oxia.client.batch.BatchManager;
 import io.oxia.client.batch.Operation.ReadOperation.GetOperation;
 import io.oxia.client.batch.Operation.WriteOperation.DeleteOperation;
@@ -982,6 +983,35 @@ class AsyncOxiaClientImplTest {
 
         completed.join();
         assertThat(keys).containsExactly("a", "b");
+    }
+
+    @Test
+    void rangeScanWithoutValuesDropsTheValuesOfAnOlderServer() {
+        when(shardManager.allShardIds()).thenReturn(Set.of(0L));
+        var requests = new ArrayList<RangeScanRequest>();
+        doAnswer(
+                        i -> {
+                            requests.add(i.getArgument(0));
+                            var so = (CancelableStreamObserver<RangeScanResponse>) i.getArgument(1);
+                            var response = new RangeScanResponse();
+                            response.addRecord().setKey("a").setValue("1".getBytes(UTF_8));
+                            so.onNext(response);
+                            so.onCompleted();
+                            return null;
+                        })
+                .when(rpcProvider)
+                .rangeScan(any(RangeScanRequest.class), any(CancelableStreamObserver.class));
+
+        var withoutValues = new GetResultIterator();
+        client.rangeScan("a", "e", withoutValues, Set.of(RangeScanOption.IncludeValue(false)));
+        assertThat(withoutValues.next().value()).isEmpty();
+        assertThat(requests.get(0).hasIncludeValues()).isTrue();
+        assertThat(requests.get(0).isIncludeValues()).isFalse();
+
+        var withValues = new GetResultIterator();
+        client.rangeScan("a", "e", withValues, Set.of(RangeScanOption.IncludeValue(true)));
+        assertThat(withValues.next().value()).isEqualTo("1".getBytes(UTF_8));
+        assertThat(requests.get(1).hasIncludeValues()).isFalse();
     }
 
     @Test

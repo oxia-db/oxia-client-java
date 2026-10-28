@@ -16,8 +16,9 @@
 package io.oxia.client.api.options.defs;
 
 import io.oxia.client.api.options.GetOption;
+import io.oxia.client.api.options.RangeScanOption;
 
 /**
  * @hidden
  */
-public record OptionIncludeValue(boolean includeValue) implements GetOption {}
+public record OptionIncludeValue(boolean includeValue) implements GetOption, RangeScanOption {}
