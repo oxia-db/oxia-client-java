@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
 
-    runs-on: cncf-ubuntu-8-32-x86
+    runs-on: cncf-ubuntu-16-64-x86
 
     steps:
       - name: Checkout code
