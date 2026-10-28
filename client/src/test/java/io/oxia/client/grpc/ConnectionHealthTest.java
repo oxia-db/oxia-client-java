@@ -90,6 +90,17 @@ class ConnectionHealthTest {
     }
 
     @Test
+    void keepsConnectionAfterASingleFailedHealthCheck() throws Exception {
+        var failed = new AtomicBoolean();
+        try (var target =
+                newTarget(
+                        stub -> failed.set(true), Duration.ofSeconds(1), new FailingOnceHealthService())) {
+
+            await().during(Duration.ofMillis(250)).untilAsserted(() -> assertThat(failed).isFalse());
+        }
+    }
+
+    @Test
     void keepsConnectionWhenHealthCheckIsUnsupported() throws Exception {
         var failed = new AtomicBoolean();
         try (var target =
@@ -170,6 +181,22 @@ class ConnectionHealthTest {
         @Override
         public void check(
                 HealthCheckRequest request, StreamObserver<HealthCheckResponse> responseObserver) {}
+    }
+
+    private static class FailingOnceHealthService extends HealthGrpc.HealthImplBase {
+        private final AtomicBoolean failed = new AtomicBoolean();
+
+        @Override
+        public void check(
+                HealthCheckRequest request, StreamObserver<HealthCheckResponse> responseObserver) {
+            if (failed.compareAndSet(false, true)) {
+                responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+                return;
+            }
+            responseObserver.onNext(
+                    HealthCheckResponse.newBuilder().setStatus(ServingStatus.SERVING).build());
+            responseObserver.onCompleted();
+        }
     }
 
     private static class UnimplementedHealthService extends HealthGrpc.HealthImplBase {
