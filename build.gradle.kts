@@ -150,8 +150,9 @@ subprojects {
                 )
         configurations.configureEach {
             resolutionStrategy.eachDependency {
-                latest[requested.group]?.let {
-                    useVersion(if (requested.version.orEmpty().endsWith("-alpha")) "$it-alpha" else it)
+                val version = requested.version.orEmpty()
+                latest[requested.group]?.takeIf { version.isNotEmpty() }?.let {
+                    useVersion(if (version.endsWith("-alpha")) "$it-alpha" else it)
                 }
             }
         }
