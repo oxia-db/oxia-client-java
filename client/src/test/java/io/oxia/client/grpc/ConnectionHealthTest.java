@@ -133,7 +133,14 @@ class ConnectionHealthTest {
                         .getClientConfig();
 
         try (var target =
-                new Target(server, new Connection(address, clientConfig, executor, connection -> {}))) {
+                new Target(
+                        server,
+                        new Connection(
+                                address,
+                                clientConfig,
+                                executor,
+                                new LegacyServiceInterceptor(),
+                                connection -> {}))) {
             assertThat(authorization.get(5, TimeUnit.SECONDS)).isEqualTo("Bearer token");
         }
     }
@@ -155,7 +162,13 @@ class ConnectionHealthTest {
                         .connectionKeepAliveTimeout(healthPingTimeout);
         var clientConfig = ((OxiaClientBuilderImpl) builder).getClientConfig();
         return new Target(
-                server, new Connection(address, clientConfig, executor, healthCheckFailureCallback));
+                server,
+                new Connection(
+                        address,
+                        clientConfig,
+                        executor,
+                        new LegacyServiceInterceptor(),
+                        healthCheckFailureCallback));
     }
 
     private record Target(Server server, Connection connection) implements AutoCloseable {

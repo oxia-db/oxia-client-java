@@ -31,6 +31,7 @@ public class ConnectionManager implements AutoCloseable {
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
     private final ScheduledExecutorService executor;
+    private final LegacyServiceInterceptor legacyServiceInterceptor = new LegacyServiceInterceptor();
 
     public ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;
@@ -52,6 +53,7 @@ public class ConnectionManager implements AutoCloseable {
                                     key.address,
                                     clientConfig,
                                     executor,
+                                    legacyServiceInterceptor,
                                     connectionToRemove -> removeConnection(key, connectionToRemove));
                     log.info()
                             .attr("address", key.address)

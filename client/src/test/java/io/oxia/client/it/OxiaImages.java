@@ -22,5 +22,8 @@ public final class OxiaImages {
     // ci-nightly-images workflow. The "latest" tag is not main: it is the latest 0.16 release.
     public static final DockerImageName OXIA = DockerImageName.parse("oxia/oxia:nightly-beta");
 
+    // The last release that only serves the io.streamnative.oxia.proto.OxiaClient gRPC service.
+    public static final DockerImageName OXIA_0_14 = DockerImageName.parse("oxia/oxia:0.14.4");
+
     private OxiaImages() {}
 }

@@ -46,6 +46,7 @@ class ConnectionTest {
     private final ScheduledFuture<?> healthCheckTask = mock(ScheduledFuture.class);
     private final ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
     private final HealthCheckFailureCallback callback = mock(HealthCheckFailureCallback.class);
+    private final LegacyServiceInterceptor interceptor = new LegacyServiceInterceptor();
 
     @Test
     void closeIsIdempotent() {
@@ -93,10 +94,11 @@ class ConnectionTest {
     void rejectsNullArguments() {
         List<ThrowingCallable> calls =
                 List.of(
-                        () -> new Connection(null, config, executor, callback),
-                        () -> new Connection(ADDRESS, null, executor, callback),
-                        () -> new Connection(ADDRESS, config, null, callback),
-                        () -> new Connection(ADDRESS, config, executor, null));
+                        () -> new Connection(null, config, executor, interceptor, callback),
+                        () -> new Connection(ADDRESS, null, executor, interceptor, callback),
+                        () -> new Connection(ADDRESS, config, null, interceptor, callback),
+                        () -> new Connection(ADDRESS, config, executor, null, callback),
+                        () -> new Connection(ADDRESS, config, executor, interceptor, null));
 
         calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
     }
@@ -108,7 +110,7 @@ class ConnectionTest {
                             healthCheck.complete(invocation.getArgument(0));
                             return healthCheckTask;
                         });
-        return new Connection(ADDRESS, config, executor, callback);
+        return new Connection(ADDRESS, config, executor, interceptor, callback);
     }
 
     @Test
