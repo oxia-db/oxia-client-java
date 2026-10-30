@@ -130,6 +130,34 @@ subprojects {
         }
     }
 
+    // Align this build's own classpaths without publishing the BOMs and constraints to consumers
+    val buildVersions by configurations.creating {
+        isCanBeConsumed = false
+        isCanBeResolved = false
+    }
+    configurations.matching { it.isCanBeResolved && it.name.endsWith("Classpath") }.configureEach {
+        extendsFrom(buildVersions)
+    }
+
+    if (providers.gradleProperty("dependencyLine").orNull == "latest") {
+        val latest =
+                mapOf(
+                        "io.grpc" to rootProject.libs.versions.grpc.latest.get(),
+                        "io.netty" to rootProject.libs.versions.netty.latest.get(),
+                        "io.opentelemetry" to rootProject.libs.versions.opentelemetry.latest.get(),
+                        "com.google.protobuf" to rootProject.libs.versions.protobuf.java.latest.get(),
+                        "com.google.api.grpc" to rootProject.libs.versions.proto.google.common.protos.latest.get(),
+                )
+        configurations.configureEach {
+            resolutionStrategy.eachDependency {
+                val version = requested.version.orEmpty()
+                latest[requested.group]?.takeIf { version.isNotEmpty() }?.let {
+                    useVersion(if (version.endsWith("-alpha")) "$it-alpha" else it)
+                }
+            }
+        }
+    }
+
     dependencies {
         implementation(rootProject.libs.slog)
 
@@ -138,23 +166,23 @@ subprojects {
         testCompileOnly(rootProject.libs.lombok)
         testAnnotationProcessor(rootProject.libs.lombok)
 
-        implementation(platform(rootProject.libs.grpc.bom))
-        implementation(platform(rootProject.libs.netty.bom))
-        implementation(platform(rootProject.libs.opentelemetry.bom))
-        implementation(platform(rootProject.libs.opentelemetry.bom.alpha))
-        implementation(platform(rootProject.libs.junit.bom))
+        buildVersions(platform(rootProject.libs.grpc.bom))
+        buildVersions(platform(rootProject.libs.netty.bom))
+        buildVersions(platform(rootProject.libs.opentelemetry.bom))
+        buildVersions(platform(rootProject.libs.opentelemetry.bom.alpha))
+        buildVersions(platform(rootProject.libs.junit.bom))
         constraints {
-            implementation(rootProject.libs.guava)
-            implementation(rootProject.libs.opentelemetry.semconv)
-            implementation(rootProject.libs.byte.buddy)
-            implementation(rootProject.libs.byte.buddy.agent)
-            implementation(rootProject.libs.commons.compress)
-            implementation(rootProject.libs.commons.lang3)
-            implementation(rootProject.libs.protobuf.java)
-            implementation(rootProject.libs.jackson.databind)
-            implementation(rootProject.libs.jackson.core)
-            implementation(rootProject.libs.log4j.core)
-            implementation(rootProject.libs.bcpkix)
+            buildVersions(rootProject.libs.guava)
+            buildVersions(rootProject.libs.opentelemetry.semconv)
+            buildVersions(rootProject.libs.byte.buddy)
+            buildVersions(rootProject.libs.byte.buddy.agent)
+            buildVersions(rootProject.libs.commons.compress)
+            buildVersions(rootProject.libs.commons.lang3)
+            buildVersions(rootProject.libs.protobuf.java)
+            buildVersions(rootProject.libs.jackson.databind)
+            buildVersions(rootProject.libs.jackson.core)
+            buildVersions(rootProject.libs.log4j.core)
+            buildVersions(rootProject.libs.bcpkix)
         }
 
         testImplementation(rootProject.libs.assertj)

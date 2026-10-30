@@ -17,8 +17,14 @@ concurrency:
 
 jobs:
   build:
+    name: build (${{ matrix.dependency-line }} dependencies)
 
     runs-on: cncf-ubuntu-16-64-x86
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dependency-line: [min, latest]
 
     steps:
       - name: Checkout code
@@ -36,9 +42,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and Verify
-        run: ./gradlew build --info
+        run: ./gradlew build --info -PdependencyLine=${{ matrix.dependency-line }}
 
       - name: Upload coverage to Codecov
+        if: matrix.dependency-line == 'min'
         uses: codecov/codecov-action@v7
         with:
           files: ./build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml
@@ -48,6 +55,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage
+        if: matrix.dependency-line == 'min'
         uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -68,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results
+          name: test-results-${{ matrix.dependency-line }}
           path: test-results.zip
 
   coverage:
