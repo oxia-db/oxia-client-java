@@ -1,8 +1,13 @@
 [versions]
-grpc = "1.84.0"
-netty = "4.2.18.Final"
+# The client publishes the oldest grpc, Netty, OpenTelemetry and protobuf it supports (the Pulsar 4.2
+# line). CI also tests the newest ones, set with -PdependencyLine=latest.
+grpc = "1.75.0"
+grpc-latest = "1.84.0"
+netty = "4.1.139.Final"
+netty-latest = "4.2.18.Final"
 lightproto = "0.9.2"
-opentelemetry = "1.66.0"
+opentelemetry = "1.62.0"
+opentelemetry-latest = "1.66.0"
 opentelemetry-semconv = "1.37.0"
 junit = "5.11.3"
 testcontainers = "1.20.4"
@@ -19,8 +24,10 @@ commons-compress = "1.26.0"
 commons-lang3 = "3.19.0"
 caffeine = "3.1.4"
 failsafe = "3.3.2"
-protobuf-java = "4.34.0"
-proto-google-common-protos = "2.64.1"
+protobuf-java = "3.25.5"
+protobuf-java-latest = "4.34.0"
+proto-google-common-protos = "2.59.2"
+proto-google-common-protos-latest = "2.64.1"
 jackson = "2.21.1"
 log4j = "2.26.1"
 bouncy-castle = "1.84"
@@ -41,7 +48,7 @@ jmh-plugin = "0.7.3"
 grpc-bom = { module = "io.grpc:grpc-bom", version.ref = "grpc" }
 netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
 opentelemetry-bom = { module = "io.opentelemetry:opentelemetry-bom", version.ref = "opentelemetry" }
-opentelemetry-bom-alpha = { module = "io.opentelemetry:opentelemetry-bom-alpha", version = "1.66.0-alpha" }
+opentelemetry-bom-alpha = { module = "io.opentelemetry:opentelemetry-bom-alpha", version = "1.62.0-alpha" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 
 # Compile dependencies
@@ -49,7 +56,7 @@ slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slog = { module = "io.github.merlimat.slog:slog", version.ref = "slog" }
 lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
-opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api" }
+opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api", version.ref = "opentelemetry" }
 opentelemetry-sdk = { module = "io.opentelemetry:opentelemetry-sdk" }
 opentelemetry-sdk-testing = { module = "io.opentelemetry:opentelemetry-sdk-testing" }
 opentelemetry-sdk-autoconfigure = { module = "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure" }
@@ -59,11 +66,11 @@ opentelemetry-exporter-logging = { module = "io.opentelemetry:opentelemetry-expo
 opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semconv", version.ref = "opentelemetry-semconv" }
 
 # gRPC
-grpc-core = { module = "io.grpc:grpc-core" }
-grpc-netty = { module = "io.grpc:grpc-netty" }
-grpc-services = { module = "io.grpc:grpc-services" }
-grpc-stub = { module = "io.grpc:grpc-stub" }
-grpc-protobuf = { module = "io.grpc:grpc-protobuf" }
+grpc-core = { module = "io.grpc:grpc-core", version.ref = "grpc" }
+grpc-netty = { module = "io.grpc:grpc-netty", version.ref = "grpc" }
+grpc-services = { module = "io.grpc:grpc-services", version.ref = "grpc" }
+grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc" }
+grpc-protobuf = { module = "io.grpc:grpc-protobuf", version.ref = "grpc" }
 grpc-inprocess = { module = "io.grpc:grpc-inprocess" }
 
 # Netty
