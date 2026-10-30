@@ -28,6 +28,8 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.grpc.Status;
@@ -68,6 +70,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
@@ -940,6 +943,88 @@ class AsyncOxiaClientImplTest {
         client.rangeScan("a", "e", it);
 
         assertThatThrownBy(it::hasNext).hasCauseInstanceOf(ResourceUnavailableException.class);
+    }
+
+    @Test
+    void rangeScanIgnoresAShardAddedWhileItStarts() {
+        // A live view, like the one over the client's shard map
+        Set<Long> shardIds = ConcurrentHashMap.newKeySet();
+        shardIds.addAll(Set.of(0L, 1L));
+        when(shardManager.allShardIds()).thenReturn(shardIds);
+        // A shard split adds shard 2 while the scan starts the stream of shard 0
+        answerRangeScans(() -> shardIds.add(2L));
+        var keys = new ArrayList<String>();
+        var completed = new CompletableFuture<Void>();
+
+        client.rangeScan("a", "e", collectingConsumer(keys, completed));
+
+        assertThat(completed).isCompleted();
+        assertThat(keys).containsExactlyInAnyOrder("key-0", "key-1");
+        verify(rpcProvider, times(2))
+                .rangeScan(any(RangeScanRequest.class), any(CancelableStreamObserver.class));
+    }
+
+    @Test
+    void rangeScanCompletesWhenAShardIsRemovedWhileItStarts() {
+        // A live view, like the one over the client's shard map
+        Set<Long> shardIds = ConcurrentHashMap.newKeySet();
+        shardIds.addAll(Set.of(0L, 1L, 2L));
+        when(shardManager.allShardIds()).thenReturn(shardIds);
+        // Shard 2 is removed while the scan starts the stream of shard 0
+        answerRangeScans(() -> shardIds.remove(2L));
+        var keys = new ArrayList<String>();
+        var completed = new CompletableFuture<Void>();
+
+        client.rangeScan("a", "e", collectingConsumer(keys, completed));
+
+        assertThat(completed).isCompleted();
+        assertThat(keys).containsExactlyInAnyOrder("key-0", "key-1", "key-2");
+    }
+
+    /**
+     * Answers each shard's range scan with one record and its completion, running the given action
+     * when the scan of shard 0 starts.
+     */
+    private void answerRangeScans(Runnable onShardZero) {
+        doAnswer(
+                        i -> {
+                            var request = (RangeScanRequest) i.getArgument(0);
+                            var so = (CancelableStreamObserver<RangeScanResponse>) i.getArgument(1);
+                            if (request.getShard() == 0L) {
+                                onShardZero.run();
+                            }
+                            var response = new RangeScanResponse();
+                            response
+                                    .addRecord()
+                                    .setKey("key-" + request.getShard())
+                                    .setValue("v".getBytes(UTF_8));
+                            so.onNext(response);
+                            so.onCompleted();
+                            return null;
+                        })
+                .when(rpcProvider)
+                .rangeScan(any(RangeScanRequest.class), any(CancelableStreamObserver.class));
+    }
+
+    private static RangeScanConsumer collectingConsumer(
+            List<String> keys, CompletableFuture<Void> completed) {
+        return new RangeScanConsumer() {
+            @Override
+            public boolean onNext(GetResult result) {
+                keys.add(result.key());
+                return true;
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                completed.completeExceptionally(throwable);
+            }
+
+            @Override
+            public void onCompleted() {
+                completed.complete(null);
+            }
+        };
     }
 
     @Test

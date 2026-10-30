@@ -897,7 +897,9 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                         flowControl);
                 return;
             }
-            final Set<Long> shardIds = shardManager.allShardIds();
+            // A snapshot, as the live view can change between sizing the consumer and starting the
+            // streams, which would then complete the scan early or never
+            final List<Long> shardIds = List.copyOf(shardManager.allShardIds());
             final CompositeRangeScanConsumer multiShardConsumer =
                     new CompositeRangeScanConsumer(shardIds.size(), timedConsumer);
             for (Long shardId : shardIds) {
