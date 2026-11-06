@@ -52,7 +52,8 @@ import org.junit.jupiter.api.Test;
  * split shard continue its offsets, and each of them serves the notifications of the split shard
  * that the subscription hasn't read, on its side of the split, before its own. The fake server
  * splits a shard like Oxia does: the shard map replaces it with its children, and the stream of the
- * split shard stays open.
+ * split shard stays open. The registration of a callback returns once the server confirmed the
+ * subscriptions.
  */
 class ShardSplitNotificationsTest {
 
@@ -90,6 +91,19 @@ class ShardSplitNotificationsTest {
     void cleanup() throws Exception {
         client.close();
         server.shutdownNow();
+    }
+
+    @Test
+    void registrationReturnsOnceTheServerConfirmedTheSubscription() throws Exception {
+        oxia.unconfirmed.add(SHARD_0.id());
+        var registration = CompletableFuture.runAsync(() -> client.notifications(notifications::add));
+        var subscription = oxia.nextSubscriptions(1).get(SHARD_0.id());
+        // The server delivers the notifications of the records changed after it confirmed it only
+        assertThat(registration).isNotDone();
+
+        subscription.send(COMMIT_OFFSET);
+
+        registration.get(10, SECONDS);
     }
 
     @Test
@@ -144,16 +158,18 @@ class ShardSplitNotificationsTest {
     void subscribesToTheShardsThatReplacedAShardSplitBeforeItsSubscriptionWasConfirmed()
             throws Exception {
         oxia.unconfirmed.add(SHARD_0.id());
-        client.notifications(notifications::add);
+        var registration = CompletableFuture.runAsync(() -> client.notifications(notifications::add));
         var parent = oxia.nextSubscriptions(1).get(SHARD_0.id());
+        assertThat(registration).isNotDone();
 
         // No batch of the split shard to resume after: the subscriptions to the shards that
-        // replaced it start where they are
+        // replaced it start where they are, and their confirmations stand in for its own
         oxia.setShards(SHARD_1, SHARD_2);
         parent.cancelled().get(10, SECONDS);
         var children = oxia.nextSubscriptions(2);
         assertThat(children).containsOnlyKeys(SHARD_1.id(), SHARD_2.id());
         assertThat(children.values()).allSatisfy(child -> assertThat(child.startOffset()).isEmpty());
+        registration.get(10, SECONDS);
 
         children.get(SHARD_1.id()).send(COMMIT_OFFSET + 1, "a");
         assertThat(nextNotification()).isEqualTo(new KeyCreated("a", COMMIT_OFFSET + 1));

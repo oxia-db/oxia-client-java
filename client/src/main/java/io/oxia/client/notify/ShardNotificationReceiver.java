@@ -112,7 +112,11 @@ public class ShardNotificationReceiver implements Closeable {
             return;
         }
 
+        var confirmation = offset.isEmpty();
         offset = OptionalLong.of(batch.getOffset());
+        if (confirmation) {
+            notificationManager.subscriptionConfirmed(shardId);
+        }
 
         notificationManager.getCounterNotificationsBatchesReceived().increment();
         notificationManager.getCounterNotificationsReceived().add(batch.getNotificationsCount());

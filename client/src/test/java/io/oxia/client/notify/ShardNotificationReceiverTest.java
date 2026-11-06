@@ -279,6 +279,32 @@ class ShardNotificationReceiverTest {
     }
 
     @Test
+    void firstBatchConfirmsTheSubscription() {
+        when(notificationManager.getCounterNotificationsReceived()).thenReturn(mock(Counter.class));
+        when(notificationManager.getCounterNotificationsBatchesReceived())
+                .thenReturn(mock(Counter.class));
+        // The server confirms a subscription without a start offset with an empty batch
+        assertThat(
+                        responses.offer(
+                                new NotificationWrapper(new NotificationBatch().setOffset(7), null, false)))
+                .isTrue();
+        var batch = newNotificationBatch("key1", created(1L)).setOffset(8);
+        assertThat(responses.offer(new NotificationWrapper(batch, null, false))).isTrue();
+
+        try (var notificationReceiver =
+                new ShardNotificationReceiver(
+                        rpcProvider,
+                        shardId,
+                        notificationCallback,
+                        notificationManager,
+                        OptionalLong.empty())) {
+            await().untilAsserted(() -> verify(notificationCallback).accept(new KeyCreated("key1", 1L)));
+        }
+
+        verify(notificationManager).subscriptionConfirmed(shardId);
+    }
+
+    @Test
     public void recoveryFromEndOfStream() throws Exception {
         @Cleanup("shutdownNow")
         ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -359,6 +385,8 @@ class ShardNotificationReceiverTest {
             verify(notificationCallback, never()).accept(new KeyCreated("old", 1L));
             assertThat(notificationReceiver.getOffset()).hasValue(6);
         }
+        // A subscription that resumes after an offset has nothing to confirm
+        verify(notificationManager, never()).subscriptionConfirmed(anyLong());
     }
 
     @Test

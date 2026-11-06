@@ -24,6 +24,7 @@ import io.oxia.client.api.GetResult;
 import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
+import io.oxia.client.api.exceptions.OxiaUncheckedException;
 import io.oxia.client.api.options.DeleteOption;
 import io.oxia.client.api.options.DeleteRangeOption;
 import io.oxia.client.api.options.GetOption;
@@ -68,6 +69,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -737,8 +739,12 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
     public void notifications(@NonNull Consumer<Notification> notificationCallback) {
         try {
             checkIfClosed();
-            notificationManager.registerCallback(notificationCallback);
-        } catch (RuntimeException e) {
+            // Like the Go client, returns once the server confirmed the subscriptions
+            requestTimeouts.add(notificationManager.registerCallback(notificationCallback)).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OxiaUncheckedException(e);
+        } catch (ExecutionException | RuntimeException e) {
             throw OxiaExceptions.unchecked(e);
         }
     }

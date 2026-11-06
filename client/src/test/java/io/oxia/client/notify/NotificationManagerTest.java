@@ -340,6 +340,70 @@ class NotificationManagerTest {
         }
 
         @Test
+        void registrationCompletesOnceEveryShardConfirmedItsSubscription() {
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+
+            var subscribed = manager.registerCallback(n -> {});
+            manager.subscriptionConfirmed(1L);
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(2L);
+
+            assertThat(subscribed).isCompleted();
+            assertThat(manager.registerCallback(n -> {})).isCompleted();
+        }
+
+        @Test
+        void shardsReplacingAnUnconfirmedSplitShardConfirmIt() {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            var subscribed = manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(1L)).thenReturn(List.of(2L, 3L));
+
+            manager.accept(
+                    new ShardAssignmentChanges(
+                            Set.of(new Shard(2L, "leader1", r), new Shard(3L, "leader1", r)),
+                            Set.of(new Shard(1L, "leader1", r)),
+                            Set.of()));
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(2L);
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(3L);
+
+            assertThat(subscribed).isCompleted();
+        }
+
+        @Test
+        void deletedShardNeedsNoConfirmation() {
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
+            var subscribed = manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(2L)).thenReturn(List.of());
+
+            manager.accept(
+                    new ShardAssignmentChanges(Set.of(), Set.of(new Shard(2L, "leader2", r)), Set.of()));
+            manager.subscriptionConfirmed(1L);
+
+            assertThat(subscribed).isCompleted();
+        }
+
+        @Test
+        void closeFailsTheRegistrationWaitingForTheConfirmation() throws Exception {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            var subscribed = manager.registerCallback(n -> {});
+
+            manager.close();
+
+            assertThatThrownBy(subscribed::join)
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.ALREADY_CLOSED));
+        }
+
+        @Test
         void closeTwice() throws Exception {
             when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
             when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
