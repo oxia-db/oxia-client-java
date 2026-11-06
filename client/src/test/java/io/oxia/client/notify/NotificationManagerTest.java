@@ -60,6 +60,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
@@ -351,6 +352,35 @@ class NotificationManagerTest {
 
             assertThat(subscribed).isCompleted();
             assertThat(manager.registerCallback(n -> {})).isCompleted();
+        }
+
+        @Test
+        void registrationWaitsForTheFirstBatchOfEveryShard() {
+            // Holds the subscriptions: the server confirms each one with its first batch
+            var rpcProvider = mock(RpcProvider.class);
+            var subscriptions = new ConcurrentHashMap<Long, StreamObserver<NotificationBatch>>();
+            doAnswer(
+                            invocation -> {
+                                NotificationsRequest request = invocation.getArgument(0);
+                                subscriptions.put(request.getShard(), invocation.getArgument(1));
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getNotifications(any(), any());
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+            try (var subscribingManager =
+                    new NotificationManager(executor, rpcProvider, shardManager, InstrumentProvider.NOOP)) {
+                var subscribed = subscribingManager.registerCallback(n -> {});
+                assertThat(subscriptions).containsOnlyKeys(1L, 2L);
+                assertThat(subscribed).isNotDone();
+
+                subscriptions.get(1L).onNext(new NotificationBatch().setShard(1L).setOffset(10));
+                assertThat(subscribed).isNotDone();
+                subscriptions.get(2L).onNext(new NotificationBatch().setShard(2L).setOffset(10));
+
+                assertThat(subscribed).isCompleted();
+            }
         }
 
         @Test
