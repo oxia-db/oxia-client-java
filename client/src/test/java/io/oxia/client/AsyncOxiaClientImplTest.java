@@ -266,6 +266,23 @@ class AsyncOxiaClientImplTest {
     }
 
     @Test
+    void notificationsInterruptedWaitingForTheConfirmationOfTheSubscriptions() {
+        Consumer<Notification> callback = notification -> {};
+        when(notificationManager.registerCallback(callback)).thenReturn(new CompletableFuture<>());
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> client.notifications(callback))
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .cause()
+                    .isInstanceOf(InterruptedException.class);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
     void putNullKey() throws Exception {
         var value = "hello".getBytes(UTF_8);
         assertThat(client.put(null, value)).isCompletedExceptionally();
