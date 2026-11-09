@@ -60,6 +60,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
@@ -337,6 +338,99 @@ class NotificationManagerTest {
 
             verify(receiver1).close();
             verify(receiverFactory, times(1)).newReceiver(anyLong(), any(), any());
+        }
+
+        @Test
+        void registrationCompletesOnceEveryShardConfirmedItsSubscription() {
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+
+            var subscribed = manager.registerCallback(n -> {});
+            manager.subscriptionConfirmed(1L);
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(2L);
+
+            assertThat(subscribed).isCompleted();
+            assertThat(manager.registerCallback(n -> {})).isCompleted();
+        }
+
+        @Test
+        void registrationWaitsForTheFirstBatchOfEveryShard() {
+            // Holds the subscriptions: the server confirms each one with its first batch
+            var rpcProvider = mock(RpcProvider.class);
+            var subscriptions = new ConcurrentHashMap<Long, StreamObserver<NotificationBatch>>();
+            doAnswer(
+                            invocation -> {
+                                NotificationsRequest request = invocation.getArgument(0);
+                                subscriptions.put(request.getShard(), invocation.getArgument(1));
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getNotifications(any(), any());
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+            try (var subscribingManager =
+                    new NotificationManager(executor, rpcProvider, shardManager, InstrumentProvider.NOOP)) {
+                var subscribed = subscribingManager.registerCallback(n -> {});
+                assertThat(subscriptions).containsOnlyKeys(1L, 2L);
+                assertThat(subscribed).isNotDone();
+
+                subscriptions.get(1L).onNext(new NotificationBatch().setShard(1L).setOffset(10));
+                assertThat(subscribed).isNotDone();
+                subscriptions.get(2L).onNext(new NotificationBatch().setShard(2L).setOffset(10));
+
+                assertThat(subscribed).isCompleted();
+            }
+        }
+
+        @Test
+        void shardsReplacingAnUnconfirmedSplitShardConfirmIt() {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            var subscribed = manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(1L)).thenReturn(List.of(2L, 3L));
+
+            manager.accept(
+                    new ShardAssignmentChanges(
+                            Set.of(new Shard(2L, "leader1", r), new Shard(3L, "leader1", r)),
+                            Set.of(new Shard(1L, "leader1", r)),
+                            Set.of()));
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(2L);
+            assertThat(subscribed).isNotDone();
+            manager.subscriptionConfirmed(3L);
+
+            assertThat(subscribed).isCompleted();
+        }
+
+        @Test
+        void deletedShardNeedsNoConfirmation() {
+            when(shardManager.allShards())
+                    .thenReturn(Set.of(new Shard(1L, "leader1", r), new Shard(2L, "leader2", r)));
+            when(receiverFactory.newReceiver(1L, manager, OptionalLong.empty())).thenReturn(receiver1);
+            when(receiverFactory.newReceiver(2L, manager, OptionalLong.empty())).thenReturn(receiver2);
+            var subscribed = manager.registerCallback(n -> {});
+            when(shardManager.currentSuccessors(2L)).thenReturn(List.of());
+
+            manager.accept(
+                    new ShardAssignmentChanges(Set.of(), Set.of(new Shard(2L, "leader2", r)), Set.of()));
+            manager.subscriptionConfirmed(1L);
+
+            assertThat(subscribed).isCompleted();
+        }
+
+        @Test
+        void closeFailsTheRegistrationWaitingForTheConfirmation() throws Exception {
+            when(shardManager.allShards()).thenReturn(Set.of(new Shard(1L, "leader1", r)));
+            var subscribed = manager.registerCallback(n -> {});
+
+            manager.close();
+
+            assertThatThrownBy(subscribed::join)
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            OxiaStatusException.class,
+                            e -> assertThat(e.getStatusCode()).isEqualTo(OxiaStatusCode.ALREADY_CLOSED));
         }
 
         @Test

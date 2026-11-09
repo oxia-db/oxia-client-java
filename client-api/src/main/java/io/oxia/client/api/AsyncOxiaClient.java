@@ -232,6 +232,11 @@ public interface AsyncOxiaClient extends AutoCloseable {
      * Registers a callback to receive Oxia {@link Notification record change notifications}. Multiple
      * callbacks can be registered.
      *
+     * <p>Waits, up to the request timeout, for the server to confirm the subscription to every shard,
+     * and throws if it doesn't: the callback then gets the notifications of all the records changed
+     * from the return on. Don't call it the first time from a callback of this client, whose thread
+     * can be the one that receives the confirmation.
+     *
      * @param notificationCallback A callback to receive notifications.
      */
     void notifications(Consumer<Notification> notificationCallback);

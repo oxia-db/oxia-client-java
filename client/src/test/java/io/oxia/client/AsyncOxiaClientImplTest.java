@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import io.grpc.Status;
 import io.oxia.client.api.GetResult;
+import io.oxia.client.api.Notification;
 import io.oxia.client.api.PutResult;
 import io.oxia.client.api.RangeScanConsumer;
 import io.oxia.client.api.Version;
@@ -73,6 +74,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -250,6 +252,34 @@ class AsyncOxiaClientImplTest {
                 .isInstanceOf(OxiaUncheckedException.class)
                 .cause()
                 .isInstanceOf(AlreadyClosedException.class);
+    }
+
+    @Test
+    void notificationsTimeOutWithoutTheConfirmationOfTheSubscriptions() {
+        Consumer<Notification> callback = notification -> {};
+        when(notificationManager.registerCallback(callback)).thenReturn(new CompletableFuture<>());
+
+        assertThatThrownBy(() -> client.notifications(callback))
+                .isInstanceOf(OxiaUncheckedException.class)
+                .cause()
+                .isInstanceOf(RequestTimeoutException.class);
+    }
+
+    @Test
+    void notificationsInterruptedWaitingForTheConfirmationOfTheSubscriptions() {
+        Consumer<Notification> callback = notification -> {};
+        when(notificationManager.registerCallback(callback)).thenReturn(new CompletableFuture<>());
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> client.notifications(callback))
+                    .isInstanceOf(OxiaUncheckedException.class)
+                    .cause()
+                    .isInstanceOf(InterruptedException.class);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     @Test

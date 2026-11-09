@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,6 +46,12 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
     private final @NonNull ShardNotificationReceiver.Factory receiverFactory;
     private final @NonNull ShardManager shardManager;
     private final CompositeConsumer<Notification> compositeCallback;
+    // The shards of the first shard map whose subscription the server hasn't confirmed yet, or, for
+    // those split before it did, the shards that replaced them
+    private final Set<Long> unconfirmedShards = ConcurrentHashMap.newKeySet();
+    // Completed once the server confirmed the subscriptions to all those shards: from then on, it
+    // delivers the notifications of every record changed
+    private final CompletableFuture<Void> subscribed = new CompletableFuture<>();
 
     @Getter private final ScheduledExecutorService executor;
     private volatile boolean started = false;
@@ -100,7 +107,14 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
         }
     }
 
-    public void registerCallback(@NonNull Consumer<Notification> callback) {
+    /**
+     * Registers a callback, and subscribes to the notifications of every shard on the first one.
+     *
+     * @return a future completed once the server confirmed the subscriptions: the callback gets the
+     *     notifications of the records changed from then on
+     */
+    public @NonNull CompletableFuture<Void> registerCallback(
+            @NonNull Consumer<Notification> callback) {
         if (closed) {
             throw OxiaStatusException.alreadyClosed("Notification manager has been closed");
         }
@@ -113,12 +127,33 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                 }
             }
         }
+        // A copy, for the caller to fail on its timeout
+        return subscribed.copy();
+    }
+
+    /**
+     * Called by the receiver of a shard with the first batch of a subscription that has no start
+     * offset: the server sends it to confirm the subscription.
+     */
+    void subscriptionConfirmed(long shardId) {
+        settle(shardId);
     }
 
     private void bootstrap() {
+        var shards = Set.copyOf(shardManager.allShards());
+        // Before the receivers start, since they confirm them
+        shards.forEach(shard -> unconfirmedShards.add(shard.id()));
+        if (unconfirmedShards.isEmpty()) {
+            subscribed.complete(null);
+        }
         connectNotificationReceivers(
-                new ShardAssignmentChanges(
-                        Set.copyOf(shardManager.allShards()), Collections.emptySet(), Collections.emptySet()));
+                new ShardAssignmentChanges(shards, Collections.emptySet(), Collections.emptySet()));
+    }
+
+    private void settle(long shardId) {
+        if (unconfirmedShards.remove(shardId) && unconfirmedShards.isEmpty()) {
+            subscribed.complete(null);
+        }
     }
 
     private void connectNotificationReceivers(ShardAssignmentChanges changes) {
@@ -163,6 +198,8 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
         receiver.close();
         var successors = shardManager.currentSuccessors(shardId);
         if (successors.isEmpty()) {
+            // A deleted shard has no subscription left to confirm
+            settle(shardId);
             return;
         }
         var offset = receiver.getOffset();
@@ -171,6 +208,12 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
                 .attr("shards", successors)
                 .attr("offset", offset)
                 .log("Following the split of the shard");
+        // Closed, the receiver no longer confirms the subscription: if it didn't, the subscriptions to
+        // the shards that replaced the shard, which start where they are, confirm it in its place
+        if (unconfirmedShards.contains(shardId)) {
+            unconfirmedShards.addAll(successors);
+            settle(shardId);
+        }
         successors.forEach(
                 successor ->
                         shardReceivers.computeIfAbsent(
@@ -183,6 +226,8 @@ public class NotificationManager implements AutoCloseable, Consumer<ShardAssignm
             return;
         }
         closed = true;
+        subscribed.completeExceptionally(
+                OxiaStatusException.alreadyClosed("Notification manager has been closed"));
         // Not in parallel: closing a receiver waits for the batch it is delivering, so a client closed
         // from a notification callback must close that callback's receiver on the same thread
         shardReceivers.values().forEach(ShardNotificationReceiver::close);
