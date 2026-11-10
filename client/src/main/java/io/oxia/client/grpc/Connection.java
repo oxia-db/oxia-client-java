@@ -48,6 +48,11 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final Logger log = Logger.get(Connection.class);
     private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
 
+    // The number of consecutive failed health checks after which the connection is considered
+    // broken. Closing it kills every stream on it, so a single missed check, e.g. on a busy server
+    // or during a GC pause, must not tear it down.
+    static final int HEALTH_CHECK_FAILURE_THRESHOLD = 3;
+
     @Getter private final long connectionId;
     private final ManagedChannel channel;
     private final @NonNull OxiaClientGrpc.OxiaClientStub asyncStub;
@@ -56,6 +61,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private final AtomicBoolean healthCheckInProgress = new AtomicBoolean();
     private final ScheduledFuture<?> healthCheckTask;
     private final HealthCheckFailureCallback healthCheckFailureCallback;
+    private final ScheduledExecutorService executor;
+
+    // Only updated by the result of the health check in progress
+    private int consecutiveHealthCheckFailures;
 
     Connection(
             @NonNull String address,
@@ -100,6 +109,7 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                         .withMaxOutboundMessageSize(MAXIMUM_FRAME_SIZE);
         this.asyncStub = credentials != null ? asyncStub.withCallCredentials(credentials) : asyncStub;
         this.healthCheckFailureCallback = healthCheckFailureCallback;
+        this.executor = executor;
         this.healthCheckTask =
                 executor.scheduleWithFixedDelay(
                         () -> {
@@ -158,17 +168,20 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     @Override
     public void onNext(HealthCheckResponse response) {
         if (response.getStatus() == ServingStatus.SERVING) {
+            consecutiveHealthCheckFailures = 0;
             return;
         }
         try {
             if (closed.get()) {
                 return;
             }
+            // The server deliberately reported that it is not serving: give up on the connection
+            // right away
             log.warn()
                     .attr("connectionId", connectionId)
                     .attr("status", response.getStatus())
                     .log("Connection health check failed");
-            healthCheckFailureCallback.onFailure(this);
+            reportHealthCheckFailure();
         } finally {
             healthCheckInProgress.set(false);
         }
@@ -185,14 +198,28 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
                 healthCheckTask.cancel(false);
                 return;
             }
+            // A failed check can just mean that the server is busy: only give up after several
+            // consecutive failures
+            consecutiveHealthCheckFailures++;
             log.warn()
                     .attr("connectionId", connectionId)
+                    .attr("consecutiveFailures", consecutiveHealthCheckFailures)
                     .exceptionMessage(error)
                     .log("Connection health check failed");
-            healthCheckFailureCallback.onFailure(this);
+            if (consecutiveHealthCheckFailures >= HEALTH_CHECK_FAILURE_THRESHOLD) {
+                reportHealthCheckFailure();
+            }
         } finally {
             healthCheckInProgress.set(false);
         }
+    }
+
+    private void reportHealthCheckFailure() {
+        // The connection is going to be closed: stop checking it, so the failure is reported once
+        healthCheckTask.cancel(false);
+        // Off the gRPC callback thread, which is a Netty event loop that other connections share:
+        // closing the connection waits for its channel to terminate
+        executor.execute(() -> healthCheckFailureCallback.onFailure(this));
     }
 
     @Override
