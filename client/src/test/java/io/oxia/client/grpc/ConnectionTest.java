@@ -29,12 +29,22 @@ import io.grpc.Status;
 import io.grpc.TlsChannelCredentials;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
+import io.grpc.stub.StreamObserver;
+import io.netty.channel.ConnectTimeoutException;
 import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
+import io.oxia.proto.ShardAssignments;
+import io.oxia.proto.ShardAssignmentsRequest;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -99,6 +109,63 @@ class ConnectionTest {
                         () -> new Connection(ADDRESS, config, executor, null));
 
         calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
+    }
+
+    @Test
+    void connectionAttemptToHangingAddressFailsAfterConnectTimeout() throws Exception {
+        // A listener whose accept queue is full drops the new connection attempts, like the address of
+        // a
+        // deleted pod: nobody refuses or answers them.
+        try (var server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            var filler = new ArrayList<Socket>();
+            try {
+                for (int i = 0; i < 4; i++) {
+                    var socket = new Socket();
+                    try {
+                        socket.connect(server.getLocalSocketAddress(), 500);
+                    } catch (java.net.SocketTimeoutException expected) {
+                        // the queue is full
+                    }
+                    filler.add(socket);
+                }
+                when(executor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+                        .thenReturn((ScheduledFuture) healthCheckTask);
+                var failed = new CompletableFuture<Status>();
+                var connection =
+                        new Connection("127.0.0.1:" + server.getLocalPort(), config, executor, callback);
+                var start = System.nanoTime();
+                connection
+                        .stub()
+                        .withDeadlineAfter(15, TimeUnit.SECONDS)
+                        .getShardAssignments(
+                                new ShardAssignmentsRequest(),
+                                new StreamObserver<ShardAssignments>() {
+                                    @Override
+                                    public void onNext(ShardAssignments value) {}
+
+                                    @Override
+                                    public void onError(Throwable t) {
+                                        failed.complete(Status.fromThrowable(t));
+                                    }
+
+                                    @Override
+                                    public void onCompleted() {}
+                                });
+
+                var status = failed.get(12, TimeUnit.SECONDS);
+                var elapsed = Duration.ofNanos(System.nanoTime() - start);
+                connection.close();
+
+                assertThat(status.getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+                // not the timeout of the operating system, which is shorter or longer depending on it
+                assertThat(status.getCause()).isInstanceOf(ConnectTimeoutException.class);
+                assertThat(elapsed).isLessThan(Duration.ofSeconds(8));
+            } finally {
+                for (var socket : filler) {
+                    socket.close();
+                }
+            }
+        }
     }
 
     private Connection newConnection() {
