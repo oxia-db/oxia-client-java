@@ -50,9 +50,11 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
 
     /**
-     * The address of a deleted server neither refuses nor answers the connection attempt, which then
-     * hangs for 20 s, the gRPC default, while the requests that wait for it cannot move to the new
-     * leader. Failing it early lets the caller look the leader up again.
+     * The address of a deleted server neither refuses nor answers the connection attempt. Netty gives
+     * up on it after 30 s by default. On Linux with epoll, grpc-java sets TCP_USER_TIMEOUT to the
+     * keepalive timeout, which usually ends it sooner, but the NIO transport and larger keepalive
+     * timeouts do not. Bounding it makes a request that waits on that address fail, so the caller
+     * looks the leader up again and retries it there.
      */
     static final int CONNECT_TIMEOUT_MILLIS = 3_000;
 

@@ -113,9 +113,13 @@ class ConnectionTest {
 
     @Test
     void connectionAttemptToHangingAddressFailsAfterConnectTimeout() throws Exception {
+        // On Linux, grpc-java sets TCP_USER_TIMEOUT to the keepalive timeout (3 s by default), which
+        // would race the connect timeout: move it out of the time the test waits.
+        var builder = new OxiaClientBuilderImpl(ADDRESS);
+        builder.connectionKeepAliveTimeout(Duration.ofSeconds(30));
+        var longKeepAliveConfig = builder.getClientConfig();
         // A listener whose accept queue is full drops the new connection attempts, like the address of
-        // a
-        // deleted pod: nobody refuses or answers them.
+        // a deleted pod: nobody refuses or answers them.
         try (var server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             var filler = new ArrayList<Socket>();
             try {
@@ -132,7 +136,8 @@ class ConnectionTest {
                         .thenReturn((ScheduledFuture) healthCheckTask);
                 var failed = new CompletableFuture<Status>();
                 var connection =
-                        new Connection("127.0.0.1:" + server.getLocalPort(), config, executor, callback);
+                        new Connection(
+                                "127.0.0.1:" + server.getLocalPort(), longKeepAliveConfig, executor, callback);
                 var start = System.nanoTime();
                 connection
                         .stub()
@@ -157,7 +162,7 @@ class ConnectionTest {
                 connection.close();
 
                 assertThat(status.getCode()).isEqualTo(Status.Code.UNAVAILABLE);
-                // not the timeout of the operating system, which is shorter or longer depending on it
+                // Netty's connect timeout, not one of the operating system's (30 s or more here)
                 assertThat(status.getCause()).isInstanceOf(ConnectTimeoutException.class);
                 assertThat(elapsed).isLessThan(Duration.ofSeconds(8));
             } finally {
