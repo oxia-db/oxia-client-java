@@ -53,16 +53,25 @@ import io.oxia.proto.WriteResponse;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 import lombok.NonNull;
 
 final class GrpcRpcProvider implements RpcProvider {
     private static final Logger log = Logger.get(GrpcRpcProvider.class);
+
+    /**
+     * The assignments tell the client the leaders that the coordinator elects within seconds of a
+     * failure: a wait that grows to the connection backoff maximum puts the next attempt after them.
+     */
+    private static final Duration MAX_ASSIGNMENTS_RETRY_DELAY = Duration.ofSeconds(1);
+
     private static final Metadata.Key<String> NAMESPACE_KEY =
             Metadata.Key.of("namespace", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> SHARD_ID_KEY =
@@ -123,10 +132,15 @@ final class GrpcRpcProvider implements RpcProvider {
     @Override
     public void getShardAssignments(
             @NonNull ShardAssignmentsRequest request,
-            @NonNull StreamObserver<ShardAssignments> observer) {
+            @NonNull StreamObserver<ShardAssignments> observer,
+            @NonNull Supplier<String> target) {
         final var guardedObserver = ManagedObservers.toGuardedStreamObserver(observer);
         final var attempt = new AtomicReference<Context.CancellableContext>();
-        Failsafe.with(getRetryPolicy("get shard assignments", null))
+        Failsafe.with(
+                        getRetryPolicy(
+                                "get shard assignments",
+                                null,
+                                min(clientConfig.connectionBackoffMaxDelay(), MAX_ASSIGNMENTS_RETRY_DELAY)))
                 .with(asyncExecutor)
                 .getStageAsync(
                         () -> {
@@ -138,7 +152,11 @@ final class GrpcRpcProvider implements RpcProvider {
                             try {
                                 var stub =
                                         withSubscriptionMaxAge(
-                                                connectionManager.getConnection(clientConfig.serviceAddress()).stub());
+                                                connectionManager
+                                                        .getConnection(
+                                                                Objects.requireNonNullElse(
+                                                                        target.get(), clientConfig.serviceAddress()))
+                                                        .stub());
                                 attemptContext.run(() -> stub.getShardAssignments(request, barrierObserver));
                             } catch (Throwable error) {
                                 barrierFuture.completeExceptionally(OxiaStatusException.from(error));
@@ -482,8 +500,17 @@ final class GrpcRpcProvider implements RpcProvider {
                 : retryHint.getLeaderHint(shardId).orElseGet(() -> shardLeaderProvider.apply(shardId));
     }
 
+    private static Duration min(Duration a, Duration b) {
+        return a.compareTo(b) <= 0 ? a : b;
+    }
+
     private <T> RetryPolicy<T> getRetryPolicy(
             String operation, AtomicReference<OxiaStatusException> hint) {
+        return getRetryPolicy(operation, hint, clientConfig.connectionBackoffMaxDelay());
+    }
+
+    private <T> RetryPolicy<T> getRetryPolicy(
+            String operation, AtomicReference<OxiaStatusException> hint, Duration maxDelay) {
         return RetryPolicy.<T>builder()
                 .handleIf(
                         error -> {
@@ -493,8 +520,7 @@ final class GrpcRpcProvider implements RpcProvider {
                             }
                             return translated.isRetryable();
                         })
-                .withBackoff(
-                        clientConfig.connectionBackoffMinDelay(), clientConfig.connectionBackoffMaxDelay())
+                .withBackoff(min(clientConfig.connectionBackoffMinDelay(), maxDelay), maxDelay)
                 .onRetryScheduled(
                         event ->
                                 log.warn()

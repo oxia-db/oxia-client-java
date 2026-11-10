@@ -48,9 +48,11 @@ public final class Backoff implements BackoffPolicy {
             this.nextDelayMillis = Math.min(this.nextDelayMillis * 2, this.maxDelayMillis);
         }
 
-        // Randomize with +- 10%
-        return ThreadLocalRandom.current()
-                .nextLong(currentDelayMillis, (long) (currentDelayMillis * 1.2));
+        // Randomize with +- 10%, and never wait longer than the maximum
+        return Math.min(
+                maxDelayMillis,
+                ThreadLocalRandom.current()
+                        .nextLong(currentDelayMillis, (long) (currentDelayMillis * 1.2)));
     }
 
     public void reset() {

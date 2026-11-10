@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 import lombok.NonNull;
 
 public interface RpcProvider extends AutoCloseable {
@@ -48,8 +49,14 @@ public interface RpcProvider extends AutoCloseable {
         return new GrpcRpcProvider(clientConfig, asyncExecutor, connectionManager, shardLeaderProvider);
     }
 
+    /**
+     * Receive the shard assignments, asking the address that {@code target} returns for each attempt.
+     * A {@code null} target is the service address.
+     */
     void getShardAssignments(
-            @NonNull ShardAssignmentsRequest request, @NonNull StreamObserver<ShardAssignments> observer);
+            @NonNull ShardAssignmentsRequest request,
+            @NonNull StreamObserver<ShardAssignments> observer,
+            @NonNull Supplier<String> target);
 
     void getNotifications(
             @NonNull NotificationsRequest request,

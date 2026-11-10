@@ -64,6 +64,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 import lombok.NonNull;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
@@ -930,6 +931,84 @@ class GrpcRpcProviderTest {
     }
 
     @Test
+    void getShardAssignmentsAsksTheAddressOfTheTarget() throws Exception {
+        var server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        responseObserver.onNext(new ShardAssignments());
+                                    }
+                                })
+                        .build()
+                        .start();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl) OxiaClientBuilder.create(unusedAddress())).getClientConfig();
+        var received = new CompletableFuture<ShardAssignments>();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "unused")) {
+            // The service address refuses the connections: only the target answers
+            getAssignments(
+                    provider,
+                    new ShardAssignmentsRequest(),
+                    new StreamObserver<>() {
+                        @Override
+                        public void onNext(ShardAssignments value) {
+                            received.complete(value);
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            received.completeExceptionally(t);
+                        }
+
+                        @Override
+                        public void onCompleted() {}
+                    },
+                    () -> "localhost:" + server.getPort());
+
+            assertThat(received.get(5, TimeUnit.SECONDS)).isNotNull();
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsRetriesAtLeastOncePerSecond() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(unusedAddress())
+                                        .connectionBackoff(Duration.ofMillis(300), Duration.ofSeconds(30)))
+                        .getClientConfig();
+        var attempts = new AtomicInteger();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "unused")) {
+            getAssignments(
+                    provider,
+                    new ShardAssignmentsRequest(),
+                    mock(StreamObserver.class),
+                    () -> {
+                        attempts.incrementAndGet();
+                        return null;
+                    });
+
+            // The waits grow 0.3, 0.6 s and stay at 1 s: the sixth attempt starts at about 3.9 s, and at
+            // 9.3 s when they keep doubling up to the 30 s maximum of the connection backoff
+            await()
+                    .atMost(Duration.ofSeconds(6))
+                    .untilAsserted(() -> assertThat(attempts).hasValueGreaterThanOrEqualTo(6));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void getShardAssignmentsReportsInvalidServiceAddress() throws Exception {
         var executor = Executors.newSingleThreadScheduledExecutor();
         var config =
@@ -937,7 +1016,7 @@ class GrpcRpcProviderTest {
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> "localhost:0")) {
             var error = new CompletableFuture<Throwable>();
-            provider.getShardAssignments(new ShardAssignmentsRequest(), failingStreamObserver(error));
+            getAssignments(provider, new ShardAssignmentsRequest(), failingStreamObserver(error));
 
             assertThat(error.get(5, TimeUnit.SECONDS))
                     .isInstanceOfSatisfying(
@@ -957,8 +1036,8 @@ class GrpcRpcProviderTest {
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> "localhost:0")) {
             executor.shutdown();
             var shardAssignmentsError = new CompletableFuture<Throwable>();
-            provider.getShardAssignments(
-                    new ShardAssignmentsRequest(), failingStreamObserver(shardAssignmentsError));
+            getAssignments(
+                    provider, new ShardAssignmentsRequest(), failingStreamObserver(shardAssignmentsError));
             var notificationsError = new CompletableFuture<Throwable>();
             provider.getNotifications(
                     new NotificationsRequest().setShard(1), failingCancelableObserver(notificationsError));
@@ -1012,8 +1091,11 @@ class GrpcRpcProviderTest {
                             () -> new GrpcRpcProvider(config, null, connections, leaders),
                             () -> new GrpcRpcProvider(config, executor, null, leaders),
                             () -> new GrpcRpcProvider(config, executor, connections, null),
-                            () -> provider.getShardAssignments(null, mock(StreamObserver.class)),
-                            () -> provider.getShardAssignments(new ShardAssignmentsRequest(), null),
+                            () -> getAssignments(provider, null, mock(StreamObserver.class)),
+                            () -> getAssignments(provider, new ShardAssignmentsRequest(), null),
+                            () ->
+                                    getAssignments(
+                                            provider, new ShardAssignmentsRequest(), mock(StreamObserver.class), null),
                             () -> provider.getNotifications(null, mock(CancelableStreamObserver.class)),
                             () -> provider.getNotifications(new NotificationsRequest(), null),
                             () -> provider.createSession(null),
@@ -1064,7 +1146,8 @@ class GrpcRpcProviderTest {
         var terminated = new CountDownLatch(1);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
-            provider.getShardAssignments(
+            getAssignments(
+                    provider,
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
                         @Override
@@ -1130,7 +1213,8 @@ class GrpcRpcProviderTest {
         var terminalEvents = new AtomicInteger();
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
-            provider.getShardAssignments(
+            getAssignments(
+                    provider,
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
                         @Override
@@ -1201,7 +1285,8 @@ class GrpcRpcProviderTest {
         var error = new AtomicReference<Throwable>();
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
-            provider.getShardAssignments(
+            getAssignments(
+                    provider,
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
                         @Override
@@ -1293,7 +1378,8 @@ class GrpcRpcProviderTest {
         var terminated = new CountDownLatch(3);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
-            provider.getShardAssignments(
+            getAssignments(
+                    provider,
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
                         @Override
@@ -1406,7 +1492,8 @@ class GrpcRpcProviderTest {
         var completed = new CountDownLatch(3);
 
         try (var provider = new GrpcRpcProvider(config, executor, shardId -> address)) {
-            provider.getShardAssignments(
+            getAssignments(
+                    provider,
                     new ShardAssignmentsRequest(),
                     new StreamObserver<>() {
                         @Override
@@ -1995,5 +2082,27 @@ class GrpcRpcProviderTest {
                                                 .build()))
                         .build();
         return StatusProto.toStatusRuntimeException(grpcStatus);
+    }
+
+    private static void getAssignments(
+            GrpcRpcProvider provider,
+            ShardAssignmentsRequest request,
+            StreamObserver<ShardAssignments> observer) {
+        getAssignments(provider, request, observer, () -> null);
+    }
+
+    private static void getAssignments(
+            GrpcRpcProvider provider,
+            ShardAssignmentsRequest request,
+            StreamObserver<ShardAssignments> observer,
+            Supplier<String> target) {
+        provider.getShardAssignments(request, observer, target);
+    }
+
+    /** An address that nobody listens on: the connections to it are refused. */
+    private static String unusedAddress() throws java.io.IOException {
+        try (var socket = new java.net.ServerSocket(0)) {
+            return "localhost:" + socket.getLocalPort();
+        }
     }
 }

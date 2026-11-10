@@ -118,7 +118,8 @@ class ShardManagerGrpcTest {
                 .when(rpcProvider)
                 .getShardAssignments(
                         org.mockito.ArgumentMatchers.any(ShardAssignmentsRequest.class),
-                        org.mockito.ArgumentMatchers.any(StreamObserver.class));
+                        org.mockito.ArgumentMatchers.any(StreamObserver.class),
+                        org.mockito.ArgumentMatchers.any(java.util.function.Supplier.class));
     }
 
     @AfterEach

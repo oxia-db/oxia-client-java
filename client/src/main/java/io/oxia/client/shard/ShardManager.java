@@ -46,10 +46,13 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import lombok.NonNull;
 
 public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignments> {
+
+    private static final long MAX_ASSIGNMENTS_RETRY_SECONDS = 1;
 
     private final Logger log;
     private final ScheduledExecutorService asyncExecutor;
@@ -57,7 +60,22 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
     private final ShardAssignmentsContainer assignments;
     private final CompositeConsumer<ShardAssignmentChanges> callbacks;
 
-    private final Backoff backoff = new Backoff();
+    /**
+     * The assignments tell the client the leaders that the coordinator elects within seconds of a
+     * failure: a wait that grows to a minute puts the next attempt after them.
+     */
+    private final Backoff backoff =
+            new Backoff(100, TimeUnit.MILLISECONDS, MAX_ASSIGNMENTS_RETRY_SECONDS, TimeUnit.SECONDS);
+
+    /**
+     * The leaders of the last assignments, which the client asks when the service address fails.
+     * Owned by the shard manager: replaced by {@code updateAssignments}, read by the attempts.
+     */
+    private volatile List<String> servers = List.of();
+
+    /** The attempts to receive the assignments since the last assignments arrived. */
+    private final AtomicInteger attempt = new AtomicInteger();
+
     private final CompletableFuture<Void> initialAssignmentsFuture;
 
     private volatile boolean closed;
@@ -98,13 +116,14 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         var req = new ShardAssignmentsRequest();
         req.setNamespace(assignments.getNamespace());
 
-        rpcProvider.getShardAssignments(req, this);
+        rpcProvider.getShardAssignments(req, this, this::bootstrapTarget);
     }
 
     @Override
     public void onNext(ShardAssignments assignments) {
         shardAssignmentsEvents.increment();
         updateAssignments(assignments);
+        attempt.set(0);
         backoff.reset();
         if (!initialAssignmentsFuture.isDone()) {
             initialAssignmentsFuture.complete(null);
@@ -161,6 +180,17 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
         scheduleRestart(backoff.nextDelayMillis());
     }
 
+    /**
+     * The address to ask for the assignments: the service address (null) first. When it fails, e.g.
+     * because the service routes to a server that went away or lost the coordinator, each attempt
+     * asks the next server that the last assignments named as a leader.
+     */
+    private String bootstrapTarget() {
+        final var candidates = servers;
+        final var next = attempt.getAndIncrement() % (candidates.size() + 1);
+        return next == 0 ? null : candidates.get(next - 1);
+    }
+
     private void updateAssignments(io.oxia.proto.ShardAssignments shardAssignments) {
         NamespaceShardsAssignment nsSharedAssignments;
         try {
@@ -189,6 +219,13 @@ public class ShardManager implements AutoCloseable, StreamObserver<ShardAssignme
             return;
         }
         assignments.update(changes);
+        servers =
+                assignments.allShards().values().stream()
+                        .map(Shard::leader)
+                        .filter(leader -> !leader.isEmpty())
+                        .distinct()
+                        .sorted()
+                        .toList();
         callbacks.accept(changes);
     }
 
