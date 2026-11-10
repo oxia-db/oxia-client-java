@@ -21,7 +21,6 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import io.github.merlimat.slog.Logger;
 import io.grpc.CallCredentials;
 import io.grpc.ChannelCredentials;
-import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
@@ -31,7 +30,9 @@ import io.grpc.health.v1.HealthCheckRequest;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.health.v1.HealthGrpc;
+import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.stub.StreamObserver;
+import io.netty.channel.ChannelOption;
 import io.oxia.client.ClientConfig;
 import io.oxia.proto.OxiaClientGrpc;
 import java.util.concurrent.Executor;
@@ -47,6 +48,15 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     private static final String TLS_SCHEMA = "tls://";
     private static final Logger log = Logger.get(Connection.class);
     private static final AtomicLong NEXT_CONNECTION_ID = new AtomicLong();
+
+    /**
+     * The address of a deleted server neither refuses nor answers the connection attempt. Netty gives
+     * up on it after 30 s by default. On Linux with epoll, grpc-java sets TCP_USER_TIMEOUT to the
+     * keepalive timeout, which usually ends it sooner, but the NIO transport and larger keepalive
+     * timeouts do not. Bounding it makes a request that waits on that address fail, so the caller
+     * looks the leader up again and retries it there.
+     */
+    static final int CONNECT_TIMEOUT_MILLIS = 3_000;
 
     @Getter private final long connectionId;
     private final ManagedChannel channel;
@@ -64,8 +74,9 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
             @NonNull HealthCheckFailureCallback healthCheckFailureCallback) {
         this.connectionId = NEXT_CONNECTION_ID.incrementAndGet();
         this.channel =
-                Grpc.newChannelBuilder(
+                NettyChannelBuilder.forTarget(
                                 getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
+                        .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MILLIS)
                         .keepAliveTime(clientConfig.connectionKeepAliveTime().toMillis(), MILLISECONDS)
                         .keepAliveTimeout(clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
                         .keepAliveWithoutCalls(true)
