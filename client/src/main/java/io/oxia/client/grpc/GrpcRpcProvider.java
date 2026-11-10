@@ -511,7 +511,16 @@ final class GrpcRpcProvider implements RpcProvider {
 
     private <T> RetryPolicy<T> getRetryPolicy(
             String operation, AtomicReference<OxiaStatusException> hint, Duration maxDelay) {
-        return RetryPolicy.<T>builder()
+        final var builder = RetryPolicy.<T>builder();
+        final var minDelay = clientConfig.connectionBackoffMinDelay();
+        if (minDelay.compareTo(maxDelay) < 0) {
+            builder.withBackoff(minDelay, maxDelay);
+        } else {
+            // A backoff needs its first delay below its maximum: a minimum at or above the maximum
+            // waits the maximum each time
+            builder.withDelay(maxDelay);
+        }
+        return builder
                 .handleIf(
                         error -> {
                             final var translated = OxiaStatusException.from(error);
@@ -520,7 +529,6 @@ final class GrpcRpcProvider implements RpcProvider {
                             }
                             return translated.isRetryable();
                         })
-                .withBackoff(min(clientConfig.connectionBackoffMinDelay(), maxDelay), maxDelay)
                 .onRetryScheduled(
                         event ->
                                 log.warn()

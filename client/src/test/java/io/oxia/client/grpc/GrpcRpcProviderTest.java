@@ -68,6 +68,8 @@ import java.util.function.Supplier;
 import lombok.NonNull;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class GrpcRpcProviderTest {
     @Test
@@ -955,20 +957,7 @@ class GrpcRpcProviderTest {
             getAssignments(
                     provider,
                     new ShardAssignmentsRequest(),
-                    new StreamObserver<>() {
-                        @Override
-                        public void onNext(ShardAssignments value) {
-                            received.complete(value);
-                        }
-
-                        @Override
-                        public void onError(Throwable t) {
-                            received.completeExceptionally(t);
-                        }
-
-                        @Override
-                        public void onCompleted() {}
-                    },
+                    receivingStreamObserver(received),
                     () -> "localhost:" + server.getPort());
 
             assertThat(received.get(5, TimeUnit.SECONDS)).isNotNull();
@@ -1005,6 +994,51 @@ class GrpcRpcProviderTest {
                     .untilAsserted(() -> assertThat(attempts).hasValueGreaterThanOrEqualTo(6));
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1, 30", "2, 60"})
+    void getShardAssignmentsRetriesOncePerSecondWhenTheMinimumIsNotBelowIt(
+            long minDelaySeconds, long maxDelaySeconds) throws Exception {
+        var server =
+                ServerBuilder.forPort(0)
+                        .addService(
+                                new OxiaClientGrpc.OxiaClientImplBase() {
+                                    @Override
+                                    public void getShardAssignments(
+                                            ShardAssignmentsRequest request,
+                                            StreamObserver<ShardAssignments> responseObserver) {
+                                        responseObserver.onNext(new ShardAssignments());
+                                    }
+                                })
+                        .build()
+                        .start();
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(unusedAddress())
+                                        .connectionBackoff(
+                                                Duration.ofSeconds(minDelaySeconds), Duration.ofSeconds(maxDelaySeconds)))
+                        .getClientConfig();
+        var attempts = new AtomicInteger();
+        var received = new CompletableFuture<ShardAssignments>();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "unused")) {
+            // The first two attempts ask the service address, which refuses the connections
+            getAssignments(
+                    provider,
+                    new ShardAssignmentsRequest(),
+                    receivingStreamObserver(received),
+                    () -> attempts.incrementAndGet() <= 2 ? null : "localhost:" + server.getPort());
+
+            // Each wait is 1 s: the third attempt starts at about 2 s, and at 6 s when the waits start
+            // at the 2 s minimum of the connection backoff
+            assertThat(received.get(4, TimeUnit.SECONDS)).isNotNull();
+            assertThat(attempts).hasValue(3);
+        } finally {
+            executor.shutdownNow();
+            server.shutdownNow();
         }
     }
 
@@ -1987,6 +2021,23 @@ class GrpcRpcProviderTest {
             executor.shutdownNow();
             server.shutdownNow();
         }
+    }
+
+    private static <T> StreamObserver<T> receivingStreamObserver(CompletableFuture<T> received) {
+        return new StreamObserver<>() {
+            @Override
+            public void onNext(T value) {
+                received.complete(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                received.completeExceptionally(t);
+            }
+
+            @Override
+            public void onCompleted() {}
+        };
     }
 
     private static <T> StreamObserver<T> failingStreamObserver(CompletableFuture<Throwable> error) {
