@@ -19,6 +19,7 @@ import static io.oxia.client.OxiaClientBuilderImpl.DefaultNamespace;
 import static java.util.Map.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -41,12 +42,14 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -175,12 +178,71 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
 
             var future = manager.start(rpcProvider);
             assertThat(future).succeedsWithin(Duration.ofSeconds(1));
 
             assertThat(manager.leader(0)).isEqualTo("leader0");
+        }
+
+        @Test
+        void asksTheLeadersWhenTheServiceAddressFails() {
+            var targets = new CopyOnWriteArrayList<String>();
+            var calls = new AtomicInteger();
+
+            doAnswer(
+                            invocation -> {
+                                Supplier<String> target = invocation.getArgument(2);
+                                targets.add(target.get());
+                                switch (calls.getAndIncrement()) {
+                                    case 0, 3 -> {
+                                        manager.onNext(assignmentsOf("leader0", "leader1"));
+                                        manager.onError(Status.UNAVAILABLE.asException());
+                                    }
+                                    case 1, 2 -> manager.onError(Status.UNAVAILABLE.asException());
+                                    default -> {}
+                                }
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
+
+            assertThat(manager.start(rpcProvider)).succeedsWithin(Duration.ofSeconds(1));
+
+            // the service address first, then each leader in turn, and the service address again once an
+            // attempt received assignments
+            await()
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(
+                            () -> assertThat(targets).containsExactly(null, null, "leader0", "leader1", null));
+        }
+
+        @Test
+        void retriesTheAssignmentsAtLeastOncePerSecond() {
+            var calls = new AtomicInteger();
+            var done = new java.util.concurrent.CompletableFuture<Void>();
+
+            doAnswer(
+                            invocation -> {
+                                if (calls.incrementAndGet() < 8) {
+                                    manager.onError(Status.UNAVAILABLE.asException());
+                                } else {
+                                    done.complete(null);
+                                }
+                                return null;
+                            })
+                    .when(rpcProvider)
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
+
+            manager.start(rpcProvider);
+
+            // the waits grow 0.1, 0.2, 0.4, 0.8 s and stay at 1 s: 7 waits take about 4.5 s, and 12.7 s
+            // when they keep doubling
+            assertThat(done).succeedsWithin(Duration.ofSeconds(8));
         }
 
         @Test
@@ -204,12 +266,14 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
 
             assertThat(manager.start(rpcProvider)).succeedsWithin(Duration.ofSeconds(1));
 
             verify(rpcProvider, org.mockito.Mockito.times(2))
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
             assertThat(stubCalls).hasValue(2);
         }
 
@@ -315,7 +379,8 @@ public class ShardManagerTest {
                                 return null;
                             })
                     .when(rpcProvider)
-                    .getShardAssignments(any(ShardAssignmentsRequest.class), eq(manager));
+                    .getShardAssignments(
+                            any(ShardAssignmentsRequest.class), eq(manager), any(Supplier.class));
 
             assertThat(manager.start(rpcProvider)).succeedsWithin(Duration.ofSeconds(1));
             assertThat(manager.allShardIds()).containsExactly(0L);
@@ -452,5 +517,21 @@ public class ShardManagerTest {
                     .schedule(any(Runnable.class), delay.capture(), eq(TimeUnit.MILLISECONDS));
             return delay.getValue();
         }
+    }
+
+    private static ShardAssignments assignmentsOf(String... leaders) {
+        var sa = new ShardAssignments();
+        var ns = sa.putNamespaces(DefaultNamespace);
+        long step = (Integer.MAX_VALUE + 1L) / leaders.length;
+        for (int i = 0; i < leaders.length; i++) {
+            var assignment = ns.addAssignment();
+            assignment.setShard(i).setLeader(leaders[i]);
+            assignment
+                    .setInt32HashRange()
+                    .setMinHashInclusive((int) (i * step))
+                    .setMaxHashInclusive(
+                            i == leaders.length - 1 ? Integer.MAX_VALUE : (int) ((i + 1) * step - 1));
+        }
+        return sa;
     }
 }

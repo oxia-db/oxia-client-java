@@ -40,4 +40,13 @@ class BackoffTest {
         assertThat(backoff.nextBackoffNanos())
                 .isBetween(TimeUnit.MILLISECONDS.toNanos(100), TimeUnit.MILLISECONDS.toNanos(120));
     }
+
+    @Test
+    void neverWaitsLongerThanTheMaximumIncludingTheJitter() {
+        var backoff = new Backoff(500, TimeUnit.MILLISECONDS, 500, TimeUnit.MILLISECONDS);
+
+        for (int i = 0; i < 50; i++) {
+            assertThat(backoff.nextDelayMillis()).isEqualTo(500L);
+        }
+    }
 }
