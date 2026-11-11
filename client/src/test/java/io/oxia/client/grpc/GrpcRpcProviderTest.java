@@ -56,6 +56,7 @@ import io.oxia.proto.WriteResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -992,6 +993,40 @@ class GrpcRpcProviderTest {
             await()
                     .atMost(Duration.ofSeconds(6))
                     .untilAsserted(() -> assertThat(attempts).hasValueGreaterThanOrEqualTo(6));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void getShardAssignmentsKeepsAConnectionBackoffMaximumBelowOneSecond() throws Exception {
+        var executor = Executors.newSingleThreadScheduledExecutor();
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create(unusedAddress())
+                                        .connectionBackoff(Duration.ofMillis(100), Duration.ofMillis(300)))
+                        .getClientConfig();
+        var attemptTimes = new CopyOnWriteArrayList<Long>();
+
+        try (var provider = new GrpcRpcProvider(config, executor, shardId -> "unused")) {
+            getAssignments(
+                    provider,
+                    new ShardAssignmentsRequest(),
+                    mock(StreamObserver.class),
+                    () -> {
+                        attemptTimes.add(System.nanoTime());
+                        return null;
+                    });
+
+            // The waits grow 0.1, 0.2 s and stay at the 0.3 s maximum of the connection backoff: from the
+            // third attempt to the seventh they take 1.2 s, and 3.2 s (0.4, 0.8, 1 and 1 s) with the 1 s
+            // cap as their maximum. The first attempt also opens the connection, which can take some
+            // hundreds of milliseconds, so it is left out.
+            await()
+                    .atMost(Duration.ofSeconds(5))
+                    .untilAsserted(() -> assertThat(attemptTimes).hasSizeGreaterThanOrEqualTo(7));
+            assertThat(Duration.ofNanos(attemptTimes.get(6) - attemptTimes.get(2)))
+                    .isLessThan(Duration.ofSeconds(2));
         } finally {
             executor.shutdownNow();
         }
