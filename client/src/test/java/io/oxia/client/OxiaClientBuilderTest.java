@@ -139,6 +139,9 @@ class OxiaClientBuilderTest {
         properties.setProperty("clientIdentifier", "client-identifier");
         properties.setProperty("namespace", "namespace");
         properties.setProperty("enableTls", "true");
+        properties.setProperty("tlsTrustCertsFilePath", "/tls/ca.crt");
+        properties.setProperty("tlsCertificateFilePath", "/tls/tls.crt");
+        properties.setProperty("tlsKeyFilePath", "/tls/tls.key");
         properties.setProperty("authPluginClassName", TokenAuthentication.class.getName());
         properties.setProperty("authParams", "token:1234");
         builder.loadConfig(properties);
@@ -152,6 +155,10 @@ class OxiaClientBuilderTest {
         assertThat(impl.clientIdentifier).isEqualTo("client-identifier");
         assertThat(impl.namespace).isEqualTo("namespace");
         assertThat(impl.enableTls).isTrue();
+        var config = impl.getClientConfig();
+        assertThat(config.tlsTrustCertsFilePath()).isEqualTo("/tls/ca.crt");
+        assertThat(config.tlsCertificateFilePath()).isEqualTo("/tls/tls.crt");
+        assertThat(config.tlsKeyFilePath()).isEqualTo("/tls/tls.key");
         assertThat(impl.authPluginClassName).isEqualTo(TokenAuthentication.class.getName());
         assertThat(impl.authParams).isEqualTo("token:1234");
         assertThat(impl.authentication).isNotNull();

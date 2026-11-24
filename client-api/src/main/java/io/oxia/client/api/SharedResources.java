@@ -104,6 +104,41 @@ public interface SharedResources extends AutoCloseable {
         Builder enableTls(boolean enableTls);
 
         /**
+         * Configure the PEM file with the CA certificates that the servers' certificates must chain to,
+         * instead of the JVM's default trust store. The servers' certificates must also name the host
+         * the client connects to.
+         *
+         * <p>Applies to TLS connections only. The file is read once when the client is built, then
+         * again whenever it changes on disk, checked about once a minute; a file that fails to load
+         * keeps the previous certificates in use. A new certificate applies to the connections opened
+         * after it's loaded.
+         *
+         * @param tlsTrustCertsFilePath the path of the PEM file with the trusted CA certificates
+         * @return the builder instance
+         */
+        Builder tlsTrustCertsFilePath(String tlsTrustCertsFilePath);
+
+        /**
+         * Configure the PEM file with the certificate chain the client presents to the servers, for
+         * mutual TLS. Requires {@link #tlsKeyFilePath(String)}, and is reloaded like {@link
+         * #tlsTrustCertsFilePath(String)}: the certificate and key are replaced together, once both
+         * files have changed.
+         *
+         * @param tlsCertificateFilePath the path of the PEM file with the client's certificate chain
+         * @return the builder instance
+         */
+        Builder tlsCertificateFilePath(String tlsCertificateFilePath);
+
+        /**
+         * Configure the PEM file with the private key of {@link #tlsCertificateFilePath(String)}'s
+         * certificate, unencrypted, in PKCS#8 form ({@code BEGIN PRIVATE KEY}).
+         *
+         * @param tlsKeyFilePath the path of the PEM file with the client's private key
+         * @return the builder instance
+         */
+        Builder tlsKeyFilePath(String tlsKeyFilePath);
+
+        /**
          * Configure the authentication used by the shared connections.
          *
          * @param authentication the authentication instance

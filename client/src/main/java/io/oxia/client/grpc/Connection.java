@@ -26,7 +26,6 @@ import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.Status;
-import io.grpc.TlsChannelCredentials;
 import io.grpc.health.v1.HealthCheckRequest;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
@@ -60,12 +59,14 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
     Connection(
             @NonNull String address,
             @NonNull ClientConfig clientConfig,
+            @NonNull ChannelCredentials tlsCredentials,
             @NonNull ScheduledExecutorService executor,
             @NonNull HealthCheckFailureCallback healthCheckFailureCallback) {
         this.connectionId = NEXT_CONNECTION_ID.incrementAndGet();
         this.channel =
                 Grpc.newChannelBuilder(
-                                getAddress(address), getChannelCredential(address, clientConfig.enableTls()))
+                                getAddress(address),
+                                getChannelCredential(address, clientConfig.enableTls(), tlsCredentials))
                         .keepAliveTime(clientConfig.connectionKeepAliveTime().toMillis(), MILLISECONDS)
                         .keepAliveTimeout(clientConfig.connectionKeepAliveTimeout().toMillis(), MILLISECONDS)
                         .keepAliveWithoutCalls(true)
@@ -131,9 +132,10 @@ class Connection implements AutoCloseable, StreamObserver<HealthCheckResponse> {
         return address;
     }
 
-    static ChannelCredentials getChannelCredential(String address, boolean tlsEnabled) {
+    static ChannelCredentials getChannelCredential(
+            String address, boolean tlsEnabled, ChannelCredentials tlsCredentials) {
         return tlsEnabled || address.startsWith(TLS_SCHEMA)
-                ? TlsChannelCredentials.newBuilder().build()
+                ? tlsCredentials
                 : InsecureChannelCredentials.create();
     }
 

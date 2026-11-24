@@ -36,6 +36,23 @@ class ClientConfigTest {
                 .isEqualTo(OxiaClientBuilderImpl.DefaultSubscriptionMaxAge);
     }
 
+    @Test
+    void requiresTlsCertificateAndKeyTogether() {
+        assertThatThrownBy(
+                        () ->
+                                ((OxiaClientBuilderImpl)
+                                                new OxiaClientBuilderImpl("addr").tlsCertificateFilePath("c"))
+                                        .getClientConfig())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tlsKeyFilePath");
+        assertThatThrownBy(
+                        () ->
+                                ((OxiaClientBuilderImpl) new OxiaClientBuilderImpl("addr").tlsKeyFilePath("k"))
+                                        .getClientConfig())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tlsCertificateFilePath");
+    }
+
     static Stream<Arguments> nullArguments() {
         return Stream.of(
                 Arguments.of(null, D, D, "id", "ns", D, D),

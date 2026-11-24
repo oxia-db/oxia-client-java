@@ -73,7 +73,12 @@ public class SharedResourcesImpl implements SharedResources {
         this.executor =
                 Executors.newScheduledThreadPool(
                         numWorkerThreads, new DefaultThreadFactory("oxia-client-shared"));
-        this.connectionManager = new ConnectionManager(transportConfig, executor);
+        try {
+            this.connectionManager = new ConnectionManager(transportConfig, executor);
+        } catch (RuntimeException e) {
+            executor.shutdownNow();
+            throw e;
+        }
         this.readBatcherPool =
                 new BatcherPool("oxia-shared-read-batcher", transportConfig.batchingThreads());
         this.writeBatcherPool =
@@ -176,6 +181,9 @@ public class SharedResourcesImpl implements SharedResources {
         private int numWorkerThreads = Runtime.getRuntime().availableProcessors();
         private int batchingThreads = OxiaClientBuilderImpl.DefaultBatchingThreads;
         private boolean enableTls = OxiaClientBuilderImpl.DefaultEnableTls;
+        private String tlsTrustCertsFilePath;
+        private String tlsCertificateFilePath;
+        private String tlsKeyFilePath;
         private Authentication authentication;
         private Duration connectionKeepAliveTime = Duration.ofSeconds(10);
         private Duration connectionKeepAliveTimeout = Duration.ofSeconds(3);
@@ -207,6 +215,24 @@ public class SharedResourcesImpl implements SharedResources {
         @Override
         public SharedResources.Builder enableTls(boolean enableTls) {
             this.enableTls = enableTls;
+            return this;
+        }
+
+        @Override
+        public SharedResources.Builder tlsTrustCertsFilePath(String tlsTrustCertsFilePath) {
+            this.tlsTrustCertsFilePath = tlsTrustCertsFilePath;
+            return this;
+        }
+
+        @Override
+        public SharedResources.Builder tlsCertificateFilePath(String tlsCertificateFilePath) {
+            this.tlsCertificateFilePath = tlsCertificateFilePath;
+            return this;
+        }
+
+        @Override
+        public SharedResources.Builder tlsKeyFilePath(String tlsKeyFilePath) {
+            this.tlsKeyFilePath = tlsKeyFilePath;
             return this;
         }
 
@@ -281,7 +307,11 @@ public class SharedResourcesImpl implements SharedResources {
                             connectionBackoffMaxDelay,
                             connectionKeepAliveTime,
                             connectionKeepAliveTimeout,
-                            maxConnectionPerNode);
+                            maxConnectionPerNode,
+                            OxiaClientBuilderImpl.DefaultSubscriptionMaxAge,
+                            tlsTrustCertsFilePath,
+                            tlsCertificateFilePath,
+                            tlsKeyFilePath);
             return new SharedResourcesImpl(numWorkerThreads, transportConfig);
         }
     }

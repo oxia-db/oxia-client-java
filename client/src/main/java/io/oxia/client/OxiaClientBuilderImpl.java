@@ -87,6 +87,9 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     @Nullable protected String authParams;
     @Nullable protected Authentication authentication;
     protected boolean enableTls = DefaultEnableTls;
+    @Nullable protected String tlsTrustCertsFilePath;
+    @Nullable protected String tlsCertificateFilePath;
+    @Nullable protected String tlsKeyFilePath;
 
     @NonNull protected Duration connectionBackoffMinDelay = Duration.ofMillis(100);
     @NonNull protected Duration connectionBackoffMaxDelay = Duration.ofSeconds(30);
@@ -305,6 +308,27 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     }
 
     @Override
+    public OxiaClientBuilder tlsTrustCertsFilePath(String tlsTrustCertsFilePath) {
+        this.tlsTrustCertsFilePath = tlsTrustCertsFilePath;
+        explicitTransportSettings.add("tlsTrustCertsFilePath");
+        return this;
+    }
+
+    @Override
+    public OxiaClientBuilder tlsCertificateFilePath(String tlsCertificateFilePath) {
+        this.tlsCertificateFilePath = tlsCertificateFilePath;
+        explicitTransportSettings.add("tlsCertificateFilePath");
+        return this;
+    }
+
+    @Override
+    public OxiaClientBuilder tlsKeyFilePath(String tlsKeyFilePath) {
+        this.tlsKeyFilePath = tlsKeyFilePath;
+        explicitTransportSettings.add("tlsKeyFilePath");
+        return this;
+    }
+
+    @Override
     public OxiaClientBuilder sharedResources(SharedResources sharedResources) {
         this.sharedResources = sharedResources;
         return this;
@@ -378,6 +402,9 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
     private void recordExplicitTransportSetting(String propertyName) {
         switch (propertyName) {
             case "enableTls",
+                    "tlsTrustCertsFilePath",
+                    "tlsCertificateFilePath",
+                    "tlsKeyFilePath",
                     "connectionKeepAliveTime",
                     "connectionKeepAliveTimeout",
                     "batchingThreads" ->
@@ -430,7 +457,10 @@ public class OxiaClientBuilderImpl implements OxiaClientBuilder {
                 connectionKeepAliveTime,
                 connectionKeepAliveTimeout,
                 maxConnectionsPerNode,
-                subscriptionMaxAge);
+                subscriptionMaxAge,
+                tlsTrustCertsFilePath,
+                tlsCertificateFilePath,
+                tlsKeyFilePath);
     }
 
     @Override
