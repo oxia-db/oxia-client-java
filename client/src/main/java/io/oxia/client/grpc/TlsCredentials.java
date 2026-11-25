@@ -15,6 +15,7 @@
  */
 package io.oxia.client.grpc;
 
+import static java.nio.charset.StandardCharsets.US_ASCII;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -22,10 +23,10 @@ import io.github.merlimat.slog.Logger;
 import io.grpc.ChannelCredentials;
 import io.grpc.TlsChannelCredentials;
 import io.oxia.client.ClientConfig;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
@@ -48,11 +49,13 @@ import lombok.Getter;
 /**
  * The credentials of the client's TLS connections, from the PEM files in the client's config.
  *
- * <p>The files are read and checked here, and a file that fails fails the client. They're then
- * checked for changes once a minute on the executor: a change to any file of the trusted CAs, or to
- * either file of the client's certificate and key, reloads them, and they replace the previous ones
- * for new connections only once they've passed the same checks. A reload that fails keeps the
- * previous ones, and the next check tries again. Without files, the JVM's defaults apply.
+ * <p>The files are read and checked here, and a file that fails fails the client. They're then read
+ * again once a minute on the executor: when the contents of the trusted CAs' file, or of either
+ * file of the client's certificate and key, differ from the contents last tried, those contents are
+ * checked the same way and replace the previous ones for new connections. Contents that fail keep
+ * the previous ones in use, and aren't tried again until they change. Comparing contents rather
+ * than modification times catches a copy that keeps a file's time, and costs little for files this
+ * small. Without files, the JVM's defaults apply.
  */
 final class TlsCredentials implements AutoCloseable {
     private static final Logger log = Logger.get(TlsCredentials.class);
@@ -74,9 +77,9 @@ final class TlsCredentials implements AutoCloseable {
             watchedFiles.add(
                     new WatchedFiles(
                             List.of(certificateFile, keyFile),
-                            () -> {
-                                var chain = readCertificates(certificateFile);
-                                var key = readPrivateKey(keyFile);
+                            contents -> {
+                                var chain = parseCertificates(certificateFile, contents.get(0));
+                                var key = parsePrivateKey(keyFile, contents.get(1));
                                 checkKeyMatches(key, chain.get(0));
                                 manager.update(key, chain);
                             }));
@@ -89,7 +92,9 @@ final class TlsCredentials implements AutoCloseable {
             var trustFile = Path.of(config.tlsTrustCertsFilePath());
             var manager = new ReloadingTrustManager();
             watchedFiles.add(
-                    new WatchedFiles(List.of(trustFile), () -> manager.update(readCertificates(trustFile))));
+                    new WatchedFiles(
+                            List.of(trustFile),
+                            contents -> manager.update(parseCertificates(trustFile, contents.get(0)))));
             builder.trustManager(manager);
             this.trustManager = manager;
         } else {
@@ -102,7 +107,7 @@ final class TlsCredentials implements AutoCloseable {
                         : executor.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
     }
 
-    /** Reload the files that changed since they were last loaded. */
+    /** Reload the files whose contents changed since they were last tried. */
     @VisibleForTesting
     void reload() {
         watchedFiles.forEach(WatchedFiles::reloadIfChanged);
@@ -115,28 +120,27 @@ final class TlsCredentials implements AutoCloseable {
         }
     }
 
-    private static List<X509Certificate> readCertificates(Path file)
-            throws IOException, CertificateException {
-        List<X509Certificate> certificates;
-        try (var input = Files.newInputStream(file)) {
-            certificates =
-                    CertificateFactory.getInstance("X.509").generateCertificates(input).stream()
-                            .map(X509Certificate.class::cast)
-                            .toList();
-        }
+    private static List<X509Certificate> parseCertificates(Path file, String pem)
+            throws CertificateException {
+        var certificates =
+                CertificateFactory.getInstance("X.509")
+                        .generateCertificates(new ByteArrayInputStream(pem.getBytes(US_ASCII)))
+                        .stream()
+                        .map(X509Certificate.class::cast)
+                        .toList();
         if (certificates.isEmpty()) {
             throw new CertificateException(file + " has no certificates");
         }
         return certificates;
     }
 
-    private static PrivateKey readPrivateKey(Path file) throws IOException, GeneralSecurityException {
-        var pem = PKCS8_KEY.matcher(Files.readString(file));
-        if (!pem.find()) {
+    private static PrivateKey parsePrivateKey(Path file, String pem) throws GeneralSecurityException {
+        var match = PKCS8_KEY.matcher(pem);
+        if (!match.find()) {
             throw new InvalidKeySpecException(
                     file + " has no unencrypted PKCS#8 private key (BEGIN PRIVATE KEY)");
         }
-        var spec = new PKCS8EncodedKeySpec(Base64.getMimeDecoder().decode(pem.group(1)));
+        var spec = new PKCS8EncodedKeySpec(Base64.getMimeDecoder().decode(match.group(1)));
         for (var algorithm : List.of("EC", "RSA")) {
             try {
                 return KeyFactory.getInstance(algorithm).generatePrivate(spec);
@@ -166,21 +170,21 @@ final class TlsCredentials implements AutoCloseable {
     }
 
     private interface Loader {
-        void load() throws IOException, GeneralSecurityException;
+        void load(List<String> contents) throws GeneralSecurityException, IOException;
     }
 
-    /** Files loaded together, and reloaded when any of them changes. */
+    /** Files loaded together, from their contents read at the same time. */
     private static final class WatchedFiles {
         private final List<Path> files;
         private final Loader loader;
-        private List<FileTime> loadedTimes;
+        private List<String> triedContents;
 
         WatchedFiles(List<Path> files, Loader loader) {
             this.files = files;
             this.loader = loader;
             try {
-                this.loadedTimes = modifiedTimes();
-                loader.load();
+                this.triedContents = read();
+                loader.load(triedContents);
             } catch (IOException | GeneralSecurityException | RuntimeException e) {
                 throw new IllegalArgumentException("Failed to load the TLS files " + files, e);
             }
@@ -188,17 +192,14 @@ final class TlsCredentials implements AutoCloseable {
 
         void reloadIfChanged() {
             try {
-                // Read before loading: a file that changes during the load is loaded again next time.
-                var times = modifiedTimes();
-                if (times.equals(loadedTimes)) {
+                var contents = read();
+                if (contents.equals(triedContents)) {
                     return;
                 }
-                loader.load();
-                loadedTimes = times;
+                triedContents = contents;
+                loader.load(contents);
                 log.info().attr("files", files).log("Reloaded the TLS files");
             } catch (IOException | GeneralSecurityException | RuntimeException e) {
-                // Not recording the times means the next check tries again, even if they don't
-                // change: a file read while it was being written may be complete by then.
                 log.warn()
                         .attr("files", files)
                         .exceptionMessage(e)
@@ -206,12 +207,12 @@ final class TlsCredentials implements AutoCloseable {
             }
         }
 
-        private List<FileTime> modifiedTimes() throws IOException {
-            var times = new ArrayList<FileTime>(files.size());
+        private List<String> read() throws IOException {
+            var contents = new ArrayList<String>(files.size());
             for (var file : files) {
-                times.add(Files.getLastModifiedTime(file));
+                contents.add(Files.readString(file));
             }
-            return times;
+            return contents;
         }
     }
 }

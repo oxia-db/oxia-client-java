@@ -51,6 +51,13 @@ public record ClientConfig(
             throw new IllegalArgumentException(
                     "tlsCertificateFilePath and tlsKeyFilePath must be set together");
         }
+        // A tls:// service address doesn't count: it secures only the connection to that address,
+        // and the shard leaders' connections would go in plaintext.
+        if (!enableTls && (tlsTrustCertsFilePath != null || tlsCertificateFilePath != null)) {
+            throw new IllegalArgumentException(
+                    "The TLS files need enableTls(true): a tls:// service address secures only the"
+                            + " connection to that address, not those to the shard leaders");
+        }
     }
 
     public ClientConfig(

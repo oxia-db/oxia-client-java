@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.opentelemetry.api.OpenTelemetry;
 import java.time.Duration;
+import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,6 +52,18 @@ class ClientConfigTest {
                                         .getClientConfig())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tlsCertificateFilePath");
+    }
+
+    @Test
+    void requiresEnableTlsForTlsFiles() {
+        for (var builder :
+                List.of(
+                        new OxiaClientBuilderImpl("tls://addr").tlsTrustCertsFilePath("ca.crt"),
+                        new OxiaClientBuilderImpl("addr").tlsCertificateFilePath("c").tlsKeyFilePath("k"))) {
+            assertThatThrownBy(() -> ((OxiaClientBuilderImpl) builder).getClientConfig())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("enableTls");
+        }
     }
 
     static Stream<Arguments> nullArguments() {

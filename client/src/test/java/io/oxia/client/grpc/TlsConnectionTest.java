@@ -30,8 +30,6 @@ import io.oxia.proto.ShardAssignmentsRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.FileTime;
-import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -139,7 +137,6 @@ class TlsConnectionTest {
         try (var connections =
                 connectionManager(address, b -> b.tlsTrustCertsFilePath(trustFile.toString()))) {
             Files.writeString(trustFile, "");
-            Files.setLastModifiedTime(trustFile, FileTime.from(Instant.now().plusSeconds(10)));
             assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
         }
     }
@@ -162,14 +159,11 @@ class TlsConnectionTest {
             assertThat(call(connections, address)).isEqualTo(Status.Code.UNAVAILABLE);
 
             Files.writeString(key, "-----BEGIN PRIVATE KEY-----\nAAAAA\n-----END PRIVATE KEY-----\n");
-            Files.setLastModifiedTime(key, FileTime.from(Instant.now().plusSeconds(10)));
             assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNAVAILABLE);
 
             var trusted = TestCertificates.issue(ca, "client");
             trusted.writeCertificate(dir, "client");
             trusted.writeKey(dir, "client");
-            Files.setLastModifiedTime(certificate, FileTime.from(Instant.now().plusSeconds(20)));
-            Files.setLastModifiedTime(key, FileTime.from(Instant.now().plusSeconds(20)));
             assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
         }
     }
@@ -189,7 +183,6 @@ class TlsConnectionTest {
 
     private static void replace(Path source, Path target) throws Exception {
         Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-        Files.setLastModifiedTime(target, FileTime.from(Instant.now().plusSeconds(10)));
     }
 
     // Reload now rather than at the next check, then call on a new connection.

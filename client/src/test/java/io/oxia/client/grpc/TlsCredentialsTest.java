@@ -31,7 +31,6 @@ import io.oxia.client.api.OxiaClientBuilder;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
@@ -55,7 +54,6 @@ class TlsCredentialsTest {
     private Path certificateFile;
     private Path keyFile;
     private Path trustFile;
-    private long modified = System.currentTimeMillis();
 
     @BeforeEach
     void setup() throws Exception {
@@ -97,7 +95,7 @@ class TlsCredentialsTest {
 
             // A renewal with the same key replaces only the certificate.
             var renewal = TestCertificates.issue(ca, "client", first.keyPair());
-            touch(renewal.writeCertificate(dir, "tls"));
+            renewal.writeCertificate(dir, "tls");
             credentials.reload();
 
             assertThat(presented(credentials)).isEqualTo(renewal.certificate());
@@ -110,8 +108,8 @@ class TlsCredentialsTest {
         publish(first);
         try (var credentials = identityCredentials()) {
             var second = TestCertificates.issue(ca, "client");
-            touch(second.writeCertificate(dir, "tls"));
-            touch(TestCertificates.issue(ca, "other").writeKey(dir, "tls"));
+            second.writeCertificate(dir, "tls");
+            TestCertificates.issue(ca, "other").writeKey(dir, "tls");
             credentials.reload();
             assertThat(presented(credentials)).isEqualTo(first.certificate());
 
@@ -127,17 +125,31 @@ class TlsCredentialsTest {
         publish(first);
         try (var credentials = identityCredentials()) {
             var second = TestCertificates.issue(ca, "client");
-            touch(second.writeCertificate(dir, "tls"));
+            second.writeCertificate(dir, "tls");
             Files.writeString(keyFile, "-----BEGIN PRIVATE KEY-----\nAAAAA\n-----END PRIVATE KEY-----\n");
-            var malformedAt = touch(keyFile);
             credentials.reload();
             assertThat(presented(credentials)).isEqualTo(first.certificate());
 
-            // The key is complete now, with the time of the malformed write: the failed reload didn't
-            // record it.
             second.writeKey(dir, "tls");
-            Files.setLastModifiedTime(keyFile, malformedAt);
             credentials.reload();
+            assertThat(presented(credentials)).isEqualTo(second.certificate());
+        }
+    }
+
+    @Test
+    void noticesAChangeThatKeepsTheModificationTime() throws Exception {
+        publish(TestCertificates.issue(ca, "client"));
+        try (var credentials = identityCredentials()) {
+            var times =
+                    List.of(Files.getLastModifiedTime(certificateFile), Files.getLastModifiedTime(keyFile));
+
+            // As cp -p or rsync -a would leave them.
+            var second = TestCertificates.issue(ca, "client");
+            publish(second);
+            Files.setLastModifiedTime(certificateFile, times.get(0));
+            Files.setLastModifiedTime(keyFile, times.get(1));
+            credentials.reload();
+
             assertThat(presented(credentials)).isEqualTo(second.certificate());
         }
     }
@@ -205,15 +217,14 @@ class TlsCredentialsTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(trustFile.toString());
 
-        touch(ca.writeCertificate(dir, "ca"));
+        ca.writeCertificate(dir, "ca");
         try (var credentials = trustCredentials()) {
             Files.writeString(trustFile, "");
-            touch(trustFile);
             credentials.reload();
             assertThat(credentials.trustManager.getAcceptedIssuers()).containsExactly(ca.certificate());
 
             var other = TestCertificates.ca("Other CA");
-            touch(other.writeCertificate(dir, "ca"));
+            other.writeCertificate(dir, "ca");
             credentials.reload();
             assertThat(credentials.trustManager.getAcceptedIssuers())
                     .containsExactly(other.certificate());
@@ -223,7 +234,7 @@ class TlsCredentialsTest {
     @Test
     void servesOnlyAClientOnAnSslEngine() throws Exception {
         publish(TestCertificates.issue(ca, "client"));
-        touch(ca.writeCertificate(dir, "ca"));
+        ca.writeCertificate(dir, "ca");
         try (var credentials =
                 credentials(
                         b ->
@@ -252,16 +263,8 @@ class TlsCredentialsTest {
     }
 
     private void publish(TestCertificates.Issued identity) throws Exception {
-        touch(identity.writeCertificate(dir, "tls"));
-        touch(identity.writeKey(dir, "tls"));
-    }
-
-    // Each write gets a later time, however coarse the file system's clock.
-    private FileTime touch(Path file) throws Exception {
-        modified += 10_000;
-        var time = FileTime.fromMillis(modified);
-        Files.setLastModifiedTime(file, time);
-        return time;
+        identity.writeCertificate(dir, "tls");
+        identity.writeKey(dir, "tls");
     }
 
     private TlsCredentials identityCredentials() {
