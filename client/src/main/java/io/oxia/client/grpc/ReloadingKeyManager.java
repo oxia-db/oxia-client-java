@@ -20,9 +20,6 @@ import java.security.Principal;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.X509ExtendedKeyManager;
@@ -67,12 +64,14 @@ final class ReloadingKeyManager extends X509ExtendedKeyManager {
 
     @Override
     public PrivateKey getPrivateKey(String alias) {
-        return find(alias).map(Identity::key).orElse(null);
+        var identity = find(alias);
+        return identity == null ? null : identity.key();
     }
 
     @Override
     public X509Certificate[] getCertificateChain(String alias) {
-        return find(alias).map(identity -> identity.chain().clone()).orElse(null);
+        var identity = find(alias);
+        return identity == null ? null : identity.chain().clone();
     }
 
     // A client presents certificates; it never serves them.
@@ -86,11 +85,13 @@ final class ReloadingKeyManager extends X509ExtendedKeyManager {
         return null;
     }
 
-    private Optional<Identity> find(String alias) {
+    @Nullable
+    private Identity find(String alias) {
         var current = identities;
-        return Stream.of(current.current(), current.previous())
-                .filter(Objects::nonNull)
-                .filter(identity -> identity.alias().equals(alias))
-                .findFirst();
+        if (current.current().alias().equals(alias)) {
+            return current.current();
+        }
+        var previous = current.previous();
+        return previous != null && previous.alias().equals(alias) ? previous : null;
     }
 }

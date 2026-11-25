@@ -22,14 +22,17 @@ import com.google.common.annotations.VisibleForTesting;
 import io.github.merlimat.slog.Logger;
 import io.grpc.ChannelCredentials;
 import io.grpc.TlsChannelCredentials;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.oxia.client.ClientConfig;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
+import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.cert.CertificateException;
@@ -40,6 +43,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.regex.Pattern;
@@ -55,12 +59,22 @@ import lombok.Getter;
  * checked the same way and replace the previous ones for new connections. Contents that fail keep
  * the previous ones in use, and aren't tried again until they change. Comparing contents rather
  * than modification times catches a copy that keeps a file's time, and costs little for files this
- * small. Without files, the JVM's defaults apply.
+ * small: each is read up to {@value #MAX_FILE_BYTES} bytes, and only a digest of the contents last
+ * tried is kept. Without files, the JVM's defaults apply.
+ *
+ * <p>The checks of every client in the JVM run on one daemon thread, started by the first client
+ * with files, so that reading files, which can stall on a network file system, and parsing them
+ * never hold up a client's own executor.
  */
 final class TlsCredentials implements AutoCloseable {
     private static final Logger log = Logger.get(TlsCredentials.class);
     private static final Pattern PKCS8_KEY =
             Pattern.compile("-----BEGIN PRIVATE KEY-----([^-]+)-----END PRIVATE KEY-----");
+    // A public CA bundle is about 250 KB.
+    private static final int MAX_FILE_BYTES = 1024 * 1024;
+    private static final ScheduledExecutorService SHARED_RELOADER =
+            Executors.newSingleThreadScheduledExecutor(
+                    new DefaultThreadFactory("oxia-client-tls-reload", true));
 
     @Getter private final ChannelCredentials channelCredentials;
     @VisibleForTesting @Nullable final ReloadingKeyManager keyManager;
@@ -68,7 +82,12 @@ final class TlsCredentials implements AutoCloseable {
     private final List<WatchedFiles> watchedFiles = new ArrayList<>();
     @Nullable private final ScheduledFuture<?> reloadTask;
 
-    TlsCredentials(ClientConfig config, ScheduledExecutorService executor) {
+    TlsCredentials(ClientConfig config) {
+        this(config, SHARED_RELOADER);
+    }
+
+    @VisibleForTesting
+    TlsCredentials(ClientConfig config, ScheduledExecutorService reloader) {
         var builder = TlsChannelCredentials.newBuilder();
         if (config.tlsCertificateFilePath() != null) {
             var certificateFile = Path.of(config.tlsCertificateFilePath());
@@ -104,7 +123,7 @@ final class TlsCredentials implements AutoCloseable {
         this.reloadTask =
                 watchedFiles.isEmpty()
                         ? null
-                        : executor.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
+                        : reloader.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
     }
 
     /** Reload the files whose contents changed since they were last tried. */
@@ -120,11 +139,11 @@ final class TlsCredentials implements AutoCloseable {
         }
     }
 
-    private static List<X509Certificate> parseCertificates(Path file, String pem)
+    private static List<X509Certificate> parseCertificates(Path file, byte[] pem)
             throws CertificateException {
         var certificates =
                 CertificateFactory.getInstance("X.509")
-                        .generateCertificates(new ByteArrayInputStream(pem.getBytes(US_ASCII)))
+                        .generateCertificates(new ByteArrayInputStream(pem))
                         .stream()
                         .map(X509Certificate.class::cast)
                         .toList();
@@ -134,8 +153,8 @@ final class TlsCredentials implements AutoCloseable {
         return certificates;
     }
 
-    private static PrivateKey parsePrivateKey(Path file, String pem) throws GeneralSecurityException {
-        var match = PKCS8_KEY.matcher(pem);
+    private static PrivateKey parsePrivateKey(Path file, byte[] pem) throws GeneralSecurityException {
+        var match = PKCS8_KEY.matcher(new String(pem, US_ASCII));
         if (!match.find()) {
             throw new InvalidKeySpecException(
                     file + " has no unencrypted PKCS#8 private key (BEGIN PRIVATE KEY)");
@@ -170,21 +189,22 @@ final class TlsCredentials implements AutoCloseable {
     }
 
     private interface Loader {
-        void load(List<String> contents) throws GeneralSecurityException, IOException;
+        void load(List<byte[]> contents) throws GeneralSecurityException, IOException;
     }
 
     /** Files loaded together, from their contents read at the same time. */
     private static final class WatchedFiles {
         private final List<Path> files;
         private final Loader loader;
-        private List<String> triedContents;
+        private byte[] triedDigest;
 
         WatchedFiles(List<Path> files, Loader loader) {
             this.files = files;
             this.loader = loader;
             try {
-                this.triedContents = read();
-                loader.load(triedContents);
+                var contents = read();
+                this.triedDigest = digest(contents);
+                loader.load(contents);
             } catch (IOException | GeneralSecurityException | RuntimeException e) {
                 throw new IllegalArgumentException("Failed to load the TLS files " + files, e);
             }
@@ -193,10 +213,11 @@ final class TlsCredentials implements AutoCloseable {
         void reloadIfChanged() {
             try {
                 var contents = read();
-                if (contents.equals(triedContents)) {
+                var digest = digest(contents);
+                if (MessageDigest.isEqual(digest, triedDigest)) {
                     return;
                 }
-                triedContents = contents;
+                triedDigest = digest;
                 loader.load(contents);
                 log.info().attr("files", files).log("Reloaded the TLS files");
             } catch (IOException | GeneralSecurityException | RuntimeException e) {
@@ -207,12 +228,28 @@ final class TlsCredentials implements AutoCloseable {
             }
         }
 
-        private List<String> read() throws IOException {
-            var contents = new ArrayList<String>(files.size());
+        private List<byte[]> read() throws IOException {
+            var contents = new ArrayList<byte[]>(files.size());
             for (var file : files) {
-                contents.add(Files.readString(file));
+                try (var input = Files.newInputStream(file)) {
+                    var bytes = input.readNBytes(MAX_FILE_BYTES + 1);
+                    if (bytes.length > MAX_FILE_BYTES) {
+                        throw new IOException(file + " is larger than " + MAX_FILE_BYTES + " bytes");
+                    }
+                    contents.add(bytes);
+                }
             }
             return contents;
+        }
+
+        // Each file's length goes in first, so that contents moved from one file to the other differ.
+        private static byte[] digest(List<byte[]> contents) throws GeneralSecurityException {
+            var digest = MessageDigest.getInstance("SHA-256");
+            for (var bytes : contents) {
+                digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+                digest.update(bytes);
+            }
+            return digest.digest();
         }
     }
 }

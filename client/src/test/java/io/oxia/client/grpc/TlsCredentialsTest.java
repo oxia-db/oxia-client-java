@@ -161,6 +161,7 @@ class TlsCredentialsTest {
         try (var credentials = identityCredentials()) {
             var keyManager = credentials.keyManager;
             var alias = keyManager.chooseEngineClientAlias(KEY_TYPES, null, null);
+            assertThat(keyManager.getPrivateKey("unknown")).isNull();
 
             var second = TestCertificates.issue(ca, "client");
             publish(second);
@@ -228,6 +229,25 @@ class TlsCredentialsTest {
             credentials.reload();
             assertThat(credentials.trustManager.getAcceptedIssuers())
                     .containsExactly(other.certificate());
+        }
+    }
+
+    @Test
+    void rejectsAFileLargerThanOneMebibyte() throws Exception {
+        // A valid bundle, only too large.
+        var pem = Files.readString(ca.writeCertificate(dir, "ca"));
+        var oversized = pem.repeat(1024 * 1024 / pem.length() + 1);
+        Files.writeString(trustFile, oversized);
+        assertThatThrownBy(this::trustCredentials)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(trustFile.toString())
+                .hasStackTraceContaining("larger than");
+
+        ca.writeCertificate(dir, "ca");
+        try (var credentials = trustCredentials()) {
+            Files.writeString(trustFile, oversized);
+            credentials.reload();
+            assertThat(credentials.trustManager.getAcceptedIssuers()).containsExactly(ca.certificate());
         }
     }
 

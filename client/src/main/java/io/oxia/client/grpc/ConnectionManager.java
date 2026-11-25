@@ -37,7 +37,7 @@ public class ConnectionManager implements AutoCloseable {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
         this.executor = executor;
-        this.tlsCredentials = new TlsCredentials(clientConfig, executor);
+        this.tlsCredentials = new TlsCredentials(clientConfig);
     }
 
     Connection getConnection(String address) {

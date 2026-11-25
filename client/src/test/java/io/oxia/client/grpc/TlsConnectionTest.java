@@ -16,6 +16,8 @@
 package io.oxia.client.grpc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import io.grpc.Grpc;
 import io.grpc.Server;
@@ -111,6 +113,21 @@ class TlsConnectionTest {
                                                 .tlsCertificateFilePath(certificate.toString())
                                                 .tlsKeyFilePath(key.toString())))
                 .isEqualTo(Status.Code.UNIMPLEMENTED);
+    }
+
+    @Test
+    void checksTheFilesOffTheClientsExecutor() {
+        var clientExecutor = mock(ScheduledExecutorService.class);
+        var config =
+                ((OxiaClientBuilderImpl)
+                                OxiaClientBuilder.create("localhost:6648")
+                                        .enableTls(true)
+                                        .tlsTrustCertsFilePath(caFile.toString()))
+                        .getClientConfig();
+
+        try (var connections = new ConnectionManager(config, clientExecutor)) {
+            verifyNoInteractions(clientExecutor);
+        }
     }
 
     @Test
