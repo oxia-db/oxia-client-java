@@ -17,79 +17,201 @@ package io.oxia.client.grpc;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 
+import com.google.common.annotations.VisibleForTesting;
+import io.github.merlimat.slog.Logger;
 import io.grpc.ChannelCredentials;
 import io.grpc.TlsChannelCredentials;
-import io.grpc.util.AdvancedTlsX509KeyManager;
-import io.grpc.util.AdvancedTlsX509TrustManager;
-import io.grpc.util.AdvancedTlsX509TrustManager.Verification;
 import io.oxia.client.ClientConfig;
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import lombok.Getter;
 
 /**
  * The credentials of the client's TLS connections, from the PEM files in the client's config.
  *
- * <p>Each file is read once here, then checked for changes on the executor and reloaded, so that
- * rotated certificates apply to new connections without a restart. A file that fails to reload
- * leaves the previous certificates in use. Without files, the JVM's default trust store applies.
+ * <p>The files are read and checked here, and a file that fails fails the client. They're then
+ * checked for changes once a minute on the executor: a change to any file of the trusted CAs, or to
+ * either file of the client's certificate and key, reloads them, and they replace the previous ones
+ * for new connections only once they've passed the same checks. A reload that fails keeps the
+ * previous ones, and the next check tries again. Without files, the JVM's defaults apply.
  */
 final class TlsCredentials implements AutoCloseable {
-    // grpc-util checks the files no more often than once a minute.
-    private static final long RELOAD_INTERVAL_MINUTES = 1;
+    private static final Logger log = Logger.get(TlsCredentials.class);
+    private static final Pattern PKCS8_KEY =
+            Pattern.compile("-----BEGIN PRIVATE KEY-----([^-]+)-----END PRIVATE KEY-----");
 
     @Getter private final ChannelCredentials channelCredentials;
-    private final List<Runnable> stopReloads = new ArrayList<>();
+    @VisibleForTesting @Nullable final ReloadingKeyManager keyManager;
+    @VisibleForTesting @Nullable final ReloadingTrustManager trustManager;
+    private final List<WatchedFiles> watchedFiles = new ArrayList<>();
+    @Nullable private final ScheduledFuture<?> reloadTask;
 
     TlsCredentials(ClientConfig config, ScheduledExecutorService executor) {
         var builder = TlsChannelCredentials.newBuilder();
-        try {
-            if (config.tlsCertificateFilePath() != null) {
-                var keyManager = new AdvancedTlsX509KeyManager();
-                stopReloads.add(
-                        keyManager.updateIdentityCredentials(
-                                        new File(config.tlsCertificateFilePath()),
-                                        new File(config.tlsKeyFilePath()),
-                                        RELOAD_INTERVAL_MINUTES,
-                                        MINUTES,
-                                        executor)
-                                ::close);
-                builder.keyManager(keyManager);
-            }
-            if (config.tlsTrustCertsFilePath() != null) {
-                var trustManager =
-                        AdvancedTlsX509TrustManager.newBuilder()
-                                .setVerification(Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
-                                .build();
-                stopReloads.add(
-                        trustManager.updateTrustCredentials(
-                                        new File(config.tlsTrustCertsFilePath()),
-                                        RELOAD_INTERVAL_MINUTES,
-                                        MINUTES,
-                                        executor)
-                                ::close);
-                builder.trustManager(trustManager);
-            }
-        } catch (IOException | GeneralSecurityException e) {
-            close();
-            throw new IllegalArgumentException(
-                    "Failed to load the TLS files: tlsTrustCertsFilePath="
-                            + config.tlsTrustCertsFilePath()
-                            + ", tlsCertificateFilePath="
-                            + config.tlsCertificateFilePath()
-                            + ", tlsKeyFilePath="
-                            + config.tlsKeyFilePath(),
-                    e);
+        if (config.tlsCertificateFilePath() != null) {
+            var certificateFile = Path.of(config.tlsCertificateFilePath());
+            var keyFile = Path.of(config.tlsKeyFilePath());
+            var manager = new ReloadingKeyManager();
+            watchedFiles.add(
+                    new WatchedFiles(
+                            List.of(certificateFile, keyFile),
+                            () -> {
+                                var chain = readCertificates(certificateFile);
+                                var key = readPrivateKey(keyFile);
+                                checkKeyMatches(key, chain.get(0));
+                                manager.update(key, chain);
+                            }));
+            builder.keyManager(manager);
+            this.keyManager = manager;
+        } else {
+            this.keyManager = null;
+        }
+        if (config.tlsTrustCertsFilePath() != null) {
+            var trustFile = Path.of(config.tlsTrustCertsFilePath());
+            var manager = new ReloadingTrustManager();
+            watchedFiles.add(
+                    new WatchedFiles(List.of(trustFile), () -> manager.update(readCertificates(trustFile))));
+            builder.trustManager(manager);
+            this.trustManager = manager;
+        } else {
+            this.trustManager = null;
         }
         this.channelCredentials = builder.build();
+        this.reloadTask =
+                watchedFiles.isEmpty()
+                        ? null
+                        : executor.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
+    }
+
+    /** Reload the files that changed since they were last loaded. */
+    @VisibleForTesting
+    void reload() {
+        watchedFiles.forEach(WatchedFiles::reloadIfChanged);
     }
 
     @Override
     public void close() {
-        stopReloads.forEach(Runnable::run);
+        if (reloadTask != null) {
+            reloadTask.cancel(false);
+        }
+    }
+
+    private static List<X509Certificate> readCertificates(Path file)
+            throws IOException, CertificateException {
+        List<X509Certificate> certificates;
+        try (var input = Files.newInputStream(file)) {
+            certificates =
+                    CertificateFactory.getInstance("X.509").generateCertificates(input).stream()
+                            .map(X509Certificate.class::cast)
+                            .toList();
+        }
+        if (certificates.isEmpty()) {
+            throw new CertificateException(file + " has no certificates");
+        }
+        return certificates;
+    }
+
+    private static PrivateKey readPrivateKey(Path file) throws IOException, GeneralSecurityException {
+        var pem = PKCS8_KEY.matcher(Files.readString(file));
+        if (!pem.find()) {
+            throw new InvalidKeySpecException(
+                    file + " has no unencrypted PKCS#8 private key (BEGIN PRIVATE KEY)");
+        }
+        var spec = new PKCS8EncodedKeySpec(Base64.getMimeDecoder().decode(pem.group(1)));
+        for (var algorithm : List.of("EC", "RSA")) {
+            try {
+                return KeyFactory.getInstance(algorithm).generatePrivate(spec);
+            } catch (InvalidKeySpecException e) {
+                // Try the next algorithm.
+            }
+        }
+        throw new InvalidKeySpecException(file + " has neither an EC nor an RSA private key");
+    }
+
+    // A key that doesn't match the certificate would fail every handshake: sign with the key and
+    // check the signature with the certificate's public key.
+    private static void checkKeyMatches(PrivateKey key, X509Certificate certificate)
+            throws GeneralSecurityException {
+        var algorithm = key.getAlgorithm().equals("RSA") ? "SHA256withRSA" : "SHA256withECDSA";
+        var data = new byte[32];
+        var signer = Signature.getInstance(algorithm);
+        signer.initSign(key);
+        signer.update(data);
+        var signature = signer.sign();
+        var verifier = Signature.getInstance(algorithm);
+        verifier.initVerify(certificate.getPublicKey());
+        verifier.update(data);
+        if (!verifier.verify(signature)) {
+            throw new InvalidKeyException("The private key doesn't match the certificate");
+        }
+    }
+
+    private interface Loader {
+        void load() throws IOException, GeneralSecurityException;
+    }
+
+    /** Files loaded together, and reloaded when any of them changes. */
+    private static final class WatchedFiles {
+        private final List<Path> files;
+        private final Loader loader;
+        private List<FileTime> loadedTimes;
+
+        WatchedFiles(List<Path> files, Loader loader) {
+            this.files = files;
+            this.loader = loader;
+            try {
+                this.loadedTimes = modifiedTimes();
+                loader.load();
+            } catch (IOException | GeneralSecurityException | RuntimeException e) {
+                throw new IllegalArgumentException("Failed to load the TLS files " + files, e);
+            }
+        }
+
+        void reloadIfChanged() {
+            try {
+                // Read before loading: a file that changes during the load is loaded again next time.
+                var times = modifiedTimes();
+                if (times.equals(loadedTimes)) {
+                    return;
+                }
+                loader.load();
+                loadedTimes = times;
+                log.info().attr("files", files).log("Reloaded the TLS files");
+            } catch (IOException | GeneralSecurityException | RuntimeException e) {
+                // Not recording the times means the next check tries again, even if they don't
+                // change: a file read while it was being written may be complete by then.
+                log.warn()
+                        .attr("files", files)
+                        .exceptionMessage(e)
+                        .log("Failed to reload the TLS files; the previous ones stay in use");
+            }
+        }
+
+        private List<FileTime> modifiedTimes() throws IOException {
+            var times = new ArrayList<FileTime>(files.size());
+            for (var file : files) {
+                times.add(Files.getLastModifiedTime(file));
+            }
+            return times;
+        }
     }
 }

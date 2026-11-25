@@ -16,8 +16,6 @@
 package io.oxia.client.grpc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
 
 import io.grpc.Grpc;
 import io.grpc.Server;
@@ -33,7 +31,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -128,39 +125,53 @@ class TlsConnectionTest {
                 connectionManager(address, b -> b.tlsTrustCertsFilePath(trustFile.toString()))) {
             assertThat(call(connections, address)).isEqualTo(Status.Code.UNAVAILABLE);
 
-            Files.copy(caFile, trustFile, StandardCopyOption.REPLACE_EXISTING);
-            Files.setLastModifiedTime(trustFile, FileTime.from(Instant.now().plusSeconds(1)));
-
-            // The file is checked about once a minute; each attempt opens a new connection.
-            await()
-                    .atMost(Duration.ofSeconds(90))
-                    .pollInterval(Duration.ofSeconds(5))
-                    .until(
-                            () -> {
-                                connections.connections.values().forEach(Connection::close);
-                                connections.connections.clear();
-                                return call(connections, address) == Status.Code.UNIMPLEMENTED;
-                            });
+            replace(caFile, trustFile);
+            assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
         }
     }
 
     @Test
-    void rejectsFilesThatFailToLoad() throws Exception {
-        var client = TestCertificates.issue(ca, "client");
-        var certificate = client.writeCertificate(dir, "client");
-        var key = client.writeKey(dir, "client");
-        var missing = dir.resolve("missing.crt").toString();
+    void keepsConnectingAfterAnEmptyTrustUpdate() throws Exception {
+        startServer(ClientAuth.NONE);
+        var trustFile = Files.copy(caFile, dir.resolve("trust.crt"));
+        var address = "localhost:" + server.getPort();
 
-        assertThatThrownBy(
-                        () ->
-                                connectionManager(
-                                        "localhost:1",
-                                        b ->
-                                                b.tlsCertificateFilePath(certificate.toString())
-                                                        .tlsKeyFilePath(key.toString())
-                                                        .tlsTrustCertsFilePath(missing)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining(missing);
+        try (var connections =
+                connectionManager(address, b -> b.tlsTrustCertsFilePath(trustFile.toString()))) {
+            Files.writeString(trustFile, "");
+            Files.setLastModifiedTime(trustFile, FileTime.from(Instant.now().plusSeconds(10)));
+            assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
+        }
+    }
+
+    @Test
+    void recoversFromAMalformedClientKey() throws Exception {
+        startServer(ClientAuth.REQUIRE);
+        var untrusted = TestCertificates.issue(TestCertificates.ca("Other CA"), "client");
+        var certificate = untrusted.writeCertificate(dir, "client");
+        var key = untrusted.writeKey(dir, "client");
+        var address = "localhost:" + server.getPort();
+
+        try (var connections =
+                connectionManager(
+                        address,
+                        b ->
+                                b.tlsTrustCertsFilePath(caFile.toString())
+                                        .tlsCertificateFilePath(certificate.toString())
+                                        .tlsKeyFilePath(key.toString()))) {
+            assertThat(call(connections, address)).isEqualTo(Status.Code.UNAVAILABLE);
+
+            Files.writeString(key, "-----BEGIN PRIVATE KEY-----\nAAAAA\n-----END PRIVATE KEY-----\n");
+            Files.setLastModifiedTime(key, FileTime.from(Instant.now().plusSeconds(10)));
+            assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNAVAILABLE);
+
+            var trusted = TestCertificates.issue(ca, "client");
+            trusted.writeCertificate(dir, "client");
+            trusted.writeKey(dir, "client");
+            Files.setLastModifiedTime(certificate, FileTime.from(Instant.now().plusSeconds(20)));
+            Files.setLastModifiedTime(key, FileTime.from(Instant.now().plusSeconds(20)));
+            assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
+        }
     }
 
     private void startServer(ClientAuth clientAuth) throws Exception {
@@ -174,6 +185,20 @@ class TlsConnectionTest {
                         .clientAuth(clientAuth)
                         .build();
         server = Grpc.newServerBuilderForPort(0, credentials).directExecutor().build().start();
+    }
+
+    private static void replace(Path source, Path target) throws Exception {
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        Files.setLastModifiedTime(target, FileTime.from(Instant.now().plusSeconds(10)));
+    }
+
+    // Reload now rather than at the next check, then call on a new connection.
+    private static Status.Code reloadAndCall(ConnectionManager connections, String address)
+            throws Exception {
+        connections.tlsCredentials.reload();
+        connections.connections.values().forEach(Connection::close);
+        connections.connections.clear();
+        return call(connections, address);
     }
 
     private Status.Code call(String host, UnaryOperator<OxiaClientBuilder> tls) throws Exception {

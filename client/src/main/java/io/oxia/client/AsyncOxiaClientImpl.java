@@ -83,13 +83,7 @@ class AsyncOxiaClientImpl implements AsyncOxiaClient {
                 Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("oxia-client-async"));
         var instrumentProvider = new InstrumentProvider(config.openTelemetry(), config.namespace());
         var shardManager = new ShardManager(asyncExecutor, instrumentProvider, config.namespace());
-        final RpcProvider rpcProvider;
-        try {
-            rpcProvider = RpcProvider.create(config, asyncExecutor, shardManager::leader);
-        } catch (RuntimeException e) {
-            asyncExecutor.shutdownNow();
-            return CompletableFuture.failedFuture(e);
-        }
+        var rpcProvider = RpcProvider.create(config, asyncExecutor, shardManager::leader);
         var notificationManager =
                 new NotificationManager(asyncExecutor, rpcProvider, shardManager, instrumentProvider);
         shardManager.addCallback(notificationManager);

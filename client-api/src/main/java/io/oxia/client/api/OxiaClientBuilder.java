@@ -323,10 +323,10 @@ public interface OxiaClientBuilder {
      * instead of the JVM's default trust store. The servers' certificates must also name the host the
      * client connects to.
      *
-     * <p>Applies to TLS connections only. The file is read once when the client is built, then again
-     * whenever it changes on disk, checked about once a minute; a file that fails to load keeps the
-     * previous certificates in use. A new certificate applies to the connections opened after it's
-     * loaded.
+     * <p>Applies to TLS connections only. The file must hold at least one certificate. It's read once
+     * when the client is built, then again whenever it changes on disk, checked about once a minute;
+     * a file that fails to load keeps the previous certificates in use. New certificates apply to the
+     * connections opened after they're loaded.
      *
      * @param tlsTrustCertsFilePath the path of the PEM file with the trusted CA certificates
      * @return the builder instance
@@ -336,8 +336,8 @@ public interface OxiaClientBuilder {
     /**
      * Configure the PEM file with the certificate chain the client presents to the servers, for
      * mutual TLS. Requires {@link #tlsKeyFilePath(String)}, and is reloaded like {@link
-     * #tlsTrustCertsFilePath(String)}: the certificate and key are replaced together, once both files
-     * have changed.
+     * #tlsTrustCertsFilePath(String)}: when either file changes, both are read again, and they
+     * replace the previous pair only if the key matches the certificate.
      *
      * @param tlsCertificateFilePath the path of the PEM file with the client's certificate chain
      * @return the builder instance

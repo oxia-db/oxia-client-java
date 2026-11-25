@@ -73,12 +73,7 @@ public class SharedResourcesImpl implements SharedResources {
         this.executor =
                 Executors.newScheduledThreadPool(
                         numWorkerThreads, new DefaultThreadFactory("oxia-client-shared"));
-        try {
-            this.connectionManager = new ConnectionManager(transportConfig, executor);
-        } catch (RuntimeException e) {
-            executor.shutdownNow();
-            throw e;
-        }
+        this.connectionManager = new ConnectionManager(transportConfig, executor);
         this.readBatcherPool =
                 new BatcherPool("oxia-shared-read-batcher", transportConfig.batchingThreads());
         this.writeBatcherPool =

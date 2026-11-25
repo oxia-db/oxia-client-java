@@ -32,7 +32,6 @@ dependencies {
     implementation(libs.grpc.protobuf)
     implementation(libs.grpc.services)
     implementation(libs.grpc.stub)
-    implementation(libs.grpc.util)
     implementation(libs.opentelemetry.api)
     implementation(libs.jakarta.annotation.api)
     implementation(libs.protobuf.java)

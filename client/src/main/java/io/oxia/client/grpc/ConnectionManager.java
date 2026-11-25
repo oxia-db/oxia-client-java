@@ -31,7 +31,7 @@ public class ConnectionManager implements AutoCloseable {
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
     private final ScheduledExecutorService executor;
-    private final TlsCredentials tlsCredentials;
+    @VisibleForTesting final TlsCredentials tlsCredentials;
 
     public ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;

@@ -63,7 +63,7 @@ public final class TestCertificates {
 
     /** A self-signed CA. */
     public static Issued ca(String name) throws Exception {
-        var keyPair = keyPair();
+        var keyPair = keyPair("EC");
         var subject = new X500Name("CN=" + name);
         var builder = builder(subject, subject, keyPair);
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
@@ -72,7 +72,11 @@ public final class TestCertificates {
 
     /** A certificate from {@code ca} for {@code dnsName}, usable by a server or a client. */
     public static Issued issue(Issued ca, String dnsName) throws Exception {
-        var keyPair = keyPair();
+        return issue(ca, dnsName, keyPair("EC"));
+    }
+
+    /** A certificate from {@code ca} for {@code dnsName} and the public key of {@code keyPair}. */
+    public static Issued issue(Issued ca, String dnsName, KeyPair keyPair) throws Exception {
         var issuer = new X500Name(ca.certificate().getSubjectX500Principal().getName());
         var builder = builder(issuer, new X500Name("CN=" + dnsName), keyPair);
         builder.addExtension(
@@ -87,9 +91,10 @@ public final class TestCertificates {
         return new Issued(sign(builder, ca.keyPair()), keyPair);
     }
 
-    private static KeyPair keyPair() throws GeneralSecurityException {
-        var generator = KeyPairGenerator.getInstance("EC");
-        generator.initialize(256);
+    /** A new EC (P-256) or RSA (2048-bit) key pair. */
+    public static KeyPair keyPair(String algorithm) throws GeneralSecurityException {
+        var generator = KeyPairGenerator.getInstance(algorithm);
+        generator.initialize(algorithm.equals("RSA") ? 2048 : 256);
         return generator.generateKeyPair();
     }
 
