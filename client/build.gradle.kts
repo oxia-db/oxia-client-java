@@ -38,6 +38,7 @@ dependencies {
     implementation(libs.proto.google.common.protos)
     implementation(libs.zero.allocation.hashing)
 
+    testImplementation(libs.bcpkix)
     testImplementation(libs.grpc.inprocess)
     testImplementation(libs.opentelemetry.sdk)
     testImplementation(libs.opentelemetry.sdk.testing)

@@ -31,11 +31,13 @@ public class ConnectionManager implements AutoCloseable {
     private final int maxConnectionPerNode;
     private final ClientConfig clientConfig;
     private final ScheduledExecutorService executor;
+    @VisibleForTesting final TlsCredentials tlsCredentials;
 
     public ConnectionManager(ClientConfig clientConfig, ScheduledExecutorService executor) {
         this.clientConfig = clientConfig;
         this.maxConnectionPerNode = clientConfig.maxConnectionPerNode();
         this.executor = executor;
+        this.tlsCredentials = new TlsCredentials(clientConfig);
     }
 
     Connection getConnection(String address) {
@@ -51,6 +53,7 @@ public class ConnectionManager implements AutoCloseable {
                             new Connection(
                                     key.address,
                                     clientConfig,
+                                    tlsCredentials.getChannelCredentials(),
                                     executor,
                                     connectionToRemove -> removeConnection(key, connectionToRemove));
                     log.info()
@@ -72,6 +75,7 @@ public class ConnectionManager implements AutoCloseable {
         for (Connection connection : connections.values()) {
             connection.close();
         }
+        tlsCredentials.close();
     }
 
     private void removeConnection(Key key, Connection connection) {

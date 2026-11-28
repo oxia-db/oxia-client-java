@@ -41,7 +41,71 @@ public record ClientConfig(
         Duration connectionKeepAliveTime,
         Duration connectionKeepAliveTimeout,
         int maxConnectionPerNode,
-        @Nullable Duration subscriptionMaxAge) {
+        @Nullable Duration subscriptionMaxAge,
+        @Nullable String tlsTrustCertsFilePath,
+        @Nullable String tlsCertificateFilePath,
+        @Nullable String tlsKeyFilePath) {
+
+    public ClientConfig {
+        if ((tlsCertificateFilePath == null) != (tlsKeyFilePath == null)) {
+            throw new IllegalArgumentException(
+                    "tlsCertificateFilePath and tlsKeyFilePath must be set together");
+        }
+        // A tls:// service address doesn't count: it secures only the connection to that address,
+        // and the shard leaders' connections would go in plaintext.
+        if (!enableTls && (tlsTrustCertsFilePath != null || tlsCertificateFilePath != null)) {
+            throw new IllegalArgumentException(
+                    "The TLS files need enableTls(true): a tls:// service address secures only the"
+                            + " connection to that address, not those to the shard leaders");
+        }
+    }
+
+    public ClientConfig(
+            String serviceAddress,
+            Duration requestTimeout,
+            int maxRequestsPerBatch,
+            int maxBatchSize,
+            long maxPendingBytes,
+            int maxWriteBatchesInFlight,
+            int maxReadBatchesInFlight,
+            int batchingThreads,
+            Duration sessionTimeout,
+            String clientIdentifier,
+            OpenTelemetry openTelemetry,
+            String namespace,
+            @Nullable Authentication authentication,
+            boolean enableTls,
+            Duration connectionBackoffMinDelay,
+            Duration connectionBackoffMaxDelay,
+            Duration connectionKeepAliveTime,
+            Duration connectionKeepAliveTimeout,
+            int maxConnectionPerNode,
+            @Nullable Duration subscriptionMaxAge) {
+        this(
+                serviceAddress,
+                requestTimeout,
+                maxRequestsPerBatch,
+                maxBatchSize,
+                maxPendingBytes,
+                maxWriteBatchesInFlight,
+                maxReadBatchesInFlight,
+                batchingThreads,
+                sessionTimeout,
+                clientIdentifier,
+                openTelemetry,
+                namespace,
+                authentication,
+                enableTls,
+                connectionBackoffMinDelay,
+                connectionBackoffMaxDelay,
+                connectionKeepAliveTime,
+                connectionKeepAliveTimeout,
+                maxConnectionPerNode,
+                subscriptionMaxAge,
+                null,
+                null,
+                null);
+    }
 
     public ClientConfig(
             String serviceAddress,

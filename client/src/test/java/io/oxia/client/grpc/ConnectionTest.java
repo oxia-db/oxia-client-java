@@ -24,6 +24,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.grpc.ChannelCredentials;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.Status;
 import io.grpc.TlsChannelCredentials;
@@ -41,6 +42,7 @@ import org.junit.jupiter.api.Test;
 
 class ConnectionTest {
     private static final String ADDRESS = "localhost:6648";
+    private static final ChannelCredentials TLS = TlsChannelCredentials.create();
     private final ClientConfig config = new OxiaClientBuilderImpl(ADDRESS).getClientConfig();
     private final CompletableFuture<Runnable> healthCheck = new CompletableFuture<>();
     private final ScheduledFuture<?> healthCheckTask = mock(ScheduledFuture.class);
@@ -93,10 +95,11 @@ class ConnectionTest {
     void rejectsNullArguments() {
         List<ThrowingCallable> calls =
                 List.of(
-                        () -> new Connection(null, config, executor, callback),
-                        () -> new Connection(ADDRESS, null, executor, callback),
-                        () -> new Connection(ADDRESS, config, null, callback),
-                        () -> new Connection(ADDRESS, config, executor, null));
+                        () -> new Connection(null, config, TLS, executor, callback),
+                        () -> new Connection(ADDRESS, null, TLS, executor, callback),
+                        () -> new Connection(ADDRESS, config, null, executor, callback),
+                        () -> new Connection(ADDRESS, config, TLS, null, callback),
+                        () -> new Connection(ADDRESS, config, TLS, executor, null));
 
         calls.forEach(call -> assertThatThrownBy(call).isInstanceOf(NullPointerException.class));
     }
@@ -108,7 +111,7 @@ class ConnectionTest {
                             healthCheck.complete(invocation.getArgument(0));
                             return healthCheckTask;
                         });
-        return new Connection(ADDRESS, config, executor, callback);
+        return new Connection(ADDRESS, config, TLS, executor, callback);
     }
 
     @Test
@@ -123,17 +126,13 @@ class ConnectionTest {
     @Test
     public void testTlsCredential() {
         final var tlsAddress = "tls://localhost:6648";
-        var channelCredential = Connection.getChannelCredential(tlsAddress, false);
-        Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
-
-        channelCredential = Connection.getChannelCredential(tlsAddress, true);
-        Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
+        Assertions.assertSame(TLS, Connection.getChannelCredential(tlsAddress, false, TLS));
+        Assertions.assertSame(TLS, Connection.getChannelCredential(tlsAddress, true, TLS));
 
         final var planTxtAddress = "localhost:6648";
-        channelCredential = Connection.getChannelCredential(planTxtAddress, false);
-        Assertions.assertInstanceOf(InsecureChannelCredentials.class, channelCredential);
-
-        channelCredential = Connection.getChannelCredential(planTxtAddress, true);
-        Assertions.assertInstanceOf(TlsChannelCredentials.class, channelCredential);
+        Assertions.assertInstanceOf(
+                InsecureChannelCredentials.class,
+                Connection.getChannelCredential(planTxtAddress, false, TLS));
+        Assertions.assertSame(TLS, Connection.getChannelCredential(planTxtAddress, true, TLS));
     }
 }

@@ -104,6 +104,42 @@ public interface SharedResources extends AutoCloseable {
         Builder enableTls(boolean enableTls);
 
         /**
+         * Configure the PEM file with the CA certificates that the servers' certificates must chain to,
+         * instead of the JVM's default trust store. The servers' certificates must also name the host
+         * the client connects to.
+         *
+         * <p>Requires {@link #enableTls(boolean) enableTls(true)}; a {@code tls://} service address
+         * isn't enough, since it secures only the connection to that address. The file must hold at
+         * least one certificate. It's read when the pool is built, then again about once a minute: when
+         * its contents change, they replace the previous certificates for new connections; contents
+         * that fail to load keep the previous certificates in use.
+         *
+         * @param tlsTrustCertsFilePath the path of the PEM file with the trusted CA certificates
+         * @return the builder instance
+         */
+        Builder tlsTrustCertsFilePath(String tlsTrustCertsFilePath);
+
+        /**
+         * Configure the PEM file with the certificate chain the client presents to the servers, for
+         * mutual TLS. Requires {@link #tlsKeyFilePath(String)}, and is reloaded like {@link
+         * #tlsTrustCertsFilePath(String)}: when either file's contents change, both are read again, and
+         * they replace the previous pair only if the key matches the certificate.
+         *
+         * @param tlsCertificateFilePath the path of the PEM file with the client's certificate chain
+         * @return the builder instance
+         */
+        Builder tlsCertificateFilePath(String tlsCertificateFilePath);
+
+        /**
+         * Configure the PEM file with the private key of {@link #tlsCertificateFilePath(String)}'s
+         * certificate: an EC or RSA key, unencrypted, in PKCS#8 form ({@code BEGIN PRIVATE KEY}).
+         *
+         * @param tlsKeyFilePath the path of the PEM file with the client's private key
+         * @return the builder instance
+         */
+        Builder tlsKeyFilePath(String tlsKeyFilePath);
+
+        /**
          * Configure the authentication used by the shared connections.
          *
          * @param authentication the authentication instance

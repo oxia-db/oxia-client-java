@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import io.grpc.BindableService;
+import io.grpc.ChannelCredentials;
 import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -27,6 +28,7 @@ import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 import io.grpc.ServerInterceptors;
 import io.grpc.Status;
+import io.grpc.TlsChannelCredentials;
 import io.grpc.health.v1.HealthCheckRequest;
 import io.grpc.health.v1.HealthCheckResponse;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
@@ -46,6 +48,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class ConnectionHealthTest {
+    private static final ChannelCredentials TLS = TlsChannelCredentials.create();
+
     private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
     @AfterEach
@@ -133,7 +137,8 @@ class ConnectionHealthTest {
                         .getClientConfig();
 
         try (var target =
-                new Target(server, new Connection(address, clientConfig, executor, connection -> {}))) {
+                new Target(
+                        server, new Connection(address, clientConfig, TLS, executor, connection -> {}))) {
             assertThat(authorization.get(5, TimeUnit.SECONDS)).isEqualTo("Bearer token");
         }
     }
@@ -155,7 +160,7 @@ class ConnectionHealthTest {
                         .connectionKeepAliveTimeout(healthPingTimeout);
         var clientConfig = ((OxiaClientBuilderImpl) builder).getClientConfig();
         return new Target(
-                server, new Connection(address, clientConfig, executor, healthCheckFailureCallback));
+                server, new Connection(address, clientConfig, TLS, executor, healthCheckFailureCallback));
     }
 
     private record Target(Server server, Connection connection) implements AutoCloseable {

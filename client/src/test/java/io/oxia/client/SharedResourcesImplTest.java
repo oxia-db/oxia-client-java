@@ -19,10 +19,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.opentelemetry.api.OpenTelemetry;
+import io.oxia.client.api.OxiaClientBuilder;
 import io.oxia.client.api.SharedResources;
 import io.oxia.client.auth.TokenAuthentication;
+import io.oxia.client.grpc.TestCertificates;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
+import java.util.Properties;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SharedResourcesImplTest {
 
@@ -83,6 +90,27 @@ class SharedResourcesImplTest {
                                 .build()) {
             assertThat(shared.getConnectionCount()).isZero();
             assertThat(shared.executor().isShutdown()).isFalse();
+        }
+    }
+
+    @Test
+    void loadsItsTlsFiles(@TempDir Path dir) throws Exception {
+        var ca = TestCertificates.ca("Test CA");
+        var client = TestCertificates.issue(ca, "client");
+        var builder =
+                SharedResourcesImpl.builder()
+                        .enableTls(true)
+                        .tlsCertificateFilePath(client.writeCertificate(dir, "client").toString())
+                        .tlsKeyFilePath(client.writeKey(dir, "client").toString());
+        var missing = dir.resolve("ca.crt").toString();
+
+        assertThatThrownBy(() -> builder.tlsTrustCertsFilePath(missing).build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(missing);
+
+        ca.writeCertificate(dir, "ca");
+        try (var shared = builder.build()) {
+            assertThat(shared).isNotNull();
         }
     }
 
@@ -160,6 +188,35 @@ class SharedResourcesImplTest {
                                             .asyncClient())
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("maxConnectionPerNode");
+
+            for (var setting :
+                    List.<UnaryOperator<OxiaClientBuilder>>of(
+                            b -> b.tlsTrustCertsFilePath("ca.crt"),
+                            b -> b.tlsCertificateFilePath("tls.crt"),
+                            b -> b.tlsKeyFilePath("tls.key"))) {
+                assertThatThrownBy(
+                                () ->
+                                        setting
+                                                .apply(new OxiaClientBuilderImpl("localhost:6648"))
+                                                .sharedResources(shared)
+                                                .asyncClient())
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessageContaining("tls");
+            }
+            var properties = new Properties();
+            properties.setProperty("tlsTrustCertsFilePath", "ca.crt");
+            properties.setProperty("tlsCertificateFilePath", "tls.crt");
+            properties.setProperty("tlsKeyFilePath", "tls.key");
+            assertThatThrownBy(
+                            () ->
+                                    new OxiaClientBuilderImpl("localhost:6648")
+                                            .loadConfig(properties)
+                                            .sharedResources(shared)
+                                            .asyncClient())
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("tlsTrustCertsFilePath")
+                    .hasMessageContaining("tlsCertificateFilePath")
+                    .hasMessageContaining("tlsKeyFilePath");
 
             // Batching threads are governed by the pool too.
             assertThatThrownBy(
