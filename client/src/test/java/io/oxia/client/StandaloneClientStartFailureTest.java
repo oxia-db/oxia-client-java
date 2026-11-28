@@ -31,6 +31,7 @@ import io.oxia.client.api.exceptions.NamespaceNotFoundException;
 import io.oxia.proto.OxiaClientGrpc;
 import io.oxia.proto.ShardAssignments;
 import io.oxia.proto.ShardAssignmentsRequest;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
@@ -39,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * A standalone client whose start fails is never handed to the caller, who therefore can't close
@@ -111,6 +113,21 @@ class StandaloneClientStartFailureTest {
         // ...and stopped its threads: its executor's and its batchers'
         assertThat(clientThreads).isNotEmpty();
         await().untilAsserted(() -> assertThat(clientThreads).filteredOn(Thread::isAlive).isEmpty());
+    }
+
+    @Test
+    void failsItsFutureWhenATlsFileCannotBeRead(@TempDir Path dir) {
+        var missing = dir.resolve("ca.crt");
+        var client =
+                OxiaClientBuilder.create("localhost:" + server.getPort())
+                        .enableTls(true)
+                        .tlsTrustCertsFilePath(missing.toString())
+                        .asyncClient();
+
+        assertThatThrownBy(client::join)
+                .isInstanceOf(CompletionException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(missing.toString());
     }
 
     // The threads of the pools started since the snapshot, leaving out those of the pools that other

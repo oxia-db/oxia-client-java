@@ -16,16 +16,16 @@
 package io.oxia.client.grpc;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import io.oxia.client.ClientConfig;
 import io.oxia.client.OxiaClientBuilderImpl;
 import io.oxia.client.api.OxiaClientBuilder;
 import java.net.Socket;
@@ -36,11 +36,12 @@ import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.function.UnaryOperator;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 class TlsCredentialsTest {
@@ -49,7 +50,6 @@ class TlsCredentialsTest {
     @TempDir Path dir;
 
     private final ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
-    private final ScheduledFuture<?> reloadTask = mock(ScheduledFuture.class);
     private TestCertificates.Issued ca;
     private Path certificateFile;
     private Path keyFile;
@@ -61,7 +61,6 @@ class TlsCredentialsTest {
         certificateFile = dir.resolve("tls.crt");
         keyFile = dir.resolve("tls.key");
         trustFile = dir.resolve("ca.crt");
-        doReturn(reloadTask).when(executor).scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
     }
 
     @Test
@@ -71,7 +70,34 @@ class TlsCredentialsTest {
         try (var credentials = identityCredentials()) {
             verify(executor).scheduleWithFixedDelay(any(), eq(1L), eq(1L), eq(MINUTES));
         }
-        verify(reloadTask).cancel(false);
+        verify(executor).shutdownNow();
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void reloadsWhileAnotherPoolsReadIsStalled() throws Exception {
+        var stalledFile = ca.writeCertificate(Files.createDirectory(dir.resolve("stalled")), "ca");
+        ca.writeCertificate(dir, "ca");
+        try (var stalled =
+                        new TlsCredentials(config(b -> b.tlsTrustCertsFilePath(stalledFile.toString())));
+                var healthy =
+                        new TlsCredentials(config(b -> b.tlsTrustCertsFilePath(trustFile.toString())))) {
+            // Opening a named pipe to read it blocks until something opens it to write.
+            Files.delete(stalledFile);
+            assertThat(new ProcessBuilder("mkfifo", stalledFile.toString()).start().waitFor()).isZero();
+            var stalledReload = stalled.reloader.submit(stalled::reload);
+            try {
+                var rotated = TestCertificates.ca("Rotated CA");
+                rotated.writeCertificate(dir, "ca");
+                healthy.reloader.submit(healthy::reload).get(10, SECONDS);
+                assertThat(healthy.trustManager.getAcceptedIssuers())
+                        .containsExactly(rotated.certificate());
+                assertThat(stalledReload).isNotDone();
+            } finally {
+                Files.write(stalledFile, ca.certificate().getEncoded());
+            }
+            stalledReload.get(10, SECONDS);
+        }
     }
 
     @Test
@@ -181,6 +207,17 @@ class TlsCredentialsTest {
             assertThat(keyManager.getPrivateKey(alias)).isNull();
             assertThat(keyManager.getCertificateChain(alias)).isNull();
         }
+    }
+
+    @Test
+    void rejectsAnExpiredCertificate() throws Exception {
+        var client = TestCertificates.issue(ca, "client");
+        publish(TestCertificates.issueExpired(ca, "client", client.keyPair()));
+
+        assertThatThrownBy(this::identityCredentials)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(certificateFile.toString())
+                .hasStackTraceContaining("expired");
     }
 
     @Test
@@ -299,8 +336,12 @@ class TlsCredentialsTest {
     }
 
     private TlsCredentials credentials(UnaryOperator<OxiaClientBuilder> tls) {
+        return new TlsCredentials(config(tls), () -> executor);
+    }
+
+    private static ClientConfig config(UnaryOperator<OxiaClientBuilder> tls) {
         var builder = tls.apply(OxiaClientBuilder.create("localhost:6648").enableTls(true));
-        return new TlsCredentials(((OxiaClientBuilderImpl) builder).getClientConfig(), executor);
+        return ((OxiaClientBuilderImpl) builder).getClientConfig();
     }
 
     private static X509Certificate presented(TlsCredentials credentials) {

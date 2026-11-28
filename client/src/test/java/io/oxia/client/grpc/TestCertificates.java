@@ -44,6 +44,8 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 /** Short-lived ECDSA certificates for TLS tests, written as PEM files. */
 public final class TestCertificates {
     private static final AtomicLong SERIAL = new AtomicLong(System.currentTimeMillis());
+    private static final Duration HOUR = Duration.ofHours(1);
+    private static final Duration DAY = Duration.ofDays(1);
 
     /** A certificate and the key pair of its subject. */
     public record Issued(X509Certificate certificate, KeyPair keyPair) {
@@ -65,7 +67,8 @@ public final class TestCertificates {
     public static Issued ca(String name) throws Exception {
         var keyPair = keyPair("EC");
         var subject = new X500Name("CN=" + name);
-        var builder = builder(subject, subject, keyPair);
+        var now = Instant.now();
+        var builder = builder(subject, subject, keyPair, now.minus(HOUR), now.plus(DAY));
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
         return new Issued(sign(builder, keyPair), keyPair);
     }
@@ -77,8 +80,21 @@ public final class TestCertificates {
 
     /** A certificate from {@code ca} for {@code dnsName} and the public key of {@code keyPair}. */
     public static Issued issue(Issued ca, String dnsName, KeyPair keyPair) throws Exception {
+        var now = Instant.now();
+        return issue(ca, dnsName, keyPair, now.minus(HOUR), now.plus(DAY));
+    }
+
+    /** A certificate from {@code ca} for {@code dnsName} that expired an hour ago. */
+    public static Issued issueExpired(Issued ca, String dnsName, KeyPair keyPair) throws Exception {
+        var now = Instant.now();
+        return issue(ca, dnsName, keyPair, now.minus(DAY), now.minus(HOUR));
+    }
+
+    private static Issued issue(
+            Issued ca, String dnsName, KeyPair keyPair, Instant notBefore, Instant notAfter)
+            throws Exception {
         var issuer = new X500Name(ca.certificate().getSubjectX500Principal().getName());
-        var builder = builder(issuer, new X500Name("CN=" + dnsName), keyPair);
+        var builder = builder(issuer, new X500Name("CN=" + dnsName), keyPair, notBefore, notAfter);
         builder.addExtension(
                 Extension.subjectAlternativeName,
                 false,
@@ -99,13 +115,12 @@ public final class TestCertificates {
     }
 
     private static JcaX509v3CertificateBuilder builder(
-            X500Name issuer, X500Name subject, KeyPair keyPair) {
-        var now = Instant.now();
+            X500Name issuer, X500Name subject, KeyPair keyPair, Instant notBefore, Instant notAfter) {
         return new JcaX509v3CertificateBuilder(
                 issuer,
                 BigInteger.valueOf(SERIAL.incrementAndGet()),
-                Date.from(now.minus(Duration.ofHours(1))),
-                Date.from(now.plus(Duration.ofDays(1))),
+                Date.from(notBefore),
+                Date.from(notAfter),
                 subject,
                 keyPair.getPublic());
     }

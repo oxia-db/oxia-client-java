@@ -185,6 +185,26 @@ class TlsConnectionTest {
         }
     }
 
+    @Test
+    void keepsTheCurrentIdentityWhenTheReplacementHasExpired() throws Exception {
+        startServer(ClientAuth.REQUIRE);
+        var client = TestCertificates.issue(ca, "client");
+        var certificate = client.writeCertificate(dir, "client");
+        var key = client.writeKey(dir, "client");
+        var address = "localhost:" + server.getPort();
+
+        try (var connections =
+                connectionManager(
+                        address,
+                        b ->
+                                b.tlsTrustCertsFilePath(caFile.toString())
+                                        .tlsCertificateFilePath(certificate.toString())
+                                        .tlsKeyFilePath(key.toString()))) {
+            TestCertificates.issueExpired(ca, "client", client.keyPair()).writeCertificate(dir, "client");
+            assertThat(reloadAndCall(connections, address)).isEqualTo(Status.Code.UNIMPLEMENTED);
+        }
+    }
+
     private void startServer(ClientAuth clientAuth) throws Exception {
         var serverCertificate = TestCertificates.issue(ca, "localhost");
         var credentials =

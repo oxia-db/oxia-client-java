@@ -36,16 +36,18 @@ import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import lombok.Getter;
@@ -53,18 +55,18 @@ import lombok.Getter;
 /**
  * The credentials of the client's TLS connections, from the PEM files in the client's config.
  *
- * <p>The files are read and checked here, and a file that fails fails the client. They're then read
- * again once a minute on the executor: when the contents of the trusted CAs' file, or of either
- * file of the client's certificate and key, differ from the contents last tried, those contents are
- * checked the same way and replace the previous ones for new connections. Contents that fail keep
- * the previous ones in use, and aren't tried again until they change. Comparing contents rather
- * than modification times catches a copy that keeps a file's time, and costs little for files this
- * small: each is read up to {@value #MAX_FILE_BYTES} bytes, and only a digest of the contents last
- * tried is kept. Without files, the JVM's defaults apply.
+ * <p>The files are read and checked here, and a file that fails fails the client, as does a client
+ * certificate that has expired. They're then read again once a minute: when the contents of the
+ * trusted CAs' file, or of either file of the client's certificate and key, differ from the
+ * contents last tried, those contents are checked the same way and replace the previous ones for
+ * new connections. Contents that fail keep the previous ones in use, and aren't tried again until
+ * they change. Comparing contents rather than modification times catches a copy that keeps a file's
+ * time, and costs little for files this small: each is read up to {@value #MAX_FILE_BYTES} bytes,
+ * and only a digest of the contents last tried is kept. Without files, the JVM's defaults apply.
  *
- * <p>The checks of every client in the JVM run on one daemon thread, started by the first client
- * with files, so that reading files, which can stall on a network file system, and parsing them
- * never hold up a client's own executor.
+ * <p>The checks run on a daemon thread of their own, started once the files have loaded and stopped
+ * on close, so that reading files, which can stall on a network file system, and parsing them hold
+ * up neither the client's executor nor the credentials of another connection pool.
  */
 final class TlsCredentials implements AutoCloseable {
     private static final Logger log = Logger.get(TlsCredentials.class);
@@ -72,22 +74,23 @@ final class TlsCredentials implements AutoCloseable {
             Pattern.compile("-----BEGIN PRIVATE KEY-----([^-]+)-----END PRIVATE KEY-----");
     // A public CA bundle is about 250 KB.
     private static final int MAX_FILE_BYTES = 1024 * 1024;
-    private static final ScheduledExecutorService SHARED_RELOADER =
-            Executors.newSingleThreadScheduledExecutor(
-                    new DefaultThreadFactory("oxia-client-tls-reload", true));
 
     @Getter private final ChannelCredentials channelCredentials;
     @VisibleForTesting @Nullable final ReloadingKeyManager keyManager;
     @VisibleForTesting @Nullable final ReloadingTrustManager trustManager;
     private final List<WatchedFiles> watchedFiles = new ArrayList<>();
-    @Nullable private final ScheduledFuture<?> reloadTask;
+    @VisibleForTesting @Nullable final ScheduledExecutorService reloader;
 
     TlsCredentials(ClientConfig config) {
-        this(config, SHARED_RELOADER);
+        this(
+                config,
+                () ->
+                        Executors.newSingleThreadScheduledExecutor(
+                                new DefaultThreadFactory("oxia-client-tls-reload", true)));
     }
 
     @VisibleForTesting
-    TlsCredentials(ClientConfig config, ScheduledExecutorService reloader) {
+    TlsCredentials(ClientConfig config, Supplier<ScheduledExecutorService> newReloader) {
         var builder = TlsChannelCredentials.newBuilder();
         if (config.tlsCertificateFilePath() != null) {
             var certificateFile = Path.of(config.tlsCertificateFilePath());
@@ -100,6 +103,7 @@ final class TlsCredentials implements AutoCloseable {
                                 var chain = parseCertificates(certificateFile, contents.get(0));
                                 var key = parsePrivateKey(keyFile, contents.get(1));
                                 checkKeyMatches(key, chain.get(0));
+                                checkNotExpired(certificateFile, chain.get(0));
                                 manager.update(key, chain);
                             }));
             builder.keyManager(manager);
@@ -120,10 +124,12 @@ final class TlsCredentials implements AutoCloseable {
             this.trustManager = null;
         }
         this.channelCredentials = builder.build();
-        this.reloadTask =
-                watchedFiles.isEmpty()
-                        ? null
-                        : reloader.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
+        if (watchedFiles.isEmpty()) {
+            this.reloader = null;
+        } else {
+            this.reloader = newReloader.get();
+            reloader.scheduleWithFixedDelay(this::reload, 1, 1, MINUTES);
+        }
     }
 
     /** Reload the files whose contents changed since they were last tried. */
@@ -134,8 +140,8 @@ final class TlsCredentials implements AutoCloseable {
 
     @Override
     public void close() {
-        if (reloadTask != null) {
-            reloadTask.cancel(false);
+        if (reloader != null) {
+            reloader.shutdownNow();
         }
     }
 
@@ -185,6 +191,17 @@ final class TlsCredentials implements AutoCloseable {
         verifier.update(data);
         if (!verifier.verify(signature)) {
             throw new InvalidKeyException("The private key doesn't match the certificate");
+        }
+    }
+
+    // Only the end of the validity: rejected contents aren't tried again until they change, so a
+    // certificate whose start is a little ahead of this host's clock would be kept out until the next
+    // renewal.
+    private static void checkNotExpired(Path file, X509Certificate certificate)
+            throws CertificateExpiredException {
+        var notAfter = certificate.getNotAfter().toInstant();
+        if (notAfter.isBefore(Instant.now())) {
+            throw new CertificateExpiredException(file + " expired at " + notAfter);
         }
     }
 
